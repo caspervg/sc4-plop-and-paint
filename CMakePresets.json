@@ -15,13 +15,33 @@
         },
         {
             "name": "vs2022-win32-release",
-            "displayName": "Visual Studio 2022 Win32 Release", 
+            "displayName": "Visual Studio 2022 Win32 Release",
             "description": "32-bit Release build for SC4 compatibility",
             "generator": "Visual Studio 17 2022",
             "architecture": "Win32",
             "binaryDir": "${sourceDir}/cmake-build-release-visual-studio",
             "cacheVariables": {
                 "CMAKE_GENERATOR_PLATFORM": "Win32",
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "ninja-debug",
+            "displayName": "Ninja Debug",
+            "description": "Local Debug build using Ninja on non-Windows hosts",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/cmake-build-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "ninja-release",
+            "displayName": "Ninja Release",
+            "description": "Local Release build using Ninja on non-Windows hosts",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/cmake-build-release",
+            "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
         }
@@ -34,9 +54,21 @@
             "configuration": "Debug"
         },
         {
-            "name": "vs2022-win32-release-build", 
+            "name": "vs2022-win32-release-build",
             "displayName": "Build Win32 Release",
             "configurePreset": "vs2022-win32-release",
+            "configuration": "Release"
+        },
+        {
+            "name": "ninja-debug-build",
+            "displayName": "Build Ninja Debug",
+            "configurePreset": "ninja-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "ninja-release-build",
+            "displayName": "Build Ninja Release",
+            "configurePreset": "ninja-release",
             "configuration": "Release"
         }
     ]
