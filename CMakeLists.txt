@@ -12,6 +12,9 @@ project(SC4AdvancedLotPlop VERSION 1.0.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Enable testing
+enable_testing()
+
 if(WIN32)
     add_definitions(-DWIN32 -D_WINDOWS -DUNICODE -D_UNICODE)
     set(CMAKE_SIZEOF_VOID_P 4)
@@ -38,6 +41,18 @@ endif()
 set(REFLECTCPP_TOML ON)
 set(REFLECTCPP_PARQUET ON)
 set(REFLECTCPP_JSON ON)
+set(REFLECTCPP_CBOR ON)
+
+# Fetch jsoncons for reflect-cpp JSON support
+include(FetchContent)
+FetchContent_Declare(jsoncons
+    GIT_REPOSITORY https://github.com/danielaparker/jsoncons.git
+    GIT_TAG v1.4.0
+)
+FetchContent_MakeAvailable(jsoncons)
+
+# Set include directory for jsoncons before reflect-cpp uses it
+include_directories(${jsoncons_SOURCE_DIR}/include)
 
 set(SPDLOG_DIRS
     "${CMAKE_SOURCE_DIR}/vendor/spdlog"
