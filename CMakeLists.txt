@@ -42,6 +42,7 @@ set(REFLECTCPP_TOML ON)
 set(REFLECTCPP_PARQUET ON)
 set(REFLECTCPP_JSON ON)
 set(REFLECTCPP_CBOR ON)
+set(REFLECTCPP_XML ON)
 
 # Fetch jsoncons for reflect-cpp JSON support
 include(FetchContent)

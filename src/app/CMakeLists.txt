@@ -9,7 +9,10 @@ target_compile_definitions(${APP_NAME}
         SC4_ADVANCED_LOT_PLOP_VERSION="${PROJECT_VERSION}"
 )
 
-target_include_directories(${APP_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(${APP_NAME} PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/include
+)
 target_link_libraries(${APP_NAME} PRIVATE ${SPDLOG_TARGET} SC4AdvancedLotPlopCore taywee::args DBPFKitLib)
 
 install(TARGETS ${APP_NAME}

@@ -19,3 +19,6 @@
 [submodule "vendor/args"]
 	path = vendor/args
 	url = https://github.com/Taywee/args.git
+[submodule "vendor/new-properties"]
+	path = vendor/sc4-properties
+	url = https://github.com/NAMTeam/New_Properties.xml.git
