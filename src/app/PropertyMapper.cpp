@@ -3,7 +3,7 @@
 #include "rfl/xml/load.hpp"
 #include "spdlog/spdlog.h"
 
-bool PropertyMapper::LoadFromXml(const std::filesystem::path& xmlPath) {
+bool PropertyMapper::loadFromXml(const std::filesystem::path& xmlPath) {
     try {
         auto result = rfl::xml::load<ExemplarProperties>(xmlPath.string());
 
@@ -13,13 +13,13 @@ bool PropertyMapper::LoadFromXml(const std::filesystem::path& xmlPath) {
 
         const auto& root = result.value();
         for (const auto& propDef : root.properties().definitions()) {
-            PropertyInfo info{ParsePropertyId_(propDef.id().get()), propDef.name().get(),
-                              ParseValueType_(propDef.type().get()), ParseCount_(propDef.count().get())};
+            PropertyInfo info{parsePropertyId_(propDef.id().get()), propDef.name().get(),
+                              parseValueType_(propDef.type().get()), parseCount_(propDef.count().get())};
             auto propOptionList = propDef.options.get();
             std::unordered_map<std::string, uint32_t> propOptionMap{};
             if (!propOptionList.empty()) {
                 for (const auto& option : propOptionList) {
-                    uint32_t optionValue = ParsePropertyId_(option.value().get());
+                    uint32_t optionValue = parsePropertyId_(option.value().get());
                     std::string optionLabel = option.label().get();
                     propOptionMap[optionLabel] = optionValue;
                 }
@@ -39,48 +39,48 @@ bool PropertyMapper::LoadFromXml(const std::filesystem::path& xmlPath) {
     }
 }
 
-std::optional<PropertyInfo> PropertyMapper::GetPropertyInfo(const uint32_t propertyId) const {
+std::optional<PropertyInfo> PropertyMapper::propertyInfo(const uint32_t propertyId) const {
     if (const auto it = properties_.find(propertyId); it != properties_.end()) {
         return it->second;
     }
     return std::nullopt;
 }
 
-std::optional<PropertyInfo> PropertyMapper::GetPropertyInfo(const std::string& propertyName) const {
-    const auto propertyId = GetPropertyId(propertyName);
+std::optional<PropertyInfo> PropertyMapper::propertyInfo(const std::string& propertyName) const {
+    const auto propertyId = propertyId(propertyName);
     if (!propertyId) {
         return std::nullopt;
     }
-    return GetPropertyInfo(*propertyId);
+    return propertyInfo(*propertyId);
 }
 
-std::string_view PropertyMapper::GetPropertyName(const uint32_t propertyId) const {
+std::string_view PropertyMapper::propertyName(const uint32_t propertyId) const {
     if (const auto it = properties_.find(propertyId); it != properties_.end()) {
         return it->second.name;
     }
     return "Unknown";
 }
 
-std::optional<uint32_t> PropertyMapper::GetPropertyId(const std::string& propertyName) const {
+std::optional<uint32_t> PropertyMapper::propertyId(const std::string& propertyName) const {
     if (propertyNames_.contains(propertyName)) {
         return propertyNames_.at(propertyName);
     }
     return std::nullopt;
 }
 
-std::optional<uint32_t> PropertyMapper::GetPropertyOptionId(const std::string& propertyName, const std::string& optionName) const {
-    const auto propertyId = GetPropertyId(propertyName);
+std::optional<uint32_t> PropertyMapper::propertyOptionId(const std::string& propertyName, const std::string& optionName) const {
+    const auto propertyId = propertyId(propertyName);
     if (!propertyId) {
         return std::nullopt;
     }
-    const auto propertyInfo = GetPropertyInfo(*propertyId).value();
+    const auto propertyInfo = propertyInfo(*propertyId).value();
     if (propertyInfo.optionNames_.contains(optionName)) {
         return propertyInfo.optionNames_.at(optionName);
     }
     return std::nullopt;
 }
 
-uint32_t PropertyMapper::ParsePropertyId_(const std::string& idStr) {
+uint32_t PropertyMapper::parsePropertyId_(const std::string& idStr) {
     if (idStr.starts_with("0x") || idStr.starts_with("0X")) {
         return std::stoul(idStr, nullptr, 16);
     }
@@ -89,7 +89,7 @@ uint32_t PropertyMapper::ParsePropertyId_(const std::string& idStr) {
     return 0;
 }
 
-Exemplar::ValueType PropertyMapper::ParseValueType_(const std::string& typeStr) {
+Exemplar::ValueType PropertyMapper::parseValueType_(const std::string& typeStr) {
     if (typeStr == "Uint8")
         return Exemplar::ValueType::UInt8;
     if (typeStr == "Uint16")
@@ -110,7 +110,7 @@ Exemplar::ValueType PropertyMapper::ParseValueType_(const std::string& typeStr) 
     return Exemplar::ValueType::UInt32;
 }
 
-int PropertyMapper::ParseCount_(const std::optional<std::string>& countStr) {
+int PropertyMapper::parseCount_(const std::optional<std::string>& countStr) {
     if (!countStr)
         return 1;
     return std::stoi(countStr.value());

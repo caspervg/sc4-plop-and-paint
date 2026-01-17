@@ -45,17 +45,17 @@ struct PropertyInfo {
 
 class PropertyMapper {
 public:
-    bool LoadFromXml(const std::filesystem::path& xmlPath);
+    bool loadFromXml(const std::filesystem::path& xmlPath);
 
-    [[nodiscard]] std::optional<PropertyInfo> GetPropertyInfo(uint32_t propertyId) const;
-    [[nodiscard]] std::optional<PropertyInfo> GetPropertyInfo(const std::string& propertyName) const;
-    [[nodiscard]] std::string_view GetPropertyName(uint32_t propertyId) const;
-    [[nodiscard]] std::optional<uint32_t> GetPropertyId(const std::string& propertyName) const;
-    [[nodiscard]] std::optional<uint32_t> GetPropertyOptionId(const std::string& propertyName, const std::string& optionName) const;
+    [[nodiscard]] std::optional<PropertyInfo> propertyInfo(uint32_t propertyId) const;
+    [[nodiscard]] std::optional<PropertyInfo> propertyInfo(const std::string& propertyName) const;
+    [[nodiscard]] std::string_view propertyName(uint32_t propertyId) const;
+    [[nodiscard]] std::optional<uint32_t> propertyId(const std::string& propertyName) const;
+    [[nodiscard]] std::optional<uint32_t> propertyOptionId(const std::string& propertyName, const std::string& optionName) const;
 
 private:
     template<typename T>
-    [[nodiscard]] bool ValidateType_(Exemplar::ValueType expected) const {
+    [[nodiscard]] bool validateType_(Exemplar::ValueType expected) const {
         if constexpr (std::is_same_v<T, uint8_t>) return expected == Exemplar::ValueType::UInt8;
         if constexpr (std::is_same_v<T, uint16_t>) return expected == Exemplar::ValueType::UInt16;
         if constexpr (std::is_same_v<T, uint32_t>) return expected == Exemplar::ValueType::UInt32;
@@ -68,7 +68,7 @@ private:
     }
 
     template<typename T>
-    [[nodiscard]] const char* TypeName_() const {
+    [[nodiscard]] const char* typeName_() const {
         if constexpr (std::is_same_v<T, uint8_t>) return "uint8_t";
         if constexpr (std::is_same_v<T, uint16_t>) return "uint16_t";
         if constexpr (std::is_same_v<T, uint32_t>) return "uint32_t";
@@ -76,9 +76,9 @@ private:
         return "unknown";
     }
 
-    [[nodiscard]] static uint32_t ParsePropertyId_(const std::string& idStr);
-    [[nodiscard]] static Exemplar::ValueType ParseValueType_(const std::string& typeStr);
-    [[nodiscard]] static int ParseCount_(const std::optional<std::string>& countStr);
+    [[nodiscard]] static uint32_t parsePropertyId_(const std::string& idStr);
+    [[nodiscard]] static Exemplar::ValueType parseValueType_(const std::string& typeStr);
+    [[nodiscard]] static int parseCount_(const std::optional<std::string>& countStr);
 
 private:
     std::unordered_map<uint32_t, PropertyInfo> properties_;

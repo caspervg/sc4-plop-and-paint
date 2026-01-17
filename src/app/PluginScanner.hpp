@@ -1,10 +1,10 @@
 #pragma once
-#include <__filesystem/filesystem_error.h>
+#include <filesystem>
 
 
 class PluginScanner {
 public:
-    std::vector<std::filesystem::path> ScanDirectory(const std::filesystem::path& root);
+    std::vector<std::filesystem::path> scanDirectory(const std::filesystem::path& root);
 private:
-    bool IsPluginFile_(const std::filesystem::path& filePath);
+    bool isPluginFile_(const std::filesystem::path& filePath);
 };

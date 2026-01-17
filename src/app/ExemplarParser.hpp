@@ -46,11 +46,9 @@ class ExemplarParser {
 public:
     explicit ExemplarParser(const PropertyMapper& mapper);
 
-    [[nodiscard]] std::optional<ExemplarType> GetExemplarType(const Exemplar::Record& exemplar) const;
-
-    std::optional<ParsedBuildingExemplar> ParseBuilding(const DBPF::Reader& reader, const DBPF::IndexEntry& entry) const;
-
-    std::optional<ParsedLotConfigExemplar> ParseLotConfig(const DBPF::Reader& reader, const DBPF::IndexEntry& entry) const;
+    [[nodiscard]] std::optional<ExemplarType> getExemplarType(const Exemplar::Record& exemplar) const;
+    [[nodiscard]] std::optional<ParsedBuildingExemplar> parseBuilding(const DBPF::Reader& reader, const DBPF::IndexEntry& entry) const;
+    [[nodiscard]] std::optional<ParsedLotConfigExemplar> parseLotConfig(const DBPF::Reader& reader, const DBPF::IndexEntry& entry) const;
 
 private:
     const PropertyMapper& propertyMapper_;
