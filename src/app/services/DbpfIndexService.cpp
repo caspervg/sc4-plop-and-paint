@@ -211,3 +211,31 @@ ParseExpected<Exemplar::Record> DbpfIndexService::loadExemplar(const DBPF::Tgi& 
 
     return Fail("Failed to load exemplar from any file");
 }
+
+std::optional<std::vector<uint8_t>> DbpfIndexService::loadEntryData(const DBPF::Tgi& tgi) const {
+    // Find which file(s) contain this TGI
+    std::shared_lock readLock(mutex_);
+    auto tgiIt = tgiToFiles_.find(tgi);
+    if (tgiIt == tgiToFiles_.end() || tgiIt->second.empty()) {
+        return std::nullopt;
+    }
+
+    const auto& filePaths = tgiIt->second;
+    readLock.unlock();
+
+    // Try to load from the first file that has it
+    for (const auto& filePath : filePaths) {
+        auto* reader = getReader(filePath);
+        if (!reader) {
+            continue;
+        }
+
+        auto data = reader->ReadEntryData(tgi);
+        if (data.has_value()) {
+            return data;
+        }
+    }
+
+    return std::nullopt;
+}
+

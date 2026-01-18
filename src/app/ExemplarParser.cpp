@@ -1,8 +1,30 @@
 #include "ExemplarParser.hpp"
 
 #include <unordered_set>
+#include <cstring>
 
 #include "spdlog/spdlog.h"
+
+namespace {
+    // Parse PNG dimensions from the header (first 24 bytes)
+    std::pair<uint32_t, uint32_t> parsePngDimensions(const std::vector<uint8_t>& data) {
+        if (data.size() < 24) return {0, 0};
+        // Check PNG signature: 89 50 4E 47 0D 0A 1A 0A
+        if (data[0] != 0x89 || data[1] != 0x50 || data[2] != 0x4E || data[3] != 0x47) {
+            return {0, 0};
+        }
+        // Width and height are at bytes 16-19 and 20-23 (big-endian)
+        uint32_t width = (static_cast<uint32_t>(data[16]) << 24) |
+                         (static_cast<uint32_t>(data[17]) << 16) |
+                         (static_cast<uint32_t>(data[18]) << 8) |
+                         static_cast<uint32_t>(data[19]);
+        uint32_t height = (static_cast<uint32_t>(data[20]) << 24) |
+                          (static_cast<uint32_t>(data[21]) << 16) |
+                          (static_cast<uint32_t>(data[22]) << 8) |
+                          static_cast<uint32_t>(data[23]);
+        return {width, height};
+    }
+}
 
 ExemplarParser::ExemplarParser(const PropertyMapper& mapper, const DbpfIndexService* indexService)
     : propertyMapper_(mapper), indexService_(indexService) {}
@@ -53,7 +75,7 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
             const auto iconInstance = std::get<uint32_t>(prop->values.front());
             parsedBuildingExemplar.iconTgi = DBPF::Tgi{
                 kTypeIdPNG,
-                kZero,
+                kLotIconGroup,
                 iconInstance
             };
         }
@@ -130,7 +152,26 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
     building.name = parsed.name;
     building.description = "";  // Not available from exemplar data
     building.occupantGroups = std::unordered_set(parsed.occupantGroups.begin(), parsed.occupantGroups.end());
-    building.thumbnail = std::nullopt;  // Icon TGI available but not image data
+    building.thumbnail = std::nullopt;
+
+    // Load icon if TGI is available and we have index service
+    if (parsed.iconTgi.has_value() && indexService_) {
+        auto pngData = indexService_->loadEntryData(*parsed.iconTgi);
+        if (pngData.has_value() && !pngData->empty()) {
+            auto [width, height] = parsePngDimensions(*pngData);
+
+            // Convert uint8_t vector to std::byte vector for rfl::Bytestring
+            std::vector<std::byte> byteVec(pngData->size());
+            std::memcpy(byteVec.data(), pngData->data(), pngData->size());
+
+            Icon icon;
+            icon.data = rfl::Bytestring(std::move(byteVec));
+            icon.width = width;
+            icon.height = height;
+            building.thumbnail = icon;
+        }
+    }
+
     return building;
 }
 

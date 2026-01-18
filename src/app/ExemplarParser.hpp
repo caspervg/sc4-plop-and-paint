@@ -23,6 +23,7 @@ constexpr auto kCapacity = "Capacity Satisfied";
 constexpr auto kIconResourceKey = "Icon Resource Key";
 constexpr auto kItemIcon = "Item Icon";
 constexpr auto kTypeIdPNG = 0x856DDBACu;
+constexpr auto kLotIconGroup = 0x6A386D26u;
 
 enum class ExemplarType {
     Building,   // Exemplar Type 0x02

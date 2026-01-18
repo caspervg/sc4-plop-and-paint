@@ -42,6 +42,9 @@ public:
     // Load an exemplar by TGI using cached readers
     [[nodiscard]] auto loadExemplar(const DBPF::Tgi& tgi) const -> ParseExpected<Exemplar::Record>;
 
+    // Load raw entry data by TGI using cached readers
+    [[nodiscard]] auto loadEntryData(const DBPF::Tgi& tgi) const -> std::optional<std::vector<uint8_t>>;
+
     // Get or create a cached reader for a specific file
     [[nodiscard]] auto getReader(const std::filesystem::path& filePath) const -> DBPF::Reader*;
 
