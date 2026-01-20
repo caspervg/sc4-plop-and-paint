@@ -38,6 +38,24 @@ inline bool operator==(const Lot& lhs, const Lot& rhs) {
            lhs.building == rhs.building;
 }
 
+// Helper function to compare TabFavorites structs
+inline bool operator==(const TabFavorites& lhs, const TabFavorites& rhs) {
+    if (lhs.items.size() != rhs.items.size()) return false;
+    for (size_t i = 0; i < lhs.items.size(); ++i) {
+        if (lhs.items[i].value() != rhs.items[i].value()) return false;
+    }
+    return true;
+}
+
+// Helper function to compare AllFavorites structs
+inline bool operator==(const AllFavorites& lhs, const AllFavorites& rhs) {
+    return lhs.version == rhs.version &&
+           lhs.lots == rhs.lots &&
+           lhs.props == rhs.props &&
+           lhs.flora == rhs.flora &&
+           lhs.lastModified.str() == rhs.lastModified.str();
+}
+
 TEST_CASE("Icon CBOR serialization and deserialization", "[cbor][icon]") {
     Icon original{
         .data = rfl::Bytestring(std::vector<std::byte>{std::byte{0xDE}, std::byte{0xAD}, std::byte{0xBE}, std::byte{0xEF}}),
@@ -219,4 +237,85 @@ TEST_CASE("Large binary data CBOR serialization", "[cbor][edge-case]") {
     auto deserialized = rfl::cbor::read<Icon>(cbor_bytes);
     REQUIRE(deserialized);
     REQUIRE(*deserialized == original);
+}
+
+TEST_CASE("TabFavorites CBOR serialization and deserialization", "[cbor][favorites]") {
+    TabFavorites original{
+        .items = {rfl::Hex<uint32_t>(0xAABBCCDD), rfl::Hex<uint32_t>(0x12345678)}
+    };
+
+    auto cbor_bytes = rfl::cbor::write(original);
+    REQUIRE(!cbor_bytes.empty());
+
+    auto deserialized = rfl::cbor::read<TabFavorites>(cbor_bytes);
+    REQUIRE(deserialized);
+    REQUIRE(deserialized->items.size() == 2);
+    REQUIRE(deserialized->items[0].value() == 0xAABBCCDD);
+    REQUIRE(deserialized->items[1].value() == 0x12345678);
+}
+
+TEST_CASE("AllFavorites CBOR serialization with lots only", "[cbor][favorites]") {
+    AllFavorites original{
+        .version = 1,
+        .lots = {.items = {rfl::Hex<uint32_t>(0xAABBCCDD), rfl::Hex<uint32_t>(0x12345678)}},
+        .props = std::nullopt,
+        .flora = std::nullopt,
+        .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">::from_string("2026-01-20T10:30:00")
+    };
+
+    auto cbor_bytes = rfl::cbor::write(original);
+    REQUIRE(!cbor_bytes.empty());
+
+    auto deserialized = rfl::cbor::read<AllFavorites>(cbor_bytes);
+    REQUIRE(deserialized);
+    REQUIRE(deserialized->version == 1);
+    REQUIRE(deserialized->lots.items.size() == 2);
+    REQUIRE(deserialized->lots.items[0].value() == 0xAABBCCDD);
+    REQUIRE(deserialized->lots.items[1].value() == 0x12345678);
+    REQUIRE(!deserialized->props.has_value());
+    REQUIRE(!deserialized->flora.has_value());
+    REQUIRE(deserialized->lastModified.str() == "2026-01-20T10:30:00");
+}
+
+TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites]") {
+    AllFavorites original{
+        .version = 1,
+        .lots = {.items = {rfl::Hex<uint32_t>(0x11111111)}},
+        .props = TabFavorites{.items = {rfl::Hex<uint32_t>(0x22222222)}},
+        .flora = TabFavorites{.items = {rfl::Hex<uint32_t>(0x33333333)}},
+        .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">::from_string("2026-01-20T15:45:30")
+    };
+
+    auto cbor_bytes = rfl::cbor::write(original);
+    REQUIRE(!cbor_bytes.empty());
+
+    auto deserialized = rfl::cbor::read<AllFavorites>(cbor_bytes);
+    REQUIRE(deserialized);
+    REQUIRE(deserialized->version == 1);
+    REQUIRE(deserialized->lots.items.size() == 1);
+    REQUIRE(deserialized->props.has_value());
+    REQUIRE(deserialized->props->items.size() == 1);
+    REQUIRE(deserialized->props->items[0].value() == 0x22222222);
+    REQUIRE(deserialized->flora.has_value());
+    REQUIRE(deserialized->flora->items.size() == 1);
+    REQUIRE(deserialized->flora->items[0].value() == 0x33333333);
+}
+
+TEST_CASE("AllFavorites CBOR empty favorites", "[cbor][favorites][edge-case]") {
+    AllFavorites original{
+        .version = 1,
+        .lots = {.items = {}},
+        .props = std::nullopt,
+        .flora = std::nullopt,
+        .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">::from_string("2026-01-20T00:00:00")
+    };
+
+    auto cbor_bytes = rfl::cbor::write(original);
+    REQUIRE(!cbor_bytes.empty());
+
+    auto deserialized = rfl::cbor::read<AllFavorites>(cbor_bytes);
+    REQUIRE(deserialized);
+    REQUIRE(deserialized->lots.items.empty());
+    REQUIRE(!deserialized->props.has_value());
+    REQUIRE(!deserialized->flora.has_value());
 }

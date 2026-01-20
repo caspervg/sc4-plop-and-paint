@@ -2,10 +2,12 @@
 #include <string>
 #include <unordered_set>
 #include <optional>
+#include <vector>
 
 #include "rfl/Bytestring.hpp"
 #include "rfl/Hex.hpp"
 #include "rfl/TaggedUnion.hpp"
+#include "rfl/Timestamp.hpp"
 
 struct PreRendered {
     rfl::Bytestring data;  // RGBA32 pixel data (width * height * 4 bytes)
@@ -48,4 +50,17 @@ struct Lot {
     uint8_t growthStage;
 
     Building building;
+};
+
+// Favorites persistence structures
+struct TabFavorites {
+    std::vector<rfl::Hex<uint32_t>> items;
+};
+
+struct AllFavorites {
+    uint32_t version = 1;
+    TabFavorites lots;
+    std::optional<TabFavorites> props;  // Future: prop favorites
+    std::optional<TabFavorites> flora;  // Future: flora favorites
+    rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

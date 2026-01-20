@@ -3,12 +3,16 @@
 #include "SC4AdvancedLotPlopDirector.hpp"
 
 #include <cIGZFrameWork.h>
+#include <wil/resource.h>
+#include <wil/win32_helpers.h>
 
 #include "cIGZCommandParameterSet.h"
 #include "cRZBaseVariant.h"
 #include "LotPlopPanel.hpp"
 #include "rfl/cbor/load.hpp"
+#include "rfl/cbor/save.hpp"
 #include "spdlog/spdlog.h"
+#include <chrono>
 
 namespace {
     constexpr auto kSC4AdvancedLotPlopDirectorID = 0xE5C2B9A7u;
@@ -56,6 +60,7 @@ bool SC4AdvancedLotPlopDirector::PostAppInit() {
         spdlog::info("Acquired ImGui service");
 
         LoadLots_();
+        LoadFavorites_();
 
         auto* panel = new LotPlopPanel(this, imguiService_);
         const ImGuiPanelDesc desc = ImGuiPanelAdapter<LotPlopPanel>::MakeDesc(
@@ -204,9 +209,101 @@ void SC4AdvancedLotPlopDirector::LoadLots_() {
 }
 
 std::filesystem::path SC4AdvancedLotPlopDirector::GetUserPluginsPath_() {
-    const std::string userProfile = std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : "";
-    if (userProfile.empty()) {
+    // Get the directory where this DLL is loaded from
+    // This respects -UserDir parameter and ensures we load/save in the correct location
+    try {
+        // Get the module path using WIL's safe wrapper
+        // This uses wil::GetModuleFileNameW which automatically manages memory
+        const auto modulePath = wil::GetModuleFileNameW(wil::GetModuleInstanceHandle());
+
+        // Convert to filesystem::path and get parent directory
+        std::filesystem::path dllDir = std::filesystem::path(modulePath.get()).parent_path();
+        spdlog::info("DLL directory: {}", dllDir.string());
+        return dllDir;
+    } catch (const wil::ResultException& e) {
+        spdlog::error("Failed to get DLL directory: {}", e.what());
         return {};
     }
-    return std::filesystem::path(userProfile) / "Documents" / "SimCity 4" / "Plugins";
+}
+
+bool SC4AdvancedLotPlopDirector::IsFavorite(uint32_t lotInstanceId) const {
+    return favoriteLotIds_.contains(lotInstanceId);
+}
+
+void SC4AdvancedLotPlopDirector::ToggleFavorite(uint32_t lotInstanceId) {
+    if (favoriteLotIds_.contains(lotInstanceId)) {
+        favoriteLotIds_.erase(lotInstanceId);
+        spdlog::info("Removed favorite: 0x{:08X}", lotInstanceId);
+    } else {
+        favoriteLotIds_.insert(lotInstanceId);
+        spdlog::info("Added favorite: 0x{:08X}", lotInstanceId);
+    }
+    SaveFavorites_();
+}
+
+const std::unordered_set<uint32_t>& SC4AdvancedLotPlopDirector::GetFavoriteLotIds() const {
+    return favoriteLotIds_;
+}
+
+void SC4AdvancedLotPlopDirector::LoadFavorites_() {
+    try {
+        const auto pluginsPath = GetUserPluginsPath_();
+        const auto cborPath = pluginsPath / "favorites.cbor";
+
+        if (!std::filesystem::exists(cborPath)) {
+            spdlog::info("Favorites file not found, starting with empty favorites");
+            return;
+        }
+
+        auto result = rfl::cbor::load<AllFavorites>(cborPath.string());
+        if (result) {
+            // Extract lot favorites from the loaded data
+            favoriteLotIds_.clear();
+            for (const auto& hexId : result->lots.items) {
+                favoriteLotIds_.insert(hexId.value());
+            }
+            spdlog::info("Loaded {} favorite lots from {}", favoriteLotIds_.size(), cborPath.string());
+        } else {
+            spdlog::warn("Failed to load favorites from CBOR file: {}", result.error().what());
+        }
+    } catch (const std::exception& e) {
+        spdlog::warn("Error loading favorites (will start empty): {}", e.what());
+    }
+}
+
+void SC4AdvancedLotPlopDirector::SaveFavorites_() {
+    try {
+        const auto pluginsPath = GetUserPluginsPath_();
+        const auto cborPath = pluginsPath / "favorites.cbor";
+
+        // Build the AllFavorites structure
+        AllFavorites allFavorites;
+        allFavorites.version = 1;
+
+        // Convert favorites set to vector of Hex<uint32_t>
+        for (uint32_t id : favoriteLotIds_) {
+            allFavorites.lots.items.push_back(rfl::Hex<uint32_t>(id));
+        }
+
+        // Set timestamp to current time using std::chrono
+        const auto now = std::chrono::system_clock::now();
+        const auto time_t_now = std::chrono::system_clock::to_time_t(now);
+        std::tm tm_now;
+        localtime_s(&tm_now, &time_t_now);
+        allFavorites.lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">(tm_now);
+
+        // Leave props and flora as nullopt for now
+        allFavorites.props = std::nullopt;
+        allFavorites.flora = std::nullopt;
+
+        // Save to CBOR file
+        auto save_result = rfl::cbor::save(allFavorites, cborPath.string());
+        if (save_result) {
+            spdlog::info("Saved {} favorites to {}", favoriteLotIds_.size(), cborPath.string());
+        } else {
+            spdlog::error("Failed to save favorites: {}", save_result.error().what());
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Error saving favorites: {}", e.what());
+    }
 }

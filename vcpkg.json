@@ -39,5 +39,8 @@
   }, {
     "name" : "pugixml",
     "version>=" : "1.15#1"
+  }, {
+    "name" : "wil",
+    "version>=" : "1.0.250325.1"
   } ]
 }
