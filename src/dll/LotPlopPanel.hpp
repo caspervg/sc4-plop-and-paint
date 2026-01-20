@@ -10,12 +10,17 @@ constexpr auto kMaxIconsToLoadPerFrame = 50;
 
 // UI Constants for consistent sizing across panels
 namespace UI {
-    constexpr float kSearchBarWidth = 300.0f;
-    constexpr float kSliderWidth = 100.0f;
-    constexpr float kDropdownWidth = 200.0f;
-    constexpr float kStarColumnWidth = 30.0f;
-    constexpr float kIconColumnWidth = 40.0f;
-    constexpr float kTableHeight = 400.0f;
+    constexpr auto kSearchBarWidth = 300.0f;
+    constexpr auto kSliderWidth = 100.0f;
+    constexpr auto kDropdownWidth = 200.0f;
+    constexpr auto kStarColumnWidth = 30.0f;
+    constexpr auto kIconColumnWidth = 40.0f;
+    constexpr auto kLotNameColumnWidth = 250.0f;
+    constexpr auto kSizeColumnWidth = 60.0f;
+    constexpr auto kGrowthColumnWidth = 60.0f;
+    constexpr auto kBuildingNameColumnWidth = 250.0f;
+    constexpr auto kPlopColumnWidth = 60.0f;
+    constexpr auto kTableHeight = 400.0f;
 }
 
 class LotPlopPanel final : public FilterableTablePanel, public ImGuiPanel {
@@ -37,7 +42,7 @@ private:
 
     // Tab-specific rendering
     void RenderLotsTab_();
-    void RenderStarButton_(const Lot& lot);
+    void RenderFavButton_(const Lot& lot) const;
     void RenderOccupantGroupFilter_();
 
     SC4AdvancedLotPlopDirector* director_;

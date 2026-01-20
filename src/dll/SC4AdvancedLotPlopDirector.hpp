@@ -45,13 +45,13 @@ public:
     bool OnInstall() override;
     bool DoMessage(cIGZMessage2* pMsg) override;
 
-    const std::vector<Lot>& GetLots() const;
+    [[nodiscard]] const std::vector<Lot>& GetLots() const;
     void TriggerLotPlop(uint32_t lotInstanceId) const;
 
     // Favorites management
-    bool IsFavorite(uint32_t lotInstanceId) const;
+    [[nodiscard]] bool IsFavorite(uint32_t lotInstanceId) const;
+    [[nodiscard]] const std::unordered_set<uint32_t>& GetFavoriteLotIds() const;
     void ToggleFavorite(uint32_t lotInstanceId);
-    const std::unordered_set<uint32_t>& GetFavoriteLotIds() const;
 
 private:
     void PostCityInit_(const cIGZMessage2Standard* pStandardMsg);

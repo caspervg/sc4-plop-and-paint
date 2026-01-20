@@ -1,9 +1,9 @@
 #include "LotPlopPanel.hpp"
 
 #include "imgui_impl_win32.h"
+#include "OccupantGroups.hpp"
 #include "rfl/visit.hpp"
 #include "spdlog/spdlog.h"
-#include "OccupantGroups.hpp"
 
 LotPlopPanel::LotPlopPanel(SC4AdvancedLotPlopDirector* director, cIGZImGuiService* imguiService)
     : director_(director), imguiService_(imguiService) {}
@@ -85,14 +85,12 @@ void LotPlopPanel::RenderFilterUI_() {
     }
 
     ImGui::SetNextItemWidth(UI::kSearchBarWidth);
-    if (ImGui::InputText("Search", searchBuf, sizeof(searchBuf))) {
+    if (ImGui::InputTextWithHint("Search", "Search names", searchBuf, sizeof(searchBuf))) {
         filterHelper_.searchBuffer = searchBuf;
     }
-    ImGui::SameLine();
-    ImGui::Text("(Lot/Building name)");
 
     // Size filters
-    ImGui::Text("Size X:");
+    ImGui::Text("Width:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(UI::kSliderWidth);
     ImGui::SliderInt("##MinSizeX", &filterHelper_.minSizeX, LotSize::kMinSize, LotSize::kMaxSize);
@@ -102,7 +100,7 @@ void LotPlopPanel::RenderFilterUI_() {
     ImGui::SetNextItemWidth(UI::kSliderWidth);
     ImGui::SliderInt("##MaxSizeX", &filterHelper_.maxSizeX, LotSize::kMinSize, LotSize::kMaxSize);
 
-    ImGui::Text("Size Z:");
+    ImGui::Text("Length:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(UI::kSliderWidth);
     ImGui::SliderInt("##MinSizeZ", &filterHelper_.minSizeZ, LotSize::kMinSize, LotSize::kMaxSize);
@@ -118,7 +116,7 @@ void LotPlopPanel::RenderFilterUI_() {
     ImGui::SameLine();
 
     // Clear Filters button
-    if (ImGui::Button("Clear Filters")) {
+    if (ImGui::Button("Clear")) {
         filterHelper_.ResetFilters();
     }
 }
@@ -127,20 +125,22 @@ void LotPlopPanel::RenderOccupantGroupFilter_() {
     // Build preview string
     std::string preview;
     if (filterHelper_.selectedOccupantGroups.empty()) {
-        preview = "All Occupant Groups";
-    } else {
+        preview = "All OGs";
+    }
+    else {
         preview = std::to_string(filterHelper_.selectedOccupantGroups.size()) + " selected";
     }
 
     ImGui::SetNextItemWidth(UI::kDropdownWidth);
-    if (ImGui::BeginCombo("Occupant Groups", preview.c_str())) {
-        for (const auto& og : COMMON_OCCUPANT_GROUPS) {
-            bool isSelected = filterHelper_.selectedOccupantGroups.contains(og.id);
-            if (ImGui::Checkbox(og.name.data(), &isSelected)) {
+    if (ImGui::BeginCombo("OGs", preview.c_str())) {
+        for (const auto& [id, name] : COMMON_OCCUPANT_GROUPS) {
+            bool isSelected = filterHelper_.selectedOccupantGroups.contains(id);
+            if (ImGui::Checkbox(name.data(), &isSelected)) {
                 if (isSelected) {
-                    filterHelper_.selectedOccupantGroups.insert(og.id);
-                } else {
-                    filterHelper_.selectedOccupantGroups.erase(og.id);
+                    filterHelper_.selectedOccupantGroups.insert(id);
+                }
+                else {
+                    filterHelper_.selectedOccupantGroups.erase(id);
                 }
             }
         }
@@ -155,20 +155,18 @@ void LotPlopPanel::RenderTable_() {
 }
 
 void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
-    // Table with columns: Star, Icon, Lot Name, Size, Growth, Building, Plop
     if (ImGui::BeginTable("LotsTable", 7, ImGuiTableFlags_Borders |
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
                           ImVec2(0, UI::kTableHeight))) {
         ImGui::TableSetupColumn("Fav", ImGuiTableColumnFlags_WidthFixed, UI::kStarColumnWidth);
         ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, UI::kIconColumnWidth);
-        ImGui::TableSetupColumn("Lot name");
-        ImGui::TableSetupColumn("Size");
-        ImGui::TableSetupColumn("Growth");
-        ImGui::TableSetupColumn("Building name");
-        ImGui::TableSetupColumn("Plop");
+        ImGui::TableSetupColumn("Lot name", ImGuiTableColumnFlags_WidthFixed, UI::kLotNameColumnWidth);
+        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, UI::kSizeColumnWidth);
+        ImGui::TableSetupColumn("Growth", ImGuiTableColumnFlags_WidthFixed, UI::kGrowthColumnWidth);
+        ImGui::TableSetupColumn("Building name", ImGuiTableColumnFlags_WidthFixed, UI::kBuildingNameColumnWidth);
+        ImGui::TableSetupColumn("Plop", ImGuiTableColumnFlags_WidthFixed, UI::kPlopColumnWidth);
         ImGui::TableHeadersRow();
 
-        // Use ImGuiListClipper for performance with large lists
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(filteredLots.size()));
         while (clipper.Step()) {
@@ -178,7 +176,7 @@ void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
 
                 // Star button
                 ImGui::TableNextColumn();
-                RenderStarButton_(*lot);
+                RenderFavButton_(*lot);
 
                 // Icon
                 ImGui::TableNextColumn();
@@ -187,10 +185,12 @@ void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
                     void* texId = it->second.GetID();
                     if (texId) {
                         ImGui::Image(texId, ImVec2(32, 32));
-                    } else {
+                    }
+                    else {
                         ImGui::Dummy(ImVec2(32, 32));
                     }
-                } else {
+                }
+                else {
                     ImGui::Dummy(ImVec2(32, 32));
                 }
 
@@ -224,25 +224,15 @@ void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
     }
 }
 
-void LotPlopPanel::RenderStarButton_(const Lot& lot) {
+void LotPlopPanel::RenderFavButton_(const Lot& lot) const {
     const bool isFavorite = director_->IsFavorite(lot.instanceId.value());
-    const char* star = isFavorite ? u8"\u2605" : u8"\u2606";  // ★ or ☆
+    const char* label = isFavorite ? "Y" : "N";
 
-    // Gold color for favorites
-    if (isFavorite) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.84f, 0.0f, 1.0f));  // Gold
-    }
-
-    std::string buttonLabel = std::string(star) + "##star" + std::to_string(lot.instanceId.value());
+    const std::string buttonLabel = std::string(label) + "##fav" + std::to_string(lot.instanceId.value());
     if (ImGui::Button(buttonLabel.c_str())) {
         director_->ToggleFavorite(lot.instanceId.value());
     }
 
-    if (isFavorite) {
-        ImGui::PopStyleColor();
-    }
-
-    // Tooltip
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(isFavorite ? "Remove from favorites" : "Add to favorites");
     }
@@ -285,7 +275,8 @@ void LotPlopPanel::LoadIconTexture_(uint32_t buildingInstanceId, const Building&
             iconCache_.emplace(buildingInstanceId, std::move(texture));
             spdlog::debug("Loaded icon for building 0x{:08X} ({}x{})",
                           buildingInstanceId, width, height);
-        } else {
+        }
+        else {
             spdlog::warn("Failed to create texture for building 0x{:08X}", buildingInstanceId);
         }
     }, thumbnail);

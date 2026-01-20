@@ -1,7 +1,7 @@
 #pragma once
+#include <optional>
 #include <string>
 #include <unordered_set>
-#include <optional>
 #include <vector>
 
 #include "rfl/Bytestring.hpp"
@@ -52,7 +52,6 @@ struct Lot {
     Building building;
 };
 
-// Favorites persistence structures
 struct TabFavorites {
     std::vector<rfl::Hex<uint32_t>> items;
 };

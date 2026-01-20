@@ -160,6 +160,25 @@ void SC4AdvancedLotPlopDirector::TriggerLotPlop(uint32_t lotInstanceId) const {
     pCmd2->Release();
 }
 
+bool SC4AdvancedLotPlopDirector::IsFavorite(uint32_t lotInstanceId) const {
+    return favoriteLotIds_.contains(lotInstanceId);
+}
+
+const std::unordered_set<uint32_t>& SC4AdvancedLotPlopDirector::GetFavoriteLotIds() const {
+    return favoriteLotIds_;
+}
+
+void SC4AdvancedLotPlopDirector::ToggleFavorite(uint32_t lotInstanceId) {
+    if (favoriteLotIds_.contains(lotInstanceId)) {
+        favoriteLotIds_.erase(lotInstanceId);
+        spdlog::info("Removed favorite: 0x{:08X}", lotInstanceId);
+    } else {
+        favoriteLotIds_.insert(lotInstanceId);
+        spdlog::info("Added favorite: 0x{:08X}", lotInstanceId);
+    }
+    SaveFavorites_();
+}
+
 void SC4AdvancedLotPlopDirector::PostCityInit_(const cIGZMessage2Standard* pStandardMsg) {
     pCity_ = static_cast<cISC4City*>(pStandardMsg->GetVoid1());
 
@@ -208,43 +227,6 @@ void SC4AdvancedLotPlopDirector::LoadLots_() {
     }
 }
 
-std::filesystem::path SC4AdvancedLotPlopDirector::GetUserPluginsPath_() {
-    // Get the directory where this DLL is loaded from
-    // This respects -UserDir parameter and ensures we load/save in the correct location
-    try {
-        // Get the module path using WIL's safe wrapper
-        // This uses wil::GetModuleFileNameW which automatically manages memory
-        const auto modulePath = wil::GetModuleFileNameW(wil::GetModuleInstanceHandle());
-
-        // Convert to filesystem::path and get parent directory
-        std::filesystem::path dllDir = std::filesystem::path(modulePath.get()).parent_path();
-        spdlog::info("DLL directory: {}", dllDir.string());
-        return dllDir;
-    } catch (const wil::ResultException& e) {
-        spdlog::error("Failed to get DLL directory: {}", e.what());
-        return {};
-    }
-}
-
-bool SC4AdvancedLotPlopDirector::IsFavorite(uint32_t lotInstanceId) const {
-    return favoriteLotIds_.contains(lotInstanceId);
-}
-
-void SC4AdvancedLotPlopDirector::ToggleFavorite(uint32_t lotInstanceId) {
-    if (favoriteLotIds_.contains(lotInstanceId)) {
-        favoriteLotIds_.erase(lotInstanceId);
-        spdlog::info("Removed favorite: 0x{:08X}", lotInstanceId);
-    } else {
-        favoriteLotIds_.insert(lotInstanceId);
-        spdlog::info("Added favorite: 0x{:08X}", lotInstanceId);
-    }
-    SaveFavorites_();
-}
-
-const std::unordered_set<uint32_t>& SC4AdvancedLotPlopDirector::GetFavoriteLotIds() const {
-    return favoriteLotIds_;
-}
-
 void SC4AdvancedLotPlopDirector::LoadFavorites_() {
     try {
         const auto pluginsPath = GetUserPluginsPath_();
@@ -255,8 +237,7 @@ void SC4AdvancedLotPlopDirector::LoadFavorites_() {
             return;
         }
 
-        auto result = rfl::cbor::load<AllFavorites>(cborPath.string());
-        if (result) {
+        if (auto result = rfl::cbor::load<AllFavorites>(cborPath.string())) {
             // Extract lot favorites from the loaded data
             favoriteLotIds_.clear();
             for (const auto& hexId : result->lots.items) {
@@ -282,7 +263,7 @@ void SC4AdvancedLotPlopDirector::SaveFavorites_() {
 
         // Convert favorites set to vector of Hex<uint32_t>
         for (uint32_t id : favoriteLotIds_) {
-            allFavorites.lots.items.push_back(rfl::Hex<uint32_t>(id));
+            allFavorites.lots.items.emplace_back(id);
         }
 
         // Set timestamp to current time using std::chrono
@@ -297,13 +278,28 @@ void SC4AdvancedLotPlopDirector::SaveFavorites_() {
         allFavorites.flora = std::nullopt;
 
         // Save to CBOR file
-        auto save_result = rfl::cbor::save(allFavorites, cborPath.string());
-        if (save_result) {
+        if (const auto saveResult = rfl::cbor::save(cborPath.string(), allFavorites)) {
             spdlog::info("Saved {} favorites to {}", favoriteLotIds_.size(), cborPath.string());
         } else {
-            spdlog::error("Failed to save favorites: {}", save_result.error().what());
+            spdlog::error("Failed to save favorites: {}", saveResult.error().what());
         }
     } catch (const std::exception& e) {
         spdlog::error("Error saving favorites: {}", e.what());
+    }
+}
+
+std::filesystem::path SC4AdvancedLotPlopDirector::GetUserPluginsPath_() {
+    // Get the directory where this DLL is loaded from
+    try {
+        // Get the module path using WIL's safe wrapper
+        const auto modulePath = wil::GetModuleFileNameW(wil::GetModuleInstanceHandle());
+
+        // Convert to filesystem::path and get the parent directory
+        std::filesystem::path dllDir = std::filesystem::path(modulePath.get()).parent_path();
+        spdlog::info("DLL directory: {}", dllDir.string());
+        return dllDir;
+    } catch (const wil::ResultException& e) {
+        spdlog::error("Failed to get DLL directory: {}", e.what());
+        return {};
     }
 }
