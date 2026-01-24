@@ -1,7 +1,6 @@
 #include "ThumbnailRenderer.hpp"
 
 #include <algorithm>
-#include <cmath>
 
 #include "ModelFactory.hpp"
 #include "raylib.h"
@@ -58,28 +57,18 @@ namespace thumb {
 
         Camera3D camera{};
         camera.projection = CAMERA_ORTHOGRAPHIC;
-        camera.up = Vector3{0.0f, 1.0f, 0.0f};
-        camera.target = center;
+        // Match the DX11 thumbnail orientation (RY -22.5°, RX +45°) without mirroring geometry
+        const Vector3 forward = Vector3Normalize(Vector3{0.38268343f, 0.65328148f, 0.65328148f});
+        const Vector3 baseUp = Vector3Normalize(Vector3{0.0f, 0.70710678f, -0.70710678f});
+        const Vector3 right = Vector3Normalize(Vector3CrossProduct(baseUp, forward));
+        const Vector3 camUp = Vector3Normalize(Vector3CrossProduct(forward, right));
 
-        constexpr float kYawRad = -0.39269909f;
-        constexpr float kPitchRadZoom5 = 0.78539819f;
-        const float yaw = kYawRad;
-        const float pitch = kPitchRadZoom5;
-        const Vector3 dir{
-            std::cos(yaw) * std::cos(pitch),
-            std::sin(pitch),
-            std::sin(yaw) * std::cos(pitch)
-        };
-        camera.position = Vector3Add(center, Vector3Scale(dir, span));
+        camera.target = center;
+        camera.position = Vector3Subtract(center, Vector3Scale(forward, span));
+        camera.position.y -= span * 0.15f; // Nudge camera downward to better center thumbnails
+        camera.up = camUp;
 
         // Compute ortho size to tightly fit all corners after rotation
-        Vector3 right = Vector3CrossProduct(dir, camera.up);
-        if (Vector3Length(right) == 0.0f) {
-            right = Vector3{1.0f, 0.0f, 0.0f};
-        }
-        right = Vector3Normalize(right);
-        Vector3 camUp = Vector3Normalize(Vector3CrossProduct(right, dir));
-
         float halfWidth = 0.0f;
         float halfHeight = 0.0f;
         for (int xi = 0; xi < 2; ++xi) {
@@ -108,7 +97,7 @@ namespace thumb {
         BeginTextureMode(target);
         ClearBackground(Color{0, 0, 0, 0});
         BeginMode3D(camera);
-        const Vector3 renderScale{scale, scale, -scale}; // Flip Z to match SC4 viewer convention
+        const Vector3 renderScale{scale, scale, scale};
         rlDisableBackfaceCulling();
         DrawModelEx(modelHandle->model, Vector3Zero(), Vector3{0, 1, 0}, 0.0f,
                     renderScale, WHITE);
