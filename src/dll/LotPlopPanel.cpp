@@ -1,5 +1,6 @@
 #include "LotPlopPanel.hpp"
 
+#include <functional>
 #include "imgui_impl_win32.h"
 #include "OccupantGroups.hpp"
 #include "rfl/visit.hpp"
@@ -100,12 +101,70 @@ void LotPlopPanel::RenderFilterUI_() {
         searchBuf[sizeof(searchBuf) - 1] = '\0';
     }
 
-    ImGui::SetNextItemWidth(UI::kSearchBarWidth);
-    if (ImGui::InputTextWithHint("Search", "Search names", searchBuf, sizeof(searchBuf))) {
+    // Row 1: Search bar (full width)
+    ImGui::SetNextItemWidth(-1);  // Full width
+    if (ImGui::InputTextWithHint("##Search", "Search lots and buildings...", searchBuf, sizeof(searchBuf))) {
         filterHelper_.searchBuffer = searchBuf;
     }
 
-    // Size filters
+    // Row 2: Zone type and Wealth
+    const char* zoneTypes[] = {
+        "Any zone", "Residential (R)", "Commercial (C)", "Industrial (I)", "Plopped", "None", "Other"
+    };
+    int currentZone = filterHelper_.selectedZoneType.has_value() ?
+        (filterHelper_.selectedZoneType.value() + 1) : 0;
+    ImGui::SetNextItemWidth(UI::kDropdownWidth);
+    if (ImGui::Combo("##ZoneType", &currentZone, zoneTypes, 7)) {
+        if (currentZone == 0) {
+            filterHelper_.selectedZoneType.reset();  // Any zone
+        } else {
+            filterHelper_.selectedZoneType = static_cast<uint8_t>(currentZone - 1);
+        }
+    }
+
+    ImGui::SameLine();
+
+    const char* wealthOptions[] = {"Any wealth", "$", "$$", "$$$"};
+    int currentWealth = filterHelper_.selectedWealthType.has_value() ?
+        filterHelper_.selectedWealthType.value() : 0;
+    ImGui::SetNextItemWidth(UI::kDropdownWidth);
+    if (ImGui::Combo("##Wealth", &currentWealth, wealthOptions, 4)) {
+        if (currentWealth == 0) {
+            filterHelper_.selectedWealthType.reset();  // Any
+        } else {
+            filterHelper_.selectedWealthType = static_cast<uint8_t>(currentWealth);
+        }
+    }
+
+    ImGui::SameLine();
+
+    // Growth stage filter dropdown (0-15 or 255 for ploppables)
+    const char* growthStages[] = {"Any stage", "Plopped (255)", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"};
+    int currentGrowthStageIndex = 0;
+    if (filterHelper_.selectedGrowthStage.has_value()) {
+        uint8_t val = filterHelper_.selectedGrowthStage.value();
+        if (val == 255) {
+            currentGrowthStageIndex = 1;  // Plopped
+        } else if (val <= 15) {
+            currentGrowthStageIndex = val + 2;  // 0-15 mapped to indices 2-17
+        }
+    }
+    ImGui::SetNextItemWidth(UI::kDropdownWidth);
+    if (ImGui::Combo("##GrowthStage", &currentGrowthStageIndex, growthStages, 18)) {
+        if (currentGrowthStageIndex == 0) {
+            filterHelper_.selectedGrowthStage.reset();  // Any
+        } else if (currentGrowthStageIndex == 1) {
+            filterHelper_.selectedGrowthStage = 255;  // Plopped
+        } else {
+            filterHelper_.selectedGrowthStage = static_cast<uint8_t>(currentGrowthStageIndex - 2);  // 0-15
+        }
+    }
+
+    ImGui::SameLine();
+
+    ImGui::Checkbox("Favorites only", &filterHelper_.favoritesOnly);
+
+    // Row 4: Size filters
     ImGui::Text("Width:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(UI::kSliderWidth);
@@ -116,7 +175,8 @@ void LotPlopPanel::RenderFilterUI_() {
     ImGui::SetNextItemWidth(UI::kSliderWidth);
     ImGui::SliderInt("##MaxSizeX", &filterHelper_.maxSizeX, LotSize::kMinSize, LotSize::kMaxSize);
 
-    ImGui::Text("Length:");
+    // Row 5: Depth filters
+    ImGui::Text("Depth:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(UI::kSliderWidth);
     ImGui::SliderInt("##MinSizeZ", &filterHelper_.minSizeZ, LotSize::kMinSize, LotSize::kMaxSize);
@@ -126,41 +186,77 @@ void LotPlopPanel::RenderFilterUI_() {
     ImGui::SetNextItemWidth(UI::kSliderWidth);
     ImGui::SliderInt("##MaxSizeZ", &filterHelper_.maxSizeZ, LotSize::kMinSize, LotSize::kMaxSize);
 
-    // Occupant Group filter
-    RenderOccupantGroupFilter_();
-
+    ImGui::SameLine();
+    ImGui::Spacing();
     ImGui::SameLine();
 
     // Clear Filters button
-    if (ImGui::Button("Clear")) {
+    if (ImGui::Button("Clear filters")) {
         filterHelper_.ResetFilters();
     }
+
+    ImGui::Separator();
+
+    // Occupant Groups tree view
+    RenderOccupantGroupFilter_();
 }
 
 void LotPlopPanel::RenderOccupantGroupFilter_() {
     // Build preview string
     std::string preview;
     if (filterHelper_.selectedOccupantGroups.empty()) {
-        preview = "All OGs";
+        preview = "All Occupant Groups";
     }
     else {
         preview = std::to_string(filterHelper_.selectedOccupantGroups.size()) + " selected";
     }
 
-    ImGui::SetNextItemWidth(UI::kDropdownWidth);
-    if (ImGui::BeginCombo("OGs", preview.c_str())) {
-        for (const auto& [id, name] : COMMON_OCCUPANT_GROUPS) {
-            bool isSelected = filterHelper_.selectedOccupantGroups.contains(id);
-            if (ImGui::Checkbox(name.data(), &isSelected)) {
-                if (isSelected) {
-                    filterHelper_.selectedOccupantGroups.insert(id);
+    // Recursive function to render tree nodes
+    std::function<void(const OccupantGroup&)> renderOGNode = [&](const OccupantGroup& og) {
+        // Check if this OG has children
+        if (!og.children.empty()) {
+            // Parent node with children - use TreeNode
+            bool nodeOpen = ImGui::TreeNode(reinterpret_cast<void*>(static_cast<intptr_t>(og.id)),
+                                           "%s", og.name.data());
+
+            if (nodeOpen) {
+                // Render children recursively
+                for (const auto& child : og.children) {
+                    renderOGNode(child);
                 }
-                else {
-                    filterHelper_.selectedOccupantGroups.erase(id);
+                ImGui::TreePop();
+            }
+        } else {
+            // Leaf node - show checkbox
+            bool isSelected = filterHelper_.selectedOccupantGroups.contains(og.id);
+            if (ImGui::Checkbox(og.name.data(), &isSelected)) {
+                if (isSelected) {
+                    filterHelper_.selectedOccupantGroups.insert(og.id);
+                } else {
+                    filterHelper_.selectedOccupantGroups.erase(og.id);
                 }
             }
         }
-        ImGui::EndCombo();
+    };
+
+    // Render as collapsible section (collapsed by default)
+    if (ImGui::CollapsingHeader("Occupant Groups")) {
+        ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 12.0f);  // More compact indentation
+        ImGui::Text("%s", preview.c_str());
+
+        // Add scrollable region for the tree
+        if (ImGui::BeginChild("##OGTree", ImVec2(0, 150), true)) {
+            for (const auto& og : OCCUPANT_GROUP_TREE) {
+                renderOGNode(og);
+            }
+        }
+        ImGui::EndChild();
+
+        // Clear all button
+        if (ImGui::SmallButton("Clear OGs")) {
+            filterHelper_.selectedOccupantGroups.clear();
+        }
+        ImGui::PopStyleVar();
     }
 }
 
@@ -171,14 +267,13 @@ void LotPlopPanel::RenderTable_() {
 }
 
 void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
-    if (ImGui::BeginTable("LotsTable", 6, ImGuiTableFlags_Borders |
+    if (ImGui::BeginTable("LotsTable", 5, ImGuiTableFlags_Borders |
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
                           ImVec2(0, UI::kTableHeight))) {
-        ImGui::TableSetupColumn("Fav", ImGuiTableColumnFlags_WidthFixed, UI::kStarColumnWidth);
+        ImGui::TableSetupColumn("Fav", ImGuiTableColumnFlags_WidthFixed, UI::kFavColumnWidth);
         ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, UI::kIconColumnWidth);
         ImGui::TableSetupColumn("Building / Lot", ImGuiTableColumnFlags_WidthFixed, UI::kNameColumnWidth);
         ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, UI::kSizeColumnWidth);
-        ImGui::TableSetupColumn("Growth", ImGuiTableColumnFlags_WidthFixed, UI::kGrowthColumnWidth);
         ImGui::TableSetupColumn("Plop", ImGuiTableColumnFlags_WidthFixed, UI::kPlopColumnWidth);
         ImGui::TableHeadersRow();
 
@@ -199,14 +294,14 @@ void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
                 if (it != iconCache_.end()) {
                     void* texId = it->second.GetID();
                     if (texId) {
-                        ImGui::Image(texId, ImVec2(32, 32));
+                        ImGui::Image(texId, ImVec2(UI::kIconSize, UI::kIconSize));
                     }
                     else {
-                        ImGui::Dummy(ImVec2(32, 32));
+                        ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
                     }
                 }
                 else {
-                    ImGui::Dummy(ImVec2(32, 32));
+                    ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
                 }
 
                 // Building + Lot Name
@@ -222,10 +317,6 @@ void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
                 // Size
                 ImGui::TableNextColumn();
                 ImGui::Text("%dx%d", lot->sizeX, lot->sizeZ);
-
-                // Growth Stage
-                ImGui::TableNextColumn();
-                ImGui::Text("%u", lot->growthStage);
 
                 // Plop Button
                 ImGui::TableNextColumn();

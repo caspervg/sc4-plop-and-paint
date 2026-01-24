@@ -356,6 +356,30 @@ std::optional<ParsedLotConfigExemplar> ExemplarParser::parseLotConfig(
         }
     }
 
+    if (auto propId = propertyMapper_.propertyId(kLotConfigZoneType)) {
+        if (auto* prop = findProperty(exemplar, *propId)) {
+            if (auto v = prop->GetScalarAs<uint8_t>()) {
+                parsedLotConfigExemplar.zoneType = *v;
+            }
+        }
+    }
+
+    if (auto propId = propertyMapper_.propertyId(kLotConfigWealthType)) {
+        if (auto* prop = findProperty(exemplar, *propId)) {
+            if (auto v = prop->GetScalarAs<uint8_t>()) {
+                parsedLotConfigExemplar.wealthType = *v;
+            }
+        }
+    }
+
+    if (auto propId = propertyMapper_.propertyId(kLotConfigPurposeType)) {
+        if (auto* prop = findProperty(exemplar, *propId)) {
+            if (auto v = prop->GetScalarAs<uint8_t>()) {
+                parsedLotConfigExemplar.purposeType = *v;
+            }
+        }
+    }
+
     return parsedLotConfigExemplar;
 }
 
@@ -422,6 +446,9 @@ Lot ExemplarParser::lotFromParsed(const ParsedLotConfigExemplar& parsed, const B
     lot.minCapacity = parsed.capacity.has_value() ? parsed.capacity->first : 0;
     lot.maxCapacity = parsed.capacity.has_value() ? parsed.capacity->second : 0;
     lot.growthStage = parsed.growthStage.has_value() ? parsed.growthStage.value() : 0;
+    lot.zoneType = parsed.zoneType;
+    lot.wealthType = parsed.wealthType;
+    lot.purposeType = parsed.purposeType;
     lot.building = building;
     return lot;
 }

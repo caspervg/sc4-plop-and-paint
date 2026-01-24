@@ -49,6 +49,10 @@ struct Lot {
 
     uint8_t growthStage;
 
+    std::optional<uint8_t> zoneType;      // LotConfigPropertyZoneTypes (0x88edc793)
+    std::optional<uint8_t> wealthType;    // LotConfigPropertyWealthTypes (0x88edc795)
+    std::optional<uint8_t> purposeType;   // LotConfigPropertyPurposeTypes (0x88edc796)
+
     Building building;
 };
 

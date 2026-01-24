@@ -24,6 +24,9 @@ constexpr auto kExemplarId = "Exemplar ID";
 constexpr auto kOccupantGroups = "OccupantGroups";
 constexpr auto kLotConfigSize = "LotConfigPropertySize";
 constexpr auto kLotConfigObject = "LotConfigPropertyLotObject";
+constexpr auto kLotConfigZoneType = "LotConfigPropertyZoneTypes";
+constexpr auto kLotConfigWealthType = "LotConfigPropertyWealthTypes";
+constexpr auto kLotConfigPurposeType = "LotConfigPropertyPurposeTypes";
 constexpr auto kPropertyLotObjectsStart = 0x88EDC900u;
 constexpr auto kPropertyLotObjectsEnd = 0x88EDCFF0u;
 constexpr auto kLotConfigObjectTypeBuilding = kZero;
@@ -73,6 +76,9 @@ struct ParsedLotConfigExemplar {
     bool isFamilyReference = false;      // True if lot references a family instead of specific building
     std::optional<uint8_t> growthStage;
     std::optional<std::pair<uint8_t, uint8_t>> capacity; // (min, max)
+    std::optional<uint8_t> zoneType;        // LotConfigPropertyZoneTypes
+    std::optional<uint8_t> wealthType;      // LotConfigPropertyWealthTypes
+    std::optional<uint8_t> purposeType;     // LotConfigPropertyPurposeTypes
 };
 
 class ExemplarParser {

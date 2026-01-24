@@ -10,15 +10,15 @@ constexpr auto kMaxIconsToLoadPerFrame = 50;
 
 // UI Constants for consistent sizing across panels
 namespace UI {
-    constexpr auto kSearchBarWidth = 300.0f;
-    constexpr auto kSliderWidth = 100.0f;
-    constexpr auto kDropdownWidth = 200.0f;
-    constexpr auto kStarColumnWidth = 30.0f;
-    constexpr auto kIconColumnWidth = 40.0f;
-    constexpr auto kNameColumnWidth = 260.0f;
-    constexpr auto kSizeColumnWidth = 60.0f;
-    constexpr auto kGrowthColumnWidth = 60.0f;
-    constexpr auto kPlopColumnWidth = 60.0f;
+    constexpr auto kSearchBarWidth = 200.0f;
+    constexpr auto kSliderWidth = 75.0f;
+    constexpr auto kDropdownWidth = 150.0f;
+    constexpr auto kFavColumnWidth = 30.0f;
+    constexpr auto kIconColumnWidth = 50.0f;
+    constexpr auto kIconSize = 44.0f;
+    constexpr auto kNameColumnWidth = 300.0f;
+    constexpr auto kSizeColumnWidth = 50.0f;
+    constexpr auto kPlopColumnWidth = 40.0f;
     constexpr auto kTableHeight = 400.0f;
 }
 
