@@ -19,6 +19,7 @@ struct PluginIndex {
 
 struct PluginConfiguration {
     std::filesystem::path gameRoot;
+    std::filesystem::path localeDir;
     std::filesystem::path gamePluginsRoot;
     std::filesystem::path userPluginsRoot;
 };

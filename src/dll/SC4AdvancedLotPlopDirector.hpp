@@ -23,6 +23,8 @@
 #include "public/ImGuiPanelAdapter.h"
 #include "public/ImGuiServiceIds.h"
 
+class LotPlopPanel;
+
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
 
@@ -52,10 +54,14 @@ public:
     [[nodiscard]] bool IsFavorite(uint32_t lotInstanceId) const;
     [[nodiscard]] const std::unordered_set<uint32_t>& GetFavoriteLotIds() const;
     void ToggleFavorite(uint32_t lotInstanceId);
+    void SetLotPlopPanelVisible(bool visible);
 
 private:
     void PostCityInit_(const cIGZMessage2Standard* pStandardMsg);
     void PreCityShutdown_(cIGZMessage2Standard* pStandardMsg);
+    void ToggleLotPlopPanel_();
+    bool RegisterLotPlopShortcut_();
+    void UnregisterLotPlopShortcut_();
     void LoadLots_();
     void LoadFavorites_();
     void SaveFavorites_();
@@ -70,4 +76,6 @@ private:
     std::vector<Lot> lots_{};
     std::unordered_set<uint32_t> favoriteLotIds_{};
     bool panelRegistered_{false};
+    bool panelVisible_{false};
+    bool shortcutRegistered_{false};
 };

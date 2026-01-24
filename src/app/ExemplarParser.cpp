@@ -1,5 +1,8 @@
 #include "ExemplarParser.hpp"
+#include "LTextReader.h"
 
+#include <optional>
+#include <span>
 #include <unordered_set>
 
 #include "spdlog/spdlog.h"
@@ -19,6 +22,53 @@ namespace {
         uint32_t width = 0;
         uint32_t height = 0;
     };
+
+    std::optional<DBPF::Tgi> tgiFromProperty(const Exemplar::Property* prop, uint32_t defaultType) {
+        if (!prop || prop->values.size() < 3) {
+            return std::nullopt;
+        }
+
+        auto type = prop->GetScalarAs<uint32_t>(0);
+        auto group = prop->GetScalarAs<uint32_t>(1);
+        auto instance = prop->GetScalarAs<uint32_t>(2);
+        if (!group || !instance) {
+            return std::nullopt;
+        }
+
+        uint32_t typeValue = type.value_or(defaultType);
+        if (typeValue == 0) {
+            typeValue = defaultType;
+        }
+
+        return DBPF::Tgi{typeValue, *group, *instance};
+    }
+
+    std::optional<std::string> loadLocalizedText(const DbpfIndexService* indexService, const DBPF::Tgi& tgi) {
+        if (!indexService) {
+            return std::nullopt;
+        }
+
+        const auto data = indexService->loadEntryData(tgi);
+        if (!data || data->empty()) {
+            spdlog::debug("Failed to load localized text {}: no data", tgi.ToString());
+            return std::nullopt;
+        }
+
+        auto parsed = LText::Parse(std::span(data->data(), data->size()));
+        if (!parsed.has_value()) {
+            spdlog::debug("Failed to parse LText {}: {}", tgi.ToString(), parsed.error().message);
+            return std::nullopt;
+        }
+
+        auto text = parsed->ToUtf8();
+        if (text.empty()) {
+            return std::nullopt;
+        } else {
+            spdlog::debug("Loaded localized text {}: {}", tgi.ToString(), text);
+        }
+
+        return text;
+    }
 
     DecodedImage decodePngToRgba32(const std::vector<uint8_t>& pngData) {
         DecodedImage result;
@@ -52,8 +102,8 @@ namespace {
             return result;
         }
 
-        const uint32_t cropWidth = kIconCropWidth;
-        const uint32_t cropHeight = static_cast<uint32_t>(height);
+        constexpr auto cropWidth = kIconCropWidth;
+        const auto cropHeight = static_cast<uint32_t>(height);
 
         // Copy the second 44-pixel region (starting at pixel 44) to std::byte vector (row by row)
         const size_t croppedDataSize = static_cast<size_t>(cropWidth) * cropHeight * 4;
@@ -115,10 +165,56 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
     ParsedBuildingExemplar parsedBuildingExemplar;
     parsedBuildingExemplar.tgi = tgi;
 
-    // Use cohort-aware property lookup for all properties
-    if (auto* prop = findProperty(exemplar, propertyMapper_.propertyId(kExemplarName).value())) {
-        if (auto name = prop->GetScalarAs<std::string>()) {
-            parsedBuildingExemplar.name = *name;
+    parsedBuildingExemplar.name = "";
+    parsedBuildingExemplar.description = "";
+
+    if (auto propId = propertyMapper_.propertyId(kItemName)) {
+        if (auto* prop = findProperty(exemplar, *propId)) {
+            if (auto name = prop->GetScalarAs<std::string>()) {
+                parsedBuildingExemplar.name = *name;
+            }
+        }
+    }
+
+    if (parsedBuildingExemplar.name.empty()) {
+        if (auto propId = propertyMapper_.propertyId(kUserVisibleNameKey)) {
+            if (auto* prop = findProperty(exemplar, *propId)) {
+                if (auto tgiKey = tgiFromProperty(prop, kTypeIdLText)) {
+                    if (auto localized = loadLocalizedText(indexService_, *tgiKey)) {
+                        parsedBuildingExemplar.name = *localized;
+                    }
+                }
+            }
+        }
+    }
+
+    if (parsedBuildingExemplar.name.empty()) {
+        if (auto propId = propertyMapper_.propertyId(kExemplarName)) {
+            if (auto* prop = findProperty(exemplar, *propId)) {
+                if (auto name = prop->GetScalarAs<std::string>()) {
+                    parsedBuildingExemplar.name = *name;
+                }
+            }
+        }
+    }
+
+    if (auto propId = propertyMapper_.propertyId(kItemDescriptionKey)) {
+        if (auto* prop = findProperty(exemplar, *propId)) {
+            if (auto tgiKey = tgiFromProperty(prop, kTypeIdLText)) {
+                if (auto localized = loadLocalizedText(indexService_, *tgiKey)) {
+                    parsedBuildingExemplar.description = *localized;
+                }
+            }
+        }
+    }
+
+    if (parsedBuildingExemplar.description.empty()) {
+        if (auto propId = propertyMapper_.propertyId(kItemDescription)) {
+            if (auto* prop = findProperty(exemplar, *propId)) {
+                if (auto description = prop->GetScalarAs<std::string>()) {
+                    parsedBuildingExemplar.description = *description;
+                }
+            }
         }
     }
 
@@ -255,7 +351,7 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
     building.instanceId = parsed.tgi.instance;
     building.groupId = parsed.tgi.group;
     building.name = parsed.name;
-    building.description = ""; // Not available from exemplar data
+    building.description = parsed.description;
     building.occupantGroups = std::unordered_set(parsed.occupantGroups.begin(), parsed.occupantGroups.end());
     building.thumbnail = std::nullopt;
 

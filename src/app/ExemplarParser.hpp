@@ -11,6 +11,10 @@ constexpr auto kExemplarType = "Exemplar Type";
 constexpr auto kExemplarTypeBuilding = "Buildings";
 constexpr auto kExemplarTypeLotConfig = "LotConfigurations";
 constexpr auto kExemplarName = "Exemplar Name";
+constexpr auto kItemName = "Item Name";
+constexpr auto kUserVisibleNameKey = "User Visible Name Key";
+constexpr auto kItemDescriptionKey = "Item Description Key";
+constexpr auto kItemDescription = "Item Description";
 constexpr auto kExemplarId = "Exemplar ID";
 constexpr auto kOccupantGroups = "OccupantGroups";
 constexpr auto kLotConfigSize = "LotConfigPropertySize";
@@ -23,6 +27,7 @@ constexpr auto kCapacity = "Capacity Satisfied";
 constexpr auto kIconResourceKey = "Icon Resource Key";
 constexpr auto kItemIcon = "Item Icon";
 constexpr auto kTypeIdPNG = 0x856DDBACu;
+constexpr auto kTypeIdLText = 0x2026960Bu;
 constexpr auto kLotIconGroup = 0x6A386D26u;
 constexpr auto kBuildingFamily = "Building/prop Family";
 
@@ -39,6 +44,7 @@ enum class ExemplarType {
 struct ParsedBuildingExemplar {
     DBPF::Tgi tgi;
     std::string name;
+    std::string description;
     std::vector<uint32_t> occupantGroups;
     std::vector<uint32_t> familyIds;  // Building/prop Family values
     std::optional<DBPF::Tgi> iconTgi;

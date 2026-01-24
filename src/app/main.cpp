@@ -39,6 +39,7 @@ PluginConfiguration GetDefaultPluginConfiguration()
     if (userProfile && programFiles) {
         return PluginConfiguration{
             .gameRoot = gameRoot,
+            .localeDir = "English",
             .gamePluginsRoot = gameRoot / "Plugins",
             .userPluginsRoot = fs::path(userProfile) / "Documents" / "SimCity 4" / "Plugins"
         };
@@ -303,6 +304,7 @@ int main(int argc, char* argv[])
         args::Flag scanFlag(parser, "scan", "Scan plugins and extract exemplars", {"scan"});
         args::ValueFlag<std::string> gameFlag(parser, "path", "Game root directory (plugins will be in {path}/Plugins)", {"game"});
         args::ValueFlag<std::string> pluginsFlag(parser, "path", "User plugins directory", {"plugins"});
+        args::ValueFlag<std::string> localeFlag(parser, "path", "Locale directory under game root (e.g., English)", {"locale"});
 
         try {
             parser.ParseCLI(argc, argv);
@@ -330,12 +332,16 @@ int main(int argc, char* argv[])
                 config.gameRoot = args::get(gameFlag);
                 config.gamePluginsRoot = config.gameRoot / "Plugins";
             }
+            if (localeFlag) {
+                config.localeDir = args::get(localeFlag);
+            }
             if (pluginsFlag) {
                 config.userPluginsRoot = args::get(pluginsFlag);
             }
 
             logger->info("Using plugin configuration:");
             logger->info("  Game Root: {}", config.gameRoot.string());
+            logger->info("  Game Locale: {}", (config.gameRoot / config.localeDir).string());
             logger->info("  Game Plugins: {}", config.gamePluginsRoot.string());
             logger->info("  User Plugins: {}", config.userPluginsRoot.string());
 
@@ -351,12 +357,16 @@ int main(int argc, char* argv[])
             config.gameRoot = args::get(gameFlag);
             config.gamePluginsRoot = config.gameRoot / "Plugins";
         }
+        if (localeFlag) {
+            config.localeDir = args::get(localeFlag);
+        }
         if (pluginsFlag) {
             config.userPluginsRoot = args::get(pluginsFlag);
         }
 
         logger->info("Plugin directories:");
         logger->info("  Game Root: {}", config.gameRoot.string());
+        logger->info("  Game Locale: {}", (config.gameRoot / config.localeDir).string());
         logger->info("  Game Plugins: {}", config.gamePluginsRoot.string());
         logger->info("  User Plugins: {}", config.userPluginsRoot.string());
         logger->info("Use --scan to scan and extract exemplars");

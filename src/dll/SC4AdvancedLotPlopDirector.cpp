@@ -6,7 +6,11 @@
 #include <wil/resource.h>
 #include <wil/win32_helpers.h>
 
+#include "cGZPersistResourceKey.h"
 #include "cIGZCommandParameterSet.h"
+#include "cIGZPersistResourceManager.h"
+#include "cIGZWinKeyAccelerator.h"
+#include "cIGZWinKeyAcceleratorRes.h"
 #include "cRZBaseVariant.h"
 #include "LotPlopPanel.hpp"
 #include "rfl/cbor/load.hpp"
@@ -21,6 +25,10 @@ namespace {
     constexpr auto kGZWin_SC4View3DWin = 0x9a47b417u;
 
     constexpr auto kLotPlopPanelId = 0xCA500001u;
+    constexpr auto kToggleLotPlopWindowShortcutID = 0x9F21C3A1u;
+    constexpr auto kKeyConfigType = 0xA2E3D533u;
+    constexpr auto kKeyConfigGroup = 0x8F1E6D69u;
+    constexpr auto kKeyConfigInstance = 0x5CBCFBF8u;
 }
 
 SC4AdvancedLotPlopDirector::SC4AdvancedLotPlopDirector()
@@ -64,11 +72,12 @@ bool SC4AdvancedLotPlopDirector::PostAppInit() {
 
         auto* panel = new LotPlopPanel(this, imguiService_);
         const ImGuiPanelDesc desc = ImGuiPanelAdapter<LotPlopPanel>::MakeDesc(
-            panel, kLotPlopPanelId, 100, true
+            panel, kLotPlopPanelId, 100, false
         );
 
         if (imguiService_->RegisterPanel(desc)) {
             panelRegistered_ = true;
+            panelVisible_ = false;
             spdlog::info("Registered ImGui panel");
         }
     }
@@ -83,6 +92,7 @@ bool SC4AdvancedLotPlopDirector::PreAppShutdown() { return true; }
 
 bool SC4AdvancedLotPlopDirector::PostAppShutdown() {
     if (imguiService_ && panelRegistered_) {
+        SetLotPlopPanelVisible(false);
         imguiService_->UnregisterPanel(kLotPlopPanelId);
         panelRegistered_ = false;
     }
@@ -108,9 +118,84 @@ bool SC4AdvancedLotPlopDirector::DoMessage(cIGZMessage2* pMsg) {
         break;
     case kSC4MessagePreCityShutdown: PreCityShutdown_(pStandardMsg);
         break;
+    case kToggleLotPlopWindowShortcutID: ToggleLotPlopPanel_();
+        break;
     default: break;
     }
     return true;
+}
+
+void SC4AdvancedLotPlopDirector::ToggleLotPlopPanel_() {
+    SetLotPlopPanelVisible(!panelVisible_);
+}
+
+void SC4AdvancedLotPlopDirector::SetLotPlopPanelVisible(bool visible) {
+    if (!imguiService_ || !panelRegistered_) {
+        return;
+    }
+
+    panelVisible_ = visible;
+    imguiService_->SetPanelVisible(kLotPlopPanelId, visible);
+}
+
+bool SC4AdvancedLotPlopDirector::RegisterLotPlopShortcut_() {
+    if (shortcutRegistered_) {
+        return true;
+    }
+    if (!pView3D_) {
+        spdlog::warn("Cannot register lot plop shortcut: View3D not available");
+        return false;
+    }
+    if (!pMS2_) {
+        spdlog::warn("Cannot register lot plop shortcut: message server not available");
+        return false;
+    }
+
+    cIGZPersistResourceManagerPtr pRM;
+    if (!pRM) {
+        spdlog::warn("Cannot register lot plop shortcut: resource manager unavailable");
+        return false;
+    }
+
+    cRZAutoRefCount<cIGZWinKeyAcceleratorRes> acceleratorRes;
+    const cGZPersistResourceKey key(kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
+    if (!pRM->GetPrivateResource(key, kGZIID_cIGZWinKeyAcceleratorRes,
+                                 acceleratorRes.AsPPVoid(), 0, nullptr)) {
+        spdlog::warn("Failed to load key config resource 0x{:08X}/0x{:08X}/0x{:08X}",
+                     kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
+        return false;
+    }
+
+    auto* accelerator = pView3D_->GetKeyAccelerator();
+    if (!accelerator) {
+        spdlog::warn("Cannot register lot plop shortcut: key accelerator not available");
+        return false;
+    }
+
+    if (!acceleratorRes->RegisterResources(accelerator)) {
+        spdlog::warn("Failed to register key accelerator resources");
+        return false;
+    }
+
+    if (!pMS2_->AddNotification(this, kToggleLotPlopWindowShortcutID)) {
+        spdlog::warn("Failed to register shortcut notification 0x{:08X}",
+                     kToggleLotPlopWindowShortcutID);
+        return false;
+    }
+
+    shortcutRegistered_ = true;
+    return true;
+}
+
+void SC4AdvancedLotPlopDirector::UnregisterLotPlopShortcut_() {
+    if (!shortcutRegistered_) {
+        return;
+    }
+
+    if (pMS2_) {
+        pMS2_->RemoveNotification(this, kToggleLotPlopWindowShortcutID);
+    }
+    shortcutRegistered_ = false;
 }
 
 const std::vector<Lot>& SC4AdvancedLotPlopDirector::GetLots() const {
@@ -191,6 +276,7 @@ void SC4AdvancedLotPlopDirector::PostCityInit_(const cIGZMessage2Standard* pStan
                 if (pWinSC4App->GetChildAs(
                     kGZWin_SC4View3DWin, kGZIID_cISC4View3DWin, reinterpret_cast<void**>(&pView3D_))) {
                     spdlog::info("Acquired View3D interface");
+                    RegisterLotPlopShortcut_();
                 }
             }
         }
@@ -198,8 +284,10 @@ void SC4AdvancedLotPlopDirector::PostCityInit_(const cIGZMessage2Standard* pStan
 }
 
 void SC4AdvancedLotPlopDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
+    SetLotPlopPanelVisible(false);
     pCity_ = nullptr;
     pView3D_ = nullptr;
+    UnregisterLotPlopShortcut_();
     spdlog::info("City shutdown - released resources");
 }
 

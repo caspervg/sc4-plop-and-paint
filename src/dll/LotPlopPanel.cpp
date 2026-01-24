@@ -155,15 +155,14 @@ void LotPlopPanel::RenderTable_() {
 }
 
 void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
-    if (ImGui::BeginTable("LotsTable", 7, ImGuiTableFlags_Borders |
+    if (ImGui::BeginTable("LotsTable", 6, ImGuiTableFlags_Borders |
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
                           ImVec2(0, UI::kTableHeight))) {
         ImGui::TableSetupColumn("Fav", ImGuiTableColumnFlags_WidthFixed, UI::kStarColumnWidth);
         ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, UI::kIconColumnWidth);
-        ImGui::TableSetupColumn("Lot name", ImGuiTableColumnFlags_WidthFixed, UI::kLotNameColumnWidth);
+        ImGui::TableSetupColumn("Building / Lot", ImGuiTableColumnFlags_WidthFixed, UI::kNameColumnWidth);
         ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, UI::kSizeColumnWidth);
         ImGui::TableSetupColumn("Growth", ImGuiTableColumnFlags_WidthFixed, UI::kGrowthColumnWidth);
-        ImGui::TableSetupColumn("Building name", ImGuiTableColumnFlags_WidthFixed, UI::kBuildingNameColumnWidth);
         ImGui::TableSetupColumn("Plop", ImGuiTableColumnFlags_WidthFixed, UI::kPlopColumnWidth);
         ImGui::TableHeadersRow();
 
@@ -194,9 +193,15 @@ void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
                     ImGui::Dummy(ImVec2(32, 32));
                 }
 
-                // Lot Name
+                // Building + Lot Name
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(lot->name.c_str());
+                ImGui::BeginGroup();
+                ImGui::TextUnformatted(lot->building.name.c_str());
+                ImGui::TextDisabled("%s", lot->name.c_str());
+                ImGui::EndGroup();
+                if (!lot->building.description.empty() && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", lot->building.description.c_str());
+                }
 
                 // Size
                 ImGui::TableNextColumn();
@@ -205,10 +210,6 @@ void LotPlopPanel::RenderTable_(const std::vector<const Lot*>& filteredLots) {
                 // Growth Stage
                 ImGui::TableNextColumn();
                 ImGui::Text("%u", lot->growthStage);
-
-                // Building Name
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(lot->building.name.c_str());
 
                 // Plop Button
                 ImGui::TableNextColumn();

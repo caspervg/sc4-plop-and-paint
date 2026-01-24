@@ -15,10 +15,9 @@ namespace UI {
     constexpr auto kDropdownWidth = 200.0f;
     constexpr auto kStarColumnWidth = 30.0f;
     constexpr auto kIconColumnWidth = 40.0f;
-    constexpr auto kLotNameColumnWidth = 250.0f;
+    constexpr auto kNameColumnWidth = 260.0f;
     constexpr auto kSizeColumnWidth = 60.0f;
     constexpr auto kGrowthColumnWidth = 60.0f;
-    constexpr auto kBuildingNameColumnWidth = 250.0f;
     constexpr auto kPlopColumnWidth = 60.0f;
     constexpr auto kTableHeight = 400.0f;
 }

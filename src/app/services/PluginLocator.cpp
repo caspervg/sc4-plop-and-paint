@@ -5,6 +5,9 @@ PluginLocator::PluginLocator(PluginConfiguration config) : config_(std::move(con
 auto PluginLocator::ListDbpfFiles() const -> std::vector<std::filesystem::path> {
     std::vector<std::filesystem::path> files;
     CollectFiles_(config_.gameRoot, false, files);
+    if (!config_.localeDir.empty()) {
+        CollectFiles_(config_.gameRoot / config_.localeDir, false, files);
+    }
     CollectFiles_(config_.gamePluginsRoot, true, files);
     CollectFiles_(config_.userPluginsRoot, true, files);
 
