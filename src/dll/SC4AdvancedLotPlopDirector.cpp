@@ -307,7 +307,30 @@ void SC4AdvancedLotPlopDirector::LoadLots_() {
         auto result = rfl::cbor::load<std::vector<Lot>>(cborPath.string());
         if (result) {
             lots_ = std::move(*result);
-            spdlog::info("Loaded {} lots from {}", lots_.size(), cborPath.string());
+
+            // Check for duplicates (group, instance) pairs
+            struct PairHash {
+                size_t operator()(const std::pair<uint32_t, uint32_t>& p) const {
+                    return std::hash<uint64_t>{}((static_cast<uint64_t>(p.first) << 32) | p.second);
+                }
+            };
+            std::unordered_map<std::pair<uint32_t, uint32_t>, int, PairHash> duplicateCheck;
+            for (const auto& lot : lots_) {
+                auto key = std::make_pair(lot.groupId.value(), lot.instanceId.value());
+                duplicateCheck[key]++;
+            }
+
+            int duplicateCount = 0;
+            for (const auto& [key, count] : duplicateCheck) {
+                if (count > 1) {
+                    duplicateCount++;
+                    spdlog::warn("Duplicate lot found: group=0x{:08X}, instance=0x{:08X}, count={}",
+                                key.first, key.second, count);
+                }
+            }
+
+            spdlog::info("Loaded {} lots from {} ({} unique, {} duplicates)",
+                        lots_.size(), cborPath.string(), duplicateCheck.size(), duplicateCount);
         }
         else {
             spdlog::error("Failed to load lots from CBOR file: {}", result.error().what());

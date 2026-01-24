@@ -27,7 +27,26 @@ target_link_libraries(${APP_NAME} PRIVATE
     DBPFKitLib
     pugixml::pugixml
     jsoncons::jsoncons
+    raylib
+    glfw
 )
+
+if (WIN32)
+    target_compile_definitions(${APP_NAME} PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        NOGDI
+        NOUSER
+        MMNOSOUND
+    )
+
+    target_link_options(${APP_NAME} PRIVATE
+        /FORCE:MULTIPLE
+        /IGNORE:4006,4221
+    )
+
+    target_link_libraries(${APP_NAME} PRIVATE winmm opengl32 gdi32 user32)
+endif()
 
 # Copy DLLs to output directory for execution (only for dynamic triplets)
 if(MSVC)

@@ -5,6 +5,11 @@
 #include "PropertyMapper.hpp"
 #include "services/DbpfIndexService.hpp"
 #include "../shared/entities.hpp"
+#include <memory>
+
+namespace thumb {
+    class ThumbnailRenderer;
+}
 
 constexpr auto kZero = 0x0000000u;
 constexpr auto kExemplarType = "Exemplar Type";
@@ -27,9 +32,16 @@ constexpr auto kCapacity = "Capacity Satisfied";
 constexpr auto kIconResourceKey = "Icon Resource Key";
 constexpr auto kItemIcon = "Item Icon";
 constexpr auto kTypeIdPNG = 0x856DDBACu;
+constexpr auto kTypeIdS3D = 0x5AD0E817u;
 constexpr auto kTypeIdLText = 0x2026960Bu;
 constexpr auto kLotIconGroup = 0x6A386D26u;
 constexpr auto kBuildingFamily = "Building/prop Family";
+constexpr auto kRkt0PropertyId = 0x27812820u;
+constexpr auto kRkt1PropertyId = 0x27812821u;
+constexpr auto kRkt2PropertyId = 0x27812822u;
+constexpr auto kRkt3PropertyId = 0x27812823u;
+constexpr auto kRkt4PropertyId = 0x27812824u;
+constexpr auto kRkt5PropertyId = 0x27812825u;
 
 // Lot object array indices (0-based, spec uses 1-based rep numbers)
 constexpr auto kLotObjectIndexType = 0;       // Rep 1: Object type (0 = building, 1 = prop, etc.)
@@ -48,6 +60,7 @@ struct ParsedBuildingExemplar {
     std::vector<uint32_t> occupantGroups;
     std::vector<uint32_t> familyIds;  // Building/prop Family values
     std::optional<DBPF::Tgi> iconTgi;
+    std::optional<DBPF::Tgi> modelTgi;
     // TODO other building props
 };
 
@@ -64,7 +77,10 @@ struct ParsedLotConfigExemplar {
 
 class ExemplarParser {
 public:
-    explicit ExemplarParser(const PropertyMapper& mapper, const DbpfIndexService* indexService = nullptr);
+    explicit ExemplarParser(const PropertyMapper& mapper,
+                            const DbpfIndexService* indexService = nullptr,
+                            bool renderModelThumbnails = false);
+    ~ExemplarParser();
 
     [[nodiscard]] std::optional<ExemplarType> getExemplarType(const Exemplar::Record& exemplar) const;
     [[nodiscard]] std::optional<ParsedBuildingExemplar> parseBuilding(const Exemplar::Record& exemplar, const DBPF::Tgi& tgi) const;
@@ -93,7 +109,10 @@ private:
     ) const;
     [[nodiscard]] std::string resolveLTextTags_(std::string_view text,
                                                 const Exemplar::Record& exemplar) const;
+    [[nodiscard]] std::optional<DBPF::Tgi> resolveModelTgi_(const Exemplar::Record& exemplar,
+                                                           const DBPF::Tgi& exemplarTgi) const;
 
     const PropertyMapper& propertyMapper_;
     const DbpfIndexService* indexService_;
+    std::unique_ptr<thumb::ThumbnailRenderer> thumbnailRenderer_;
 };

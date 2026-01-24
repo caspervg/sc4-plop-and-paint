@@ -21,12 +21,40 @@
             "description": "32-bit Release build for SC4 compatibility",
             "generator": "Visual Studio 17 2022",
             "architecture": "Win32",
-            "binaryDir": "${sourceDir}/cmake-build-release-visual-studio",
+            "binaryDir": "${sourceDir}/cmake-build-release-visual-studio",      
             "cacheVariables": {
                 "CMAKE_GENERATOR_PLATFORM": "Win32",
                 "CMAKE_BUILD_TYPE": "Release",
                 "VCPKG_TARGET_TRIPLET": "x86-windows-static-md",
                 "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x86-windows-static-md"
+            }
+        },
+        {
+            "name": "vs2022-x64-debug",
+            "displayName": "Visual Studio 2022 x64 Debug",
+            "description": "64-bit Debug build for CLI tooling",
+            "generator": "Visual Studio 17 2022",
+            "architecture": "x64",
+            "binaryDir": "${sourceDir}/cmake-build-debug-visual-studio-x64",
+            "cacheVariables": {
+                "CMAKE_GENERATOR_PLATFORM": "x64",
+                "CMAKE_BUILD_TYPE": "Debug",
+                "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+                "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x64-windows-static-md"
+            }
+        },
+        {
+            "name": "vs2022-x64-release",
+            "displayName": "Visual Studio 2022 x64 Release",
+            "description": "64-bit Release build for CLI tooling",
+            "generator": "Visual Studio 17 2022",
+            "architecture": "x64",
+            "binaryDir": "${sourceDir}/cmake-build-release-visual-studio-x64",
+            "cacheVariables": {
+                "CMAKE_GENERATOR_PLATFORM": "x64",
+                "CMAKE_BUILD_TYPE": "Release",
+                "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+                "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x64-windows-static-md"
             }
         },
         {
@@ -65,6 +93,18 @@
             "name": "vs2022-win32-release-build",
             "displayName": "Build Win32 Release",
             "configurePreset": "vs2022-win32-release",
+            "configuration": "Release"
+        },
+        {
+            "name": "vs2022-x64-debug-build",
+            "displayName": "Build x64 Debug",
+            "configurePreset": "vs2022-x64-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "vs2022-x64-release-build",
+            "displayName": "Build x64 Release",
+            "configurePreset": "vs2022-x64-release",
             "configuration": "Release"
         },
         {

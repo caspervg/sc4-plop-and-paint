@@ -40,6 +40,12 @@
     "name" : "pugixml",
     "version>=" : "1.15#1"
   }, {
+    "name" : "raylib",
+    "version>=" : "5.5"
+  }, {
+    "name" : "glfw3",
+    "version>=" : "3.4#1"
+  }, {
     "name" : "wil",
     "version>=" : "1.0.250325.1"
   } ]

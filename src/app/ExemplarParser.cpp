@@ -1,5 +1,6 @@
 #include "ExemplarParser.hpp"
 #include "LTextReader.h"
+#include "ThumbnailRenderer.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -135,8 +136,16 @@ namespace {
     }
 }
 
-ExemplarParser::ExemplarParser(const PropertyMapper& mapper, const DbpfIndexService* indexService)
-    : propertyMapper_(mapper), indexService_(indexService) {}
+ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
+                               const DbpfIndexService* indexService,
+                               bool renderModelThumbnails)
+    : propertyMapper_(mapper), indexService_(indexService) {
+    if (renderModelThumbnails && indexService_) {
+        thumbnailRenderer_ = std::make_unique<thumb::ThumbnailRenderer>(*indexService_);
+    }
+}
+
+ExemplarParser::~ExemplarParser() = default;
 
 std::optional<ExemplarType> ExemplarParser::getExemplarType(const Exemplar::Record& exemplar) const {
     const auto propIdOpt = propertyMapper_.propertyId(kExemplarType);
@@ -253,6 +262,8 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
             }
         }
     }
+
+    parsedBuildingExemplar.modelTgi = resolveModelTgi_(exemplar, tgi);
 
     return parsedBuildingExemplar;
 }
@@ -380,6 +391,21 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
         } else {
             spdlog::debug("buildingFromParsed: No PNG data found for icon TGI 0x{:08X}/0x{:08X}/0x{:08X}",
                 parsed.iconTgi->type, parsed.iconTgi->group, parsed.iconTgi->instance);
+        }
+    }
+
+    if (!building.thumbnail.has_value() && parsed.modelTgi.has_value() && thumbnailRenderer_) {
+        constexpr uint32_t kRenderedThumbnailSize = 44;
+        auto rendered = thumbnailRenderer_->renderModel(*parsed.modelTgi, kRenderedThumbnailSize);
+        if (rendered.has_value() && !rendered->pixels.empty()) {
+            PreRendered preview;
+            preview.data = rfl::Bytestring(std::move(rendered->pixels));
+            preview.width = rendered->width;
+            preview.height = rendered->height;
+            building.thumbnail = preview;
+        } else {
+            spdlog::debug("Thumbnail render failed for building {} ({})",
+                          parsed.name, parsed.modelTgi->ToString());
         }
     }
 
@@ -557,4 +583,103 @@ std::string ExemplarParser::resolveLTextTags_(std::string_view text,
     }
 
     return result;
+}
+
+std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record& exemplar,
+                                                         const DBPF::Tgi& exemplarTgi) const {
+    constexpr int kZoomLevel = 5;
+    constexpr int kRotation = 0; // South
+    auto getU32 = [](const Exemplar::Property* prop, size_t index) -> std::optional<uint32_t> {
+        if (!prop || index >= prop->values.size()) {
+            return std::nullopt;
+        }
+        return prop->GetScalarAs<uint32_t>(index);
+    };
+
+    auto tgiFromList = [&](const Exemplar::Property* prop) -> std::optional<DBPF::Tgi> {
+        if (!prop || prop->values.size() < 3) {
+            return std::nullopt;
+        }
+        auto type = getU32(prop, 0).value_or(kTypeIdS3D);
+        if (type == 0) {
+            type = kTypeIdS3D;
+        }
+        auto group = getU32(prop, 1);
+        auto instance = getU32(prop, 2);
+        if (!group || !instance) {
+            return std::nullopt;
+        }
+        return DBPF::Tgi{type, *group, *instance};
+    };
+
+    if (const auto* rkt0 = findProperty(exemplar, kRkt0PropertyId)) {
+        if (auto tgi = tgiFromList(rkt0)) {
+            return tgi;
+        }
+    }
+
+    if (const auto* rkt1 = findProperty(exemplar, kRkt1PropertyId)) {
+        if (auto tgi = tgiFromList(rkt1)) {
+            const uint32_t zoomOffset = static_cast<uint32_t>(kZoomLevel - 1) * 0x100u;
+            const uint32_t rotationOffset = static_cast<uint32_t>(kRotation) * 0x10u;
+            tgi->instance = tgi->instance + zoomOffset + rotationOffset;
+            return tgi;
+        }
+    }
+
+    if (const auto* rkt5 = findProperty(exemplar, kRkt5PropertyId)) {
+        if (auto tgi = tgiFromList(rkt5)) {
+            const uint32_t zoomOffset = static_cast<uint32_t>(kZoomLevel - 1) * 0x100u;
+            const uint32_t rotationOffset = static_cast<uint32_t>(kRotation) * 0x10u;
+            tgi->instance = tgi->instance + zoomOffset + rotationOffset;
+            return tgi;
+        }
+    }
+
+    if (const auto* rkt3 = findProperty(exemplar, kRkt3PropertyId)) {
+        const size_t index = 2 + static_cast<size_t>(kZoomLevel - 1);
+        if (rkt3->values.size() > index) {
+            auto type = getU32(rkt3, 0).value_or(kTypeIdS3D);
+            if (type == 0) {
+                type = kTypeIdS3D;
+            }
+            const auto group = getU32(rkt3, 1);
+            const auto instance = getU32(rkt3, index);
+            if (group && instance) {
+                return DBPF::Tgi{type, *group, *instance};
+            }
+        }
+    }
+
+    if (const auto* rkt2 = findProperty(exemplar, kRkt2PropertyId)) {
+        const size_t index = 2 + static_cast<size_t>(kZoomLevel - 1) * 4 +
+                             static_cast<size_t>(kRotation);
+        if (rkt2->values.size() > index) {
+            const auto instance = getU32(rkt2, index);
+            if (instance) {
+                return DBPF::Tgi{kTypeIdS3D, exemplarTgi.group, *instance};
+            }
+        }
+    }
+
+    if (const auto* rkt4 = findProperty(exemplar, kRkt4PropertyId)) {
+        const size_t blockSize = 8;
+        for (size_t i = 0; i + blockSize - 1 < rkt4->values.size(); i += blockSize) {
+            const auto state = getU32(rkt4, i);
+            if (!state || *state != 0) {
+                continue;
+            }
+            auto type = getU32(rkt4, i + 5).value_or(kTypeIdS3D);
+            if (type == 0) {
+                type = kTypeIdS3D;
+            }
+            const auto group = getU32(rkt4, i + 6);
+            const auto instance = getU32(rkt4, i + 7);
+            if (group && instance) {
+                return DBPF::Tgi{type, *group, *instance};
+            }
+        }
+    }
+
+    return std::nullopt;
 }

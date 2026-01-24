@@ -47,7 +47,9 @@ PluginConfiguration GetDefaultPluginConfiguration()
     return PluginConfiguration{};
 }
 
-void ScanAndAnalyzeExemplars(const PluginConfiguration& config, spdlog::logger& logger)
+void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
+                             spdlog::logger& logger,
+                             bool renderModelThumbnails)
 {
     try {
         logger.info("Initializing plugin scanner...");
@@ -117,7 +119,7 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config, spdlog::logger& 
         uint32_t parseErrors = 0;
         std::set<uint32_t> missingBuildingIds;
 
-        ExemplarParser parser(propertyMapper, &indexService);
+        ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails);
         std::vector<Lot> allLots;
         std::unordered_map<uint32_t, ParsedBuildingExemplar> buildingMap;
 
@@ -263,16 +265,40 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config, spdlog::logger& 
         // Export lot config data to CBOR file in user plugins directory
         if (!allLots.empty()) {
             try {
+                // Deduplicate lots by (group, instance) - keep the last occurrence
+                struct PairHash {
+                    size_t operator()(const std::pair<uint32_t, uint32_t>& p) const {
+                        return std::hash<uint64_t>{}((static_cast<uint64_t>(p.first) << 32) | p.second);
+                    }
+                };
+                std::unordered_map<std::pair<uint32_t, uint32_t>, Lot, PairHash> uniqueLots;
+                for (auto& lot : allLots) {
+                    auto key = std::make_pair(lot.groupId.value(), lot.instanceId.value());
+                    uniqueLots[key] = std::move(lot);
+                }
+
+                // Convert back to vector
+                std::vector<Lot> deduplicatedLots;
+                deduplicatedLots.reserve(uniqueLots.size());
+                for (auto& [key, lot] : uniqueLots) {
+                    deduplicatedLots.push_back(std::move(lot));
+                }
+
+                const size_t duplicatesRemoved = allLots.size() - deduplicatedLots.size();
+                if (duplicatesRemoved > 0) {
+                    logger.warn("Removed {} duplicate lot(s) before export", duplicatesRemoved);
+                }
+
                 auto cborPath = config.userPluginsRoot / "lot_configs.cbor";
                 fs::create_directories(config.userPluginsRoot);
 
-                logger.info("Exporting {} lot configs to {}", allLots.size(), cborPath.string());
+                logger.info("Exporting {} unique lot configs to {}", deduplicatedLots.size(), cborPath.string());
 
                 std::ofstream file(cborPath, std::ios::binary);
                 if (!file) {
                     logger.error("Failed to open file for writing: {}", cborPath.string());
                 } else {
-                    rfl::cbor::write(allLots, file);
+                    rfl::cbor::write(deduplicatedLots, file);
                     file.close();
                     logger.info("Successfully exported lot configs");
                 }
@@ -305,6 +331,7 @@ int main(int argc, char* argv[])
         args::ValueFlag<std::string> gameFlag(parser, "path", "Game root directory (plugins will be in {path}/Plugins)", {"game"});
         args::ValueFlag<std::string> pluginsFlag(parser, "path", "User plugins directory", {"plugins"});
         args::ValueFlag<std::string> localeFlag(parser, "path", "Locale directory under game root (e.g., English)", {"locale"});
+        args::Flag renderThumbnailsFlag(parser, "render-thumbnails", "Render 3D thumbnails for buildings without icons", {"render-thumbnails"});
 
         try {
             parser.ParseCLI(argc, argv);
@@ -345,7 +372,10 @@ int main(int argc, char* argv[])
             logger->info("  Game Plugins: {}", config.gamePluginsRoot.string());
             logger->info("  User Plugins: {}", config.userPluginsRoot.string());
 
-            ScanAndAnalyzeExemplars(config, *logger);
+            if (renderThumbnailsFlag) {
+                logger->info("3D thumbnail rendering enabled (Zoom 5 South, 44x44)");
+            }
+            ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag);
             return 0;
         }
 
