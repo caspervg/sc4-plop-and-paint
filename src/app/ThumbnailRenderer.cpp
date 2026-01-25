@@ -95,7 +95,7 @@ namespace thumb {
                         yi ? bounds.max.y : bounds.min.y,
                         zi ? bounds.max.z : bounds.min.z
                     };
-                    Vector3 offset = Vector3Scale(Vector3Subtract(corner, center), scale);
+                    Vector3 offset = Vector3Scale(Vector3Subtract(corner, adjustedTarget), scale);
                     const float projRight = std::abs(Vector3DotProduct(offset, right));
                     const float projUp = std::abs(Vector3DotProduct(offset, camUp));
                     halfWidth = std::max(halfWidth, projRight);
