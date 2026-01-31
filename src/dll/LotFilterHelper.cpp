@@ -2,7 +2,9 @@
 #include <algorithm>
 #include <cctype>
 
-bool LotFilterHelper::PassesFilters(const Lot& lot) const {
+#include "spdlog/spdlog.h"
+
+bool LotFilterHelper::PassesFilters(const LotView& lot) const {
     return PassesTextFilter_(lot) &&
            PassesSizeFilter_(lot) &&
            PassesOccupantGroupFilter_(lot) &&
@@ -11,31 +13,76 @@ bool LotFilterHelper::PassesFilters(const Lot& lot) const {
            PassesGrowthStageFilter_(lot);
 }
 
-std::vector<const Lot*> LotFilterHelper::ApplyFiltersAndSort(
-    const std::vector<Lot>& lots,
-    const std::unordered_set<uint32_t>& favorites
+std::vector<LotView> LotFilterHelper::ApplyFiltersAndSort(
+    const std::vector<LotView>& lots,
+    const std::unordered_set<uint32_t>& favorites,
+    std::span<const SortSpec> sortOrder
 ) const {
-    std::vector<const Lot*> filtered;
+    std::vector<LotView> filtered;
 
     // Filter lots
     for (const auto& lot : lots) {
         if (PassesFilters(lot) && PassesFavoritesOnlyFilter_(lot, favorites)) {
-            filtered.push_back(&lot);
+            filtered.push_back(lot);
+        } else {
+            spdlog::warn("Lot {} {} filtered out by filter criteria", lot.lot->instanceId.value(), lot.building->name);
         }
     }
 
-    // Sort with two-tier comparator: favorites first, then alphabetically
-    std::ranges::sort(filtered, [&favorites](const Lot* a, const Lot* b) {
-        const auto aIsFavorite = favorites.contains(a->instanceId.value());
-        const auto bIsFavorite = favorites.contains(b->instanceId.value());
+    const auto compareStrings = [](const std::string& lhs, const std::string& rhs) {
+        if (lhs < rhs) return -1;
+        if (lhs > rhs) return 1;
+        return 0;
+    };
 
-        // If one is favorite and the other isn't, favorite comes first
-        if (aIsFavorite != bIsFavorite) {
-            return aIsFavorite;
+    const auto compareInts = [](auto lhs, auto rhs) {
+        if (lhs < rhs) return -1;
+        if (lhs > rhs) return 1;
+        return 0;
+    };
+
+    // Effective sort order: UI-provided specs or default name ordering.
+    std::vector<SortSpec> effectiveOrder;
+    if (!sortOrder.empty()) {
+        effectiveOrder.assign(sortOrder.begin(), sortOrder.end());
+    }
+    else {
+        effectiveOrder.push_back({SortColumn::Name, false});
+    }
+
+    // Always add a deterministic tie-breaker.
+    effectiveOrder.push_back({SortColumn::Name, false});
+
+    std::ranges::sort(filtered, [&](const LotView& a, const LotView& b) {
+        for (const auto& spec : effectiveOrder) {
+            int cmp = 0;
+            switch (spec.column) {
+                case SortColumn::Name: {
+                    cmp = compareStrings(a.building->name, b.building->name);
+                    if (cmp == 0) {
+                        cmp = compareStrings(a.lot->name, b.lot->name);
+                    }
+                    break;
+                }
+                case SortColumn::Size: {
+                    const auto areaA = static_cast<int>(a.lot->sizeX) * static_cast<int>(a.lot->sizeZ);
+                    const auto areaB = static_cast<int>(b.lot->sizeX) * static_cast<int>(b.lot->sizeZ);
+                    cmp = compareInts(areaA, areaB);
+                    if (cmp == 0) cmp = compareInts(a.lot->sizeX, b.lot->sizeX);
+                    if (cmp == 0) cmp = compareInts(a.lot->sizeZ, b.lot->sizeZ);
+                    break;
+                }
+            }
+
+            if (cmp != 0) {
+                return spec.descending ? (cmp > 0) : (cmp < 0);
+            }
         }
 
-        // Both favorites or both non-favorites: sort alphabetically by name
-        return a->name < b->name;
+        // Final stable tie-breaker on IDs to keep order deterministic.
+        const auto buildingCmp = compareInts(a.building->instanceId.value(), b.building->instanceId.value());
+        if (buildingCmp != 0) return buildingCmp < 0;
+        return a.lot->instanceId.value() < b.lot->instanceId.value();
     });
 
     return filtered;
@@ -57,11 +104,13 @@ void LotFilterHelper::ResetFilters() {
     favoritesOnly = false;
 }
 
-bool LotFilterHelper::PassesTextFilter_(const Lot& lot) const {
+bool LotFilterHelper::PassesTextFilter_(const LotView& view) const {
     // If search buffer is empty, all lots pass
     if (searchBuffer.empty()) {
         return true;
     }
+    const Lot& lot = *view.lot;
+    const Building& building = *view.building;
 
     // Convert search term to lowercase for case-insensitive search (using std::transform)
     std::string searchLower;
@@ -80,8 +129,8 @@ bool LotFilterHelper::PassesTextFilter_(const Lot& lot) const {
 
     // Convert building name to lowercase and search
     std::string buildingNameLower;
-    buildingNameLower.reserve(lot.building.name.size());
-    std::ranges::transform(lot.building.name, std::back_inserter(buildingNameLower),
+    buildingNameLower.reserve(building.name.size());
+    std::ranges::transform(building.name, std::back_inserter(buildingNameLower),
                            [](unsigned char c) { return std::tolower(c); });
     if (buildingNameLower.find(searchLower) != std::string::npos) {
         return true;
@@ -90,7 +139,8 @@ bool LotFilterHelper::PassesTextFilter_(const Lot& lot) const {
     return false;
 }
 
-bool LotFilterHelper::PassesSizeFilter_(const Lot& lot) const {
+bool LotFilterHelper::PassesSizeFilter_(const LotView& view) const {
+    const Lot& lot = *view.lot;
     int effectiveMinX = std::min(minSizeX, maxSizeX);
     int effectiveMaxX = std::max(minSizeX, maxSizeX);
     int effectiveMinZ = std::min(minSizeZ, maxSizeZ);
@@ -100,18 +150,20 @@ bool LotFilterHelper::PassesSizeFilter_(const Lot& lot) const {
         lot.sizeZ >= effectiveMinZ && lot.sizeZ <= effectiveMaxZ;
 }
 
-bool LotFilterHelper::PassesOccupantGroupFilter_(const Lot& lot) const {
+bool LotFilterHelper::PassesOccupantGroupFilter_(const LotView& view) const {
+    const Building& building = *view.building;
     // If no occupant groups are selected, show all lots
     if (selectedOccupantGroups.empty()) {
         return true;
     }
 
     // Check if any of the lot's occupant groups matches any selected OG
-    return std::ranges::any_of(lot.building.occupantGroups,
+    return std::ranges::any_of(building.occupantGroups,
                                [this](uint32_t og) { return selectedOccupantGroups.contains(og); });
 }
 
-bool LotFilterHelper::PassesZoneTypeFilter_(const Lot& lot) const {
+bool LotFilterHelper::PassesZoneTypeFilter_(const LotView& view) const {
+    const Lot& lot = *view.lot;
     // If no zone type is selected, show all lots
     if (!selectedZoneType.has_value()) {
         return true;
@@ -150,7 +202,8 @@ bool LotFilterHelper::PassesZoneTypeFilter_(const Lot& lot) const {
     return false;
 }
 
-bool LotFilterHelper::PassesWealthFilter_(const Lot& lot) const {
+bool LotFilterHelper::PassesWealthFilter_(const LotView& view) const {
+    const Lot& lot = *view.lot;
     // If no wealth type is selected, show all lots
     if (!selectedWealthType.has_value()) {
         return true;
@@ -160,7 +213,8 @@ bool LotFilterHelper::PassesWealthFilter_(const Lot& lot) const {
     return lot.wealthType.has_value() && lot.wealthType.value() == selectedWealthType.value();
 }
 
-bool LotFilterHelper::PassesGrowthStageFilter_(const Lot& lot) const {
+bool LotFilterHelper::PassesGrowthStageFilter_(const LotView& view) const {
+    const Lot& lot = *view.lot;
     // If no growth stage is selected, show all lots
     if (!selectedGrowthStage.has_value()) {
         return true;
@@ -170,12 +224,12 @@ bool LotFilterHelper::PassesGrowthStageFilter_(const Lot& lot) const {
     return lot.growthStage == selectedGrowthStage.value();
 }
 
-bool LotFilterHelper::PassesFavoritesOnlyFilter_(const Lot& lot, const std::unordered_set<uint32_t>& favorites) const {
+bool LotFilterHelper::PassesFavoritesOnlyFilter_(const LotView& view, const std::unordered_set<uint32_t>& favorites) const {
     // If favorites only is not enabled, show all lots
     if (!favoritesOnly) {
         return true;
     }
 
     // Check if lot is in the favorites set
-    return favorites.contains(lot.instanceId.value());
+    return favorites.contains(view.lot->instanceId.value());
 }

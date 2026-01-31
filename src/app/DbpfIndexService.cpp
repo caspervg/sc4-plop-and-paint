@@ -202,6 +202,7 @@ void DbpfIndexService::worker_() {
             try {
                 DBPF::Reader reader;
                 if (!reader.LoadFile(filePath.string())) {
+                    spdlog::warn("Failed to load {}", currentFile_);
                     ++errorCount_;
                     ++processedFiles_;
                     continue;
@@ -233,6 +234,7 @@ void DbpfIndexService::worker_() {
                 }
 
             } catch ([[maybe_unused]] const std::exception& error) {
+                spdlog::error("Error loading {}", currentFile_);
                 ++errorCount_;
                 ++processedFiles_;
             }

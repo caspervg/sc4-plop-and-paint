@@ -101,7 +101,7 @@ public:
 
     // Conversion functions to canonical entities
     [[nodiscard]] Building buildingFromParsed(const ParsedBuildingExemplar& parsed) const;
-    [[nodiscard]] Lot lotFromParsed(const ParsedLotConfigExemplar& parsed, const Building& building) const;
+    [[nodiscard]] Lot lotFromParsed(const ParsedLotConfigExemplar& parsed) const;
 
     // Cohort-aware property lookup - searches exemplar and parent cohorts recursively
     [[nodiscard]] const Exemplar::Property* findProperty(

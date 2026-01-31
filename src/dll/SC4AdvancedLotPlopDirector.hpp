@@ -47,7 +47,7 @@ public:
     bool OnInstall() override;
     bool DoMessage(cIGZMessage2* pMsg) override;
 
-    [[nodiscard]] const std::vector<Lot>& GetLots() const;
+    [[nodiscard]] const std::vector<Building>& GetBuildings() const;
     void TriggerLotPlop(uint32_t lotInstanceId) const;
 
     // Favorites management
@@ -73,7 +73,7 @@ private:
     cISC4View3DWin* pView3D_ = nullptr;
     cRZAutoRefCount<cIGZMessageServer2> pMS2_;
 
-    std::vector<Lot> lots_{};
+    std::vector<Building> buildings_{};
     std::unordered_set<uint32_t> favoriteLotIds_{};
     bool panelRegistered_{false};
     bool panelVisible_{false};

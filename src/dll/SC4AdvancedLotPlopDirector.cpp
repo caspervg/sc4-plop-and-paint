@@ -6,6 +6,7 @@
 #include <wil/resource.h>
 #include <wil/win32_helpers.h>
 
+#include <chrono>
 #include "cGZPersistResourceKey.h"
 #include "cIGZCommandParameterSet.h"
 #include "cIGZPersistResourceManager.h"
@@ -16,7 +17,6 @@
 #include "rfl/cbor/load.hpp"
 #include "rfl/cbor/save.hpp"
 #include "spdlog/spdlog.h"
-#include <chrono>
 
 namespace {
     constexpr auto kSC4AdvancedLotPlopDirectorID = 0xE5C2B9A7u;
@@ -128,81 +128,8 @@ bool SC4AdvancedLotPlopDirector::DoMessage(cIGZMessage2* pMsg) {
     return true;
 }
 
-void SC4AdvancedLotPlopDirector::ToggleLotPlopPanel_() {
-    SetLotPlopPanelVisible(!panelVisible_);
-}
-
-void SC4AdvancedLotPlopDirector::SetLotPlopPanelVisible(bool visible) {
-    if (!imguiService_ || !panelRegistered_ || !panel_) {
-        return;
-    }
-
-    panelVisible_ = visible;
-    panel_->SetOpen(visible);
-}
-
-bool SC4AdvancedLotPlopDirector::RegisterLotPlopShortcut_() {
-    if (shortcutRegistered_) {
-        return true;
-    }
-    if (!pView3D_) {
-        spdlog::warn("Cannot register lot plop shortcut: View3D not available");
-        return false;
-    }
-    if (!pMS2_) {
-        spdlog::warn("Cannot register lot plop shortcut: message server not available");
-        return false;
-    }
-
-    cIGZPersistResourceManagerPtr pRM;
-    if (!pRM) {
-        spdlog::warn("Cannot register lot plop shortcut: resource manager unavailable");
-        return false;
-    }
-
-    cRZAutoRefCount<cIGZWinKeyAcceleratorRes> acceleratorRes;
-    const cGZPersistResourceKey key(kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
-    if (!pRM->GetPrivateResource(key, kGZIID_cIGZWinKeyAcceleratorRes,
-                                 acceleratorRes.AsPPVoid(), 0, nullptr)) {
-        spdlog::warn("Failed to load key config resource 0x{:08X}/0x{:08X}/0x{:08X}",
-                     kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
-        return false;
-    }
-
-    auto* accelerator = pView3D_->GetKeyAccelerator();
-    if (!accelerator) {
-        spdlog::warn("Cannot register lot plop shortcut: key accelerator not available");
-        return false;
-    }
-
-    if (!acceleratorRes->RegisterResources(accelerator)) {
-        spdlog::warn("Failed to register key accelerator resources");
-        return false;
-    }
-
-    if (!pMS2_->AddNotification(this, kToggleLotPlopWindowShortcutID)) {
-        spdlog::warn("Failed to register shortcut notification 0x{:08X}",
-                     kToggleLotPlopWindowShortcutID);
-        return false;
-    }
-
-    shortcutRegistered_ = true;
-    return true;
-}
-
-void SC4AdvancedLotPlopDirector::UnregisterLotPlopShortcut_() {
-    if (!shortcutRegistered_) {
-        return;
-    }
-
-    if (pMS2_) {
-        pMS2_->RemoveNotification(this, kToggleLotPlopWindowShortcutID);
-    }
-    shortcutRegistered_ = false;
-}
-
-const std::vector<Lot>& SC4AdvancedLotPlopDirector::GetLots() const {
-    return lots_;
+const std::vector<Building>& SC4AdvancedLotPlopDirector::GetBuildings() const {
+    return buildings_;
 }
 
 void SC4AdvancedLotPlopDirector::TriggerLotPlop(uint32_t lotInstanceId) const {
@@ -267,6 +194,15 @@ void SC4AdvancedLotPlopDirector::ToggleFavorite(uint32_t lotInstanceId) {
     SaveFavorites_();
 }
 
+void SC4AdvancedLotPlopDirector::SetLotPlopPanelVisible(bool visible) {
+    if (!imguiService_ || !panelRegistered_ || !panel_) {
+        return;
+    }
+
+    panelVisible_ = visible;
+    panel_->SetOpen(visible);
+}
+
 void SC4AdvancedLotPlopDirector::PostCityInit_(const cIGZMessage2Standard* pStandardMsg) {
     pCity_ = static_cast<cISC4City*>(pStandardMsg->GetVoid1());
 
@@ -294,6 +230,70 @@ void SC4AdvancedLotPlopDirector::PreCityShutdown_(cIGZMessage2Standard* pStandar
     spdlog::info("City shutdown - released resources");
 }
 
+void SC4AdvancedLotPlopDirector::ToggleLotPlopPanel_() {
+    SetLotPlopPanelVisible(!panelVisible_);
+}
+
+bool SC4AdvancedLotPlopDirector::RegisterLotPlopShortcut_() {
+    if (shortcutRegistered_) {
+        return true;
+    }
+    if (!pView3D_) {
+        spdlog::warn("Cannot register lot plop shortcut: View3D not available");
+        return false;
+    }
+    if (!pMS2_) {
+        spdlog::warn("Cannot register lot plop shortcut: message server not available");
+        return false;
+    }
+
+    cIGZPersistResourceManagerPtr pRM;
+    if (!pRM) {
+        spdlog::warn("Cannot register lot plop shortcut: resource manager unavailable");
+        return false;
+    }
+
+    cRZAutoRefCount<cIGZWinKeyAcceleratorRes> acceleratorRes;
+    const cGZPersistResourceKey key(kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
+    if (!pRM->GetPrivateResource(key, kGZIID_cIGZWinKeyAcceleratorRes,
+                                 acceleratorRes.AsPPVoid(), 0, nullptr)) {
+        spdlog::warn("Failed to load key config resource 0x{:08X}/0x{:08X}/0x{:08X}",
+                     kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
+        return false;
+    }
+
+    auto* accelerator = pView3D_->GetKeyAccelerator();
+    if (!accelerator) {
+        spdlog::warn("Cannot register lot plop shortcut: key accelerator not available");
+        return false;
+    }
+
+    if (!acceleratorRes->RegisterResources(accelerator)) {
+        spdlog::warn("Failed to register key accelerator resources");
+        return false;
+    }
+
+    if (!pMS2_->AddNotification(this, kToggleLotPlopWindowShortcutID)) {
+        spdlog::warn("Failed to register shortcut notification 0x{:08X}",
+                     kToggleLotPlopWindowShortcutID);
+        return false;
+    }
+
+    shortcutRegistered_ = true;
+    return true;
+}
+
+void SC4AdvancedLotPlopDirector::UnregisterLotPlopShortcut_() {
+    if (!shortcutRegistered_) {
+        return;
+    }
+
+    if (pMS2_) {
+        pMS2_->RemoveNotification(this, kToggleLotPlopWindowShortcutID);
+    }
+    shortcutRegistered_ = false;
+}
+
 void SC4AdvancedLotPlopDirector::LoadLots_() {
     try {
         const auto pluginsPath = GetUserPluginsPath_();
@@ -304,33 +304,28 @@ void SC4AdvancedLotPlopDirector::LoadLots_() {
             return;
         }
 
-        auto result = rfl::cbor::load<std::vector<Lot>>(cborPath.string());
+        auto result = rfl::cbor::load<std::vector<Building>>(cborPath.string());
         if (result) {
-            lots_ = std::move(*result);
+            buildings_ = std::move(*result);
 
-            // Check for duplicates (group, instance) pairs
-            struct PairHash {
-                size_t operator()(const std::pair<uint32_t, uint32_t>& p) const {
-                    return std::hash<uint64_t>{}((static_cast<uint64_t>(p.first) << 32) | p.second);
-                }
-            };
-            std::unordered_map<std::pair<uint32_t, uint32_t>, int, PairHash> duplicateCheck;
-            for (const auto& lot : lots_) {
-                auto key = std::make_pair(lot.groupId.value(), lot.instanceId.value());
-                duplicateCheck[key]++;
-            }
-
-            int duplicateCount = 0;
-            for (const auto& [key, count] : duplicateCheck) {
-                if (count > 1) {
-                    duplicateCount++;
-                    spdlog::warn("Duplicate lot found: group=0x{:08X}, instance=0x{:08X}, count={}",
-                                key.first, key.second, count);
+            size_t lotCount = 0;
+            std::unordered_set<uint64_t> lotKeys;
+            size_t duplicateLots = 0;
+            for (const auto& b : buildings_) {
+                for (const auto& lot : b.lots) {
+                    ++lotCount;
+                    const uint64_t key = (static_cast<uint64_t>(lot.groupId.value()) << 32) | lot.instanceId.value();
+                    if (!lotKeys.insert(key).second) {
+                        ++duplicateLots;
+                        spdlog::warn("Duplicate lot in CBOR: group=0x{:08X}, instance=0x{:08X}", lot.groupId.value(), lot.instanceId.value());
+                    }
                 }
             }
 
-            spdlog::info("Loaded {} lots from {} ({} unique, {} duplicates)",
-                        lots_.size(), cborPath.string(), duplicateCheck.size(), duplicateCount);
+            spdlog::info("Loaded {} buildings / {} lots from {}", buildings_.size(), lotCount, cborPath.string());
+            if (duplicateLots > 0) {
+                spdlog::warn("Detected {} duplicate lot IDs in CBOR", duplicateLots);
+            }
         }
         else {
             spdlog::error("Failed to load lots from CBOR file: {}", result.error().what());

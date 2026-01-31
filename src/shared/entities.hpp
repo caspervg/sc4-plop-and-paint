@@ -23,18 +23,6 @@ struct Icon {
 
 using Thumbnail = rfl::TaggedUnion<"type", PreRendered, Icon>;
 
-struct Building {
-    rfl::Hex<uint32_t> instanceId;
-    rfl::Hex<uint32_t> groupId;
-
-    std::string name;
-    std::string description;
-
-    std::unordered_set<uint32_t> occupantGroups;
-
-    std::optional<Thumbnail> thumbnail;
-};
-
 struct Lot {
     rfl::Hex<uint32_t> instanceId;
     rfl::Hex<uint32_t> groupId;
@@ -52,8 +40,20 @@ struct Lot {
     std::optional<uint8_t> zoneType;      // LotConfigPropertyZoneTypes (0x88edc793)
     std::optional<uint8_t> wealthType;    // LotConfigPropertyWealthTypes (0x88edc795)
     std::optional<uint8_t> purposeType;   // LotConfigPropertyPurposeTypes (0x88edc796)
+};
 
-    Building building;
+struct Building {
+    rfl::Hex<uint32_t> instanceId;
+    rfl::Hex<uint32_t> groupId;
+
+    std::string name;
+    std::string description;
+
+    std::unordered_set<uint32_t> occupantGroups;
+
+    std::optional<Thumbnail> thumbnail;
+
+    std::vector<Lot> lots;
 };
 
 struct TabFavorites {

@@ -19,13 +19,13 @@
 
 namespace {
     // Icon dimensions: first 44px is greyscale locked icon, second 44px is the color icon we want
-    constexpr uint32_t kIconSkipWidth = 44;   // Skip the first 44 pixels (greyscale locked icon)
-    constexpr uint32_t kIconCropWidth = 44;   // Extract the next 44 pixels (color icon)
+    constexpr uint32_t kIconSkipWidth = 44; // Skip the first 44 pixels (greyscale locked icon)
+    constexpr uint32_t kIconCropWidth = 44; // Extract the next 44 pixels (color icon)
 
     // Decode PNG data to RGBA32 pixel data, extracting the second 44-pixel wide icon
     // Returns empty vector on failure
     struct DecodedImage {
-        std::vector<std::byte> pixels;  // RGBA32 data
+        std::vector<std::byte> pixels; // RGBA32 data
         uint32_t width = 0;
         uint32_t height = 0;
     };
@@ -70,7 +70,8 @@ namespace {
         auto text = parsed->ToUtf8();
         if (text.empty()) {
             return std::nullopt;
-        } else {
+        }
+        else {
             spdlog::debug("Loaded localized text {}: {}", tgi.ToString(), text);
         }
 
@@ -91,7 +92,7 @@ namespace {
         unsigned char* pixels = stbi_load_from_memory(
             pngData.data(),
             static_cast<int>(pngData.size()),
-            &width, &height, &channels, 4  // Force RGBA output
+            &width, &height, &channels, 4 // Force RGBA output
         );
 
         if (!pixels) {
@@ -104,7 +105,7 @@ namespace {
         // Check if image is wide enough to have the second icon
         if (static_cast<uint32_t>(width) < kIconSkipWidth + kIconCropWidth) {
             spdlog::debug("decodePngToRgba32: image too narrow ({}px), need at least {}px",
-                width, kIconSkipWidth + kIconCropWidth);
+                          width, kIconSkipWidth + kIconCropWidth);
             stbi_image_free(pixels);
             return result;
         }
@@ -129,7 +130,7 @@ namespace {
 
         // Swap R and B channels (RGBA -> BGRA) for DirectX7 compatibility
         for (size_t i = 0; i < croppedDataSize; i += 4) {
-            std::swap(result.pixels[i], result.pixels[i + 2]);  // Swap R and B
+            std::swap(result.pixels[i], result.pixels[i + 2]); // Swap R and B
         }
 
         result.width = cropWidth;
@@ -145,7 +146,7 @@ namespace fs = std::filesystem;
 ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
                                const DbpfIndexService* indexService,
                                const bool renderThumbnails)
-      : propertyMapper_(mapper)
+    : propertyMapper_(mapper)
       , indexService_(indexService) {
     if (renderThumbnails && indexService_) {
         thumbnailRenderer_ = std::make_unique<thumb::ThumbnailRenderer>(*indexService_);
@@ -416,17 +417,19 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
                 icon.width = decoded.width;
                 icon.height = decoded.height;
                 building.thumbnail = icon;
-            } else {
+            }
+            else {
                 spdlog::warn("buildingFromParsed: PNG decode returned empty pixels for {}", parsed.name);
             }
-        } else {
+        }
+        else {
             spdlog::debug("buildingFromParsed: No PNG data found for icon TGI 0x{:08X}/0x{:08X}/0x{:08X}",
                           parsed.iconTgi->type, parsed.iconTgi->group, parsed.iconTgi->instance);
         }
     }
 
     if (!building.thumbnail.has_value() && parsed.modelTgi.has_value() && thumbnailRenderer_) {
-        constexpr uint32_t kRenderedThumbnailSize = 44;
+        constexpr uint32_t kRenderedThumbnailSize = 88;
         auto rendered = thumbnailRenderer_->renderModel(*parsed.modelTgi, kRenderedThumbnailSize);
         if (rendered.has_value() && !rendered->pixels.empty()) {
             PreRendered preview;
@@ -434,7 +437,8 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
             preview.width = rendered->width;
             preview.height = rendered->height;
             building.thumbnail = preview;
-        } else {
+        }
+        else {
             spdlog::debug("Thumbnail render failed for building {} ({})",
                           parsed.name, parsed.modelTgi->ToString());
         }
@@ -443,7 +447,7 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
     return building;
 }
 
-Lot ExemplarParser::lotFromParsed(const ParsedLotConfigExemplar& parsed, const Building& building) const {
+Lot ExemplarParser::lotFromParsed(const ParsedLotConfigExemplar& parsed) const {
     Lot lot;
     lot.instanceId = parsed.tgi.instance;
     lot.groupId = parsed.tgi.group;
@@ -456,7 +460,6 @@ Lot ExemplarParser::lotFromParsed(const ParsedLotConfigExemplar& parsed, const B
     lot.zoneType = parsed.zoneType;
     lot.wealthType = parsed.wealthType;
     lot.purposeType = parsed.purposeType;
-    lot.building = building;
     return lot;
 }
 
@@ -548,23 +551,27 @@ std::string ExemplarParser::resolveLTextTags_(std::string_view text,
                     return value;
                 }
                 return std::nullopt;
-            } else if constexpr (std::is_same_v<V, bool>) {
+            }
+            else if constexpr (std::is_same_v<V, bool>) {
                 if (mode == 'd') {
                     return value ? "1" : "0";
                 }
                 return std::nullopt;
-            } else if constexpr (std::is_integral_v<V>) {
+            }
+            else if constexpr (std::is_integral_v<V>) {
                 if (mode == 'm') {
                     return std::string("§") + std::to_string(static_cast<int64_t>(value));
                 }
                 return std::to_string(static_cast<int64_t>(value));
-            } else if constexpr (std::is_same_v<V, float>) {
+            }
+            else if constexpr (std::is_same_v<V, float>) {
                 if (mode == 'm') {
                     const auto rounded = static_cast<int64_t>(std::llround(value));
                     return std::string("§") + std::to_string(rounded);
                 }
                 return std::to_string(value);
-            } else {
+            }
+            else {
                 return std::nullopt;
             }
         }, prop.values.front());

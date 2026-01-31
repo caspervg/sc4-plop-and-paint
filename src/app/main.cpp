@@ -7,6 +7,8 @@
 #include <set>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -121,8 +123,10 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
         std::set<uint32_t> missingBuildingIds;
 
         ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails);
-        std::vector<Lot> allLots;
+        std::vector<Building> allBuildings;
         std::unordered_map<uint32_t, ParsedBuildingExemplar> buildingMap;
+        std::unordered_map<uint32_t, Building> builtBuildings;
+        std::unordered_set<uint64_t> seenLotKeys;
 
         // Use the index service to get all exemplars across all files
         logger.info("Processing exemplars using type index...");
@@ -174,6 +178,7 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
                             auto building = parser.parseBuilding(*exemplarResult, tgi);
                             if (building) {
                                 buildingMap[tgi.instance] = *building;
+                                builtBuildings.try_emplace(tgi.instance, parser.buildingFromParsed(*building));
                                 buildingsFound++;
                                 logger.trace("  Building: {} (0x{:08X})", building->name, tgi.instance);
                             }
@@ -224,10 +229,9 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
 
                 if (auto parsedLot = parser.parseLotConfig(*exemplarResult, tgi, buildingMap, familyToBuildingsMap)) {
                     // Get building for this lot
-                    auto buildingIt = buildingMap.find(parsedLot->buildingInstanceId);
-                    if (buildingIt != buildingMap.end()) {
-                        Building building = parser.buildingFromParsed(buildingIt->second);
-                        Lot lot = parser.lotFromParsed(*parsedLot, building);
+                    auto buildingIt = builtBuildings.find(parsedLot->buildingInstanceId);
+                    if (buildingIt != builtBuildings.end()) {
+                        Lot lot = parser.lotFromParsed(*parsedLot);
                         if (parsedLot->isFamilyReference) {
                             logger.trace("  Lot: {} (0x{:08X}) [family 0x{:08X} -> building 0x{:08X}]",
                                        lot.name, lot.instanceId.get(),
@@ -235,8 +239,15 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
                         } else {
                             logger.trace("  Lot: {} (0x{:08X})", lot.name, lot.instanceId.get());
                         }
-                        allLots.push_back(lot);
-                        lotsFound++;
+                        const uint64_t lotKey = (static_cast<uint64_t>(lot.groupId.value()) << 32) |
+                                                static_cast<uint64_t>(lot.instanceId.value());
+                        if (seenLotKeys.insert(lotKey).second) {
+                            buildingIt->second.lots.push_back(lot);
+                            lotsFound++;
+                        } else {
+                            logger.warn("Duplicate lot skipped: {} (group=0x{:08X}, instance=0x{:08X})",
+                                        lot.name, lot.groupId.value(), lot.instanceId.value());
+                        }
                     } else {
                         if (parsedLot->isFamilyReference) {
                             logger.warn("  Lot {} references family 0x{:08X} but resolved building 0x{:08X} not found",
@@ -259,21 +270,28 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
             logger.warn("Missing building references for {} lots:", missingBuildingIds.size());
         }
 
-        logger.info("Scan complete: {} buildings, {} lots, {} parse errors",
-                   buildingsFound, lotsFound, parseErrors);
+        // Collect buildings that actually have lots
+        for (auto& [instanceId, building] : builtBuildings) {
+            if (!building.lots.empty()) {
+                allBuildings.push_back(std::move(building));
+            }
+        }
 
-        // Export lot config data to CBOR file in user plugins directory
-        if (!allLots.empty()) {
+        logger.info("Scan complete: {} buildings with lots, {} lots, {} parse errors",
+                   allBuildings.size(), lotsFound, parseErrors);
+
+        // Export grouped building/lot data to CBOR file in user plugins directory
+        if (!allBuildings.empty()) {
             try {
                 auto cborPath = config.userPluginsRoot / "lot_configs.cbor";
                 fs::create_directories(config.userPluginsRoot);
 
-                logger.info("Exporting {} unique lot configs to {}", allLots.size(), cborPath.string());
+                logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound, cborPath.string());
 
                 if (std::ofstream file(cborPath, std::ios::binary); !file) {
                     logger.error("Failed to open file for writing: {}", cborPath.string());
                 } else {
-                    rfl::cbor::write(allLots, file);
+                    rfl::cbor::write(allBuildings, file);
                     file.close();
                     logger.info("Successfully exported lot configs");
                 }

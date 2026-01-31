@@ -1,24 +1,24 @@
 #pragma once
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
-#include "SC4AdvancedLotPlopDirector.hpp"
-#include "public/ImGuiTexture.h"
 #include "FilterableTablePanel.hpp"
 #include "LotFilterHelper.hpp"
+#include "SC4AdvancedLotPlopDirector.hpp"
+#include "public/ImGuiTexture.h"
 
 constexpr auto kMaxIconsToLoadPerFrame = 50;
 
 // UI Constants for consistent sizing across panels
 namespace UI {
-    constexpr auto kSearchBarWidth = 200.0f;
-    constexpr auto kSliderWidth = 75.0f;
-    constexpr auto kDropdownWidth = 150.0f;
-    constexpr auto kFavColumnWidth = 30.0f;
-    constexpr auto kIconColumnWidth = 50.0f;
+    constexpr auto kSearchBarWidth = 150.0f;
+    constexpr auto kSliderWidth = 50.0f;
+    constexpr auto kDropdownWidth = 100.0f;
+    constexpr auto kIconColumnWidth = 45.0f;
     constexpr auto kIconSize = 44.0f;
-    constexpr auto kNameColumnWidth = 300.0f;
-    constexpr auto kSizeColumnWidth = 50.0f;
-    constexpr auto kPlopColumnWidth = 40.0f;
+    constexpr auto kNameColumnWidth = 75.0f;
+    constexpr auto kSizeColumnWidth = 25.0f;
+    constexpr auto kActionColumnWidth = 55.0f;
     constexpr auto kTableHeight = 400.0f;
 }
 
@@ -39,11 +39,12 @@ private:
     void RenderTable_() override;
 
     // Internal rendering with filtered data
-    void RenderTable_(const std::vector<const Lot*>& filteredLots);
+    void RenderTable_(const std::vector<LotView>& lotViews,
+                      const std::unordered_set<uint32_t>& favorites);
 
     // Tab-specific rendering
     void RenderLotsTab_();
-    void RenderFavButton_(const Lot& lot) const;
+    void RenderFavButton_(uint32_t lotInstanceId) const;
     void RenderOccupantGroupFilter_();
 
     SC4AdvancedLotPlopDirector* director_;
@@ -52,7 +53,11 @@ private:
     uint32_t lastDeviceGeneration_ = 0;
     bool texturesLoaded_ = false;
     bool isOpen_ = false;
+    std::unordered_set<uint32_t> openBuildings_;
 
     // Filter helper
     LotFilterHelper filterHelper_;
+    std::vector<LotFilterHelper::SortSpec> sortSpecs_ = {
+        {LotFilterHelper::SortColumn::Name, false}
+    };
 };

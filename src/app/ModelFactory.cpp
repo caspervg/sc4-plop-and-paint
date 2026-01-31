@@ -98,12 +98,13 @@ namespace thumb {
 
             if (matInfo) {
                 for (const auto& texInfo : matInfo->textures) {
-                    if (auto texture = TextureLoader::loadTextureForMaterial(reader,
+                    auto texture = TextureLoader::loadTextureForMaterial(reader,
                                                                              tgi,
                                                                              texInfo.textureID,
                                                                              nightMode,
                                                                              nightOverlay,
-                                                                             extraTextureLookup)) {
+                                                                             extraTextureLookup);
+                    if (texture.has_value()) {
                         if (previewMode) {
                             SetTextureWrap(*texture, TEXTURE_WRAP_CLAMP);
                             SetTextureFilter(*texture, TEXTURE_FILTER_BILINEAR);
@@ -124,9 +125,7 @@ namespace thumb {
                         SetMaterialTexture(&material, MATERIAL_MAP_DIFFUSE, storedTexture);
                         break;
                     }
-                    else {
-                        spdlog::debug("Could not load texture for material {}", texInfo.textureID);
-                    }
+                    spdlog::warn("Could not load texture for material {}", texInfo.textureID);
                 }
             }
 

@@ -1,6 +1,7 @@
 #include "MeshBuilder.hpp"
 
 #include "raymath.h"
+#include "spdlog/spdlog.h"
 
 namespace thumb {
     Vector3 MeshBuilder::calculateModelCenter(const S3D::Record& record) {
@@ -98,9 +99,30 @@ namespace thumb {
                 break;
             }
             case 2: {
+                // Maxis S3D often encodes quads; convert each group of 4 indices into 2 triangles
+                if (count % 4 != 0) {
+                    spdlog::debug("PRIM type 2 with non-multiple-of-4 count {} at offset {} — skipping", count,
+                                  offset);
+                    break;
+                }
+                for (size_t i = 0; i + 3 < count; i += 4) {
+                    const uint16_t a = source[offset + i + 0];
+                    const uint16_t b = source[offset + i + 1];
+                    const uint16_t c = source[offset + i + 2];
+                    const uint16_t d = source[offset + i + 3];
+                    expanded.insert(expanded.end(), {a, b, c});
+                    expanded.insert(expanded.end(), {a, c, d});
+                }
+                break;
+            }
+            case 3: {
+                // Unknown/unsupported primitive type — log for investigation
+                spdlog::debug("Encountered unsupported PRIM type 3 (first {}, length {})", prim.first, prim.length);
                 break;
             }
             default:
+                spdlog::debug("Encountered unsupported PRIM type {} (first {}, length {})", prim.type, prim.first,
+                              prim.length);
                 break;
             }
         }
