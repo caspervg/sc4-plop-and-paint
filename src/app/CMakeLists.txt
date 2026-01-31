@@ -3,7 +3,6 @@ set(APP_NAME SC4AdvancedLotPlopCli)
 # Collect source files from app directory and services subdirectory
 file(GLOB APP_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/services/*.cpp
 )
 
 add_executable(${APP_NAME} ${APP_SOURCES})

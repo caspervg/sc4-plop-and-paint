@@ -1,12 +1,13 @@
 #include "ThumbnailRenderer.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include "ModelFactory.hpp"
 #include "raylib.h"
 #include "raymath.h"
-#include "S3DStructures.h"
 #include "rlgl.h"
+#include "S3DStructures.h"
 #include "spdlog/spdlog.h"
 
 namespace thumb {
@@ -25,7 +26,7 @@ namespace thumb {
         }
     }
 
-    std::optional<RenderedImage> ThumbnailRenderer::renderModel(const DBPF::Tgi& tgi, uint32_t size) {
+    std::optional<RenderedImage> ThumbnailRenderer::renderModel(const DBPF::Tgi& tgi, const uint32_t size) {
         if (size == 0) {
             return std::nullopt;
         }
@@ -51,35 +52,50 @@ namespace thumb {
 
         const BoundingBox bounds = GetModelBoundingBox(modelHandle->model);
         const Vector3 sizeVec = Vector3Subtract(bounds.max, bounds.min);
-        const float span = std::max({sizeVec.x, sizeVec.y, sizeVec.z, 1.0f});
+
+        const auto maxDim = std::max(std::max(sizeVec.x, sizeVec.y), sizeVec.z);
         const Vector3 center = Vector3Scale(Vector3Add(bounds.min, bounds.max), 0.5f);
-        const float scale = 16.f / span;
+
+        const float scale = 0.95f * static_cast<float>(size) / (maxDim * 1.414f);
 
         Camera3D camera{};
         camera.projection = CAMERA_ORTHOGRAPHIC;
-        // Match the DX11 thumbnail orientation (RY -22.5°, RX +45°) without mirroring geometry
-        const Vector3 forward = Vector3Normalize(Vector3{0.38268343f, 0.65328148f, 0.65328148f});
-        const Vector3 baseUp = Vector3Normalize(Vector3{0.0f, 0.70710678f, -0.70710678f});
-        const Vector3 right = Vector3Normalize(Vector3CrossProduct(baseUp, forward));
-        const Vector3 camUp = Vector3Normalize(Vector3CrossProduct(forward, right));
 
-        camera.target = center;
-        camera.position = Vector3Subtract(center, Vector3Scale(forward, span));
-        camera.position.y -= span * 0.15f; // Nudge camera downward to better center thumbnails
-        camera.up = camUp;
+        camera.fovy = static_cast<float>(size) / 2.0f;
+        camera.up = Vector3{0.0f, 1.0f, 0.0f};
+        const Vector3 adjustedTarget = {center.x, 2 * center.y, center.z};
+        camera.target = adjustedTarget;
+
+        constexpr auto kYawRad = 0.785398f; // 45° (π/4) - SW view
+        constexpr auto kPitchRadZoom5 = 0.5236f; // ~30° from horizontal
+        const Vector3 dir{
+            std::cos(kYawRad) * std::cos(kPitchRadZoom5),
+            std::sin(kPitchRadZoom5),
+            std::sin(kYawRad) * std::cos(kPitchRadZoom5)
+        };
+
+        const auto camDistance = maxDim * 10.0f;
+        camera.position = Vector3Add(adjustedTarget, Vector3Scale(dir, camDistance));
 
         // Compute ortho size to tightly fit all corners after rotation
-        float halfWidth = 0.0f;
-        float halfHeight = 0.0f;
-        for (int xi = 0; xi < 2; ++xi) {
-            for (int yi = 0; yi < 2; ++yi) {
-                for (int zi = 0; zi < 2; ++zi) {
+        Vector3 right = Vector3CrossProduct(dir, camera.up);
+        if (Vector3Length(right) == 0.0f) {
+            right = Vector3{1.0f, 0.0f, 0.0f};
+        }
+        right = Vector3Normalize(right);
+        Vector3 camUp = Vector3Normalize(Vector3CrossProduct(right, dir));
+
+        auto halfWidth = 0.0f;
+        auto halfHeight = 0.0f;
+        for (auto xi = 0; xi < 2; ++xi) {
+            for (auto yi = 0; yi < 2; ++yi) {
+                for (auto zi = 0; zi < 2; ++zi) {
                     Vector3 corner{
                         xi ? bounds.max.x : bounds.min.x,
                         yi ? bounds.max.y : bounds.min.y,
                         zi ? bounds.max.z : bounds.min.z
                     };
-                    Vector3 offset = Vector3Scale(Vector3Subtract(corner, center), scale);
+                    Vector3 offset = Vector3Scale(Vector3Subtract(corner, adjustedTarget), scale);
                     const float projRight = std::abs(Vector3DotProduct(offset, right));
                     const float projUp = std::abs(Vector3DotProduct(offset, camUp));
                     halfWidth = std::max(halfWidth, projRight);

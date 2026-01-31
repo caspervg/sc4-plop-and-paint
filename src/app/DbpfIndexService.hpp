@@ -1,17 +1,17 @@
 #pragma once
 #include <atomic>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
 #include <unordered_map>
 #include <vector>
-#include <memory>
 
-#include "PluginLocator.hpp"
-#include "TGI.h"
 #include "DBPFReader.h"
 #include "ExemplarReader.h"
+#include "PluginLocator.hpp"
+#include "TGI.h"
 
 struct ScanProgress {
     size_t totalFiles = 0;
@@ -24,7 +24,7 @@ struct ScanProgress {
 
 class DbpfIndexService {
 public:
-    explicit DbpfIndexService(const PluginLocator& locator);
+    explicit DbpfIndexService(PluginLocator  locator);
     ~DbpfIndexService();
 
     auto start() -> void;

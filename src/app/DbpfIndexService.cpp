@@ -2,10 +2,13 @@
 
 #include <spdlog/spdlog.h>
 
+#include <ranges>
+#include <utility>
+
 #include "DBPFReader.h"
 #include "ParseTypes.h"
 
-DbpfIndexService::DbpfIndexService(const PluginLocator& locator) : locator_(locator) {}
+DbpfIndexService::DbpfIndexService(PluginLocator  locator) : locator_(std::move(locator)) {}
 
 DbpfIndexService::~DbpfIndexService() { shutdown(); }
 
@@ -88,9 +91,97 @@ auto DbpfIndexService::pluginLocator() const -> const PluginLocator& {
     return locator_;
 }
 
+ParseExpected<const Exemplar::Record*> DbpfIndexService::loadExemplar(const DBPF::Tgi& tgi) const {
+    // Check cache first (with read lock)
+    {
+        std::shared_lock readLock(mutex_);
+        auto cacheIt = exemplarCache_.find(tgi);
+        if (cacheIt != exemplarCache_.end()) {
+            return &cacheIt->second;
+        }
+    }
+
+    // Not in cache - need to load it
+    // Find which file(s) contain this TGI
+    std::shared_lock readLock(mutex_);
+    auto tgiIt = tgiToFiles_.find(tgi);
+    if (tgiIt == tgiToFiles_.end() || tgiIt->second.empty()) {
+        return Fail("TGI not found in index");
+    }
+
+    const auto& filePaths = tgiIt->second;
+    readLock.unlock();
+
+    // Try to load from the last file that has it
+    for (const auto& filePath : std::ranges::reverse_view(filePaths)) {
+        auto* reader = getReader(filePath);
+        if (!reader) {
+            continue;
+        }
+
+        auto exemplar = reader->LoadExemplar(tgi);
+        if (exemplar.has_value()) {
+            // Insert into cache and return pointer to cached version
+            std::unique_lock writeLock(mutex_);
+            auto [it, inserted] = exemplarCache_.try_emplace(tgi, std::move(*exemplar));
+            return &it->second;
+        }
+    }
+
+    return Fail("Failed to load exemplar from any file");
+}
+
+std::optional<std::vector<uint8_t>> DbpfIndexService::loadEntryData(const DBPF::Tgi& tgi) const {
+    // Find which file(s) contain this TGI
+    std::shared_lock readLock(mutex_);
+    auto tgiIt = tgiToFiles_.find(tgi);
+    if (tgiIt == tgiToFiles_.end() || tgiIt->second.empty()) {
+        return std::nullopt;
+    }
+
+    const auto& filePaths = tgiIt->second;
+    readLock.unlock();
+
+    // Try to load from the last file that has it
+    for (const auto & filePath : std::ranges::reverse_view(filePaths)) {
+        const auto* reader = getReader(filePath);
+        if (!reader) {
+            continue;
+        }
+
+        auto data = reader->ReadEntryData(tgi);
+        if (data.has_value()) {
+            return data;
+        }
+    }
+
+    return std::nullopt;
+}
+
+DBPF::Reader* DbpfIndexService::getReader(const std::filesystem::path& filePath) const {
+    std::unique_lock lock(mutex_);
+
+    // Check if we already have a reader for this file
+    auto it = readerCache_.find(filePath);
+    if (it != readerCache_.end()) {
+        return it->second.get();
+    }
+
+    // Create a new reader and load the file
+    auto reader = std::make_unique<DBPF::Reader>();
+    if (!reader->LoadFile(filePath.string())) {
+        return nullptr;
+    }
+
+    // Cache it and return
+    auto* readerPtr = reader.get();
+    readerCache_[filePath] = std::move(reader);
+    return readerPtr;
+}
+
 void DbpfIndexService::worker_() {
     try {
-        auto pluginFiles = locator_.ListDbpfFiles();
+        const auto pluginFiles = locator_.ListDbpfFiles();
 
         {
             std::unique_lock lock(mutex_);
@@ -154,7 +245,7 @@ void DbpfIndexService::worker_() {
         }
 
     } catch (const std::exception& error) {
-        errorCount_++;
+        ++errorCount_;
         done_ = true;
     }
 }
@@ -162,93 +253,5 @@ void DbpfIndexService::worker_() {
 void DbpfIndexService::publishProgress_() {
     // Could be used to notify observers of progress
     // For now, kept simple - snapshots can be taken with snapshot()
-}
-
-DBPF::Reader* DbpfIndexService::getReader(const std::filesystem::path& filePath) const {
-    std::unique_lock lock(mutex_);
-
-    // Check if we already have a reader for this file
-    auto it = readerCache_.find(filePath);
-    if (it != readerCache_.end()) {
-        return it->second.get();
-    }
-
-    // Create a new reader and load the file
-    auto reader = std::make_unique<DBPF::Reader>();
-    if (!reader->LoadFile(filePath.string())) {
-        return nullptr;
-    }
-
-    // Cache it and return
-    auto* readerPtr = reader.get();
-    readerCache_[filePath] = std::move(reader);
-    return readerPtr;
-}
-
-ParseExpected<const Exemplar::Record*> DbpfIndexService::loadExemplar(const DBPF::Tgi& tgi) const {
-    // Check cache first (with read lock)
-    {
-        std::shared_lock readLock(mutex_);
-        auto cacheIt = exemplarCache_.find(tgi);
-        if (cacheIt != exemplarCache_.end()) {
-            return &cacheIt->second;
-        }
-    }
-
-    // Not in cache - need to load it
-    // Find which file(s) contain this TGI
-    std::shared_lock readLock(mutex_);
-    auto tgiIt = tgiToFiles_.find(tgi);
-    if (tgiIt == tgiToFiles_.end() || tgiIt->second.empty()) {
-        return Fail("TGI not found in index");
-    }
-
-    const auto& filePaths = tgiIt->second;
-    readLock.unlock();
-
-    // Try to load from the first file that has it
-    for (const auto& filePath : filePaths) {
-        auto* reader = getReader(filePath);
-        if (!reader) {
-            continue;
-        }
-
-        auto exemplar = reader->LoadExemplar(tgi);
-        if (exemplar.has_value()) {
-            // Insert into cache and return pointer to cached version
-            std::unique_lock writeLock(mutex_);
-            auto [it, inserted] = exemplarCache_.try_emplace(tgi, std::move(*exemplar));
-            return &it->second;
-        }
-    }
-
-    return Fail("Failed to load exemplar from any file");
-}
-
-std::optional<std::vector<uint8_t>> DbpfIndexService::loadEntryData(const DBPF::Tgi& tgi) const {
-    // Find which file(s) contain this TGI
-    std::shared_lock readLock(mutex_);
-    auto tgiIt = tgiToFiles_.find(tgi);
-    if (tgiIt == tgiToFiles_.end() || tgiIt->second.empty()) {
-        return std::nullopt;
-    }
-
-    const auto& filePaths = tgiIt->second;
-    readLock.unlock();
-
-    // Try to load from the first file that has it
-    for (const auto& filePath : filePaths) {
-        auto* reader = getReader(filePath);
-        if (!reader) {
-            continue;
-        }
-
-        auto data = reader->ReadEntryData(tgi);
-        if (data.has_value()) {
-            return data;
-        }
-    }
-
-    return std::nullopt;
 }
 

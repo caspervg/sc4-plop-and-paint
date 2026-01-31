@@ -144,12 +144,10 @@ namespace fs = std::filesystem;
 
 ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
                                const DbpfIndexService* indexService,
-                               bool renderModelThumbnails,
-                               std::optional<std::filesystem::path> thumbnailDumpDir)
-    : propertyMapper_(mapper),
-      indexService_(indexService),
-      thumbnailDumpDir_(std::move(thumbnailDumpDir)) {
-    if (renderModelThumbnails && indexService_) {
+                               const bool renderThumbnails)
+      : propertyMapper_(mapper)
+      , indexService_(indexService) {
+    if (renderThumbnails && indexService_) {
         thumbnailRenderer_ = std::make_unique<thumb::ThumbnailRenderer>(*indexService_);
     }
 }
@@ -172,8 +170,8 @@ std::optional<ExemplarType> ExemplarParser::getExemplarType(const Exemplar::Reco
         return std::nullopt;
     }
 
-    auto buildingTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeBuilding);
-    auto lotConfigTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeLotConfig);
+    const auto buildingTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeBuilding);
+    const auto lotConfigTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeLotConfig);
 
     if (buildingTypeOpt && *exemplarTypeOpt == *buildingTypeOpt) return ExemplarType::Building;
     if (lotConfigTypeOpt && *exemplarTypeOpt == *lotConfigTypeOpt) return ExemplarType::LotConfig;
@@ -404,7 +402,7 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
     // Load icon if TGI is available and we have index service
     if (parsed.iconTgi.has_value() && indexService_) {
         spdlog::debug("buildingFromParsed: Loading icon for building {} (0x{:08X})",
-            parsed.name, parsed.tgi.instance);
+                      parsed.name, parsed.tgi.instance);
         const auto pngData = indexService_->loadEntryData(*parsed.iconTgi);
         if (pngData.has_value() && !pngData->empty()) {
             spdlog::debug("buildingFromParsed: Got {} bytes of PNG data", pngData->size());
@@ -423,7 +421,7 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
             }
         } else {
             spdlog::debug("buildingFromParsed: No PNG data found for icon TGI 0x{:08X}/0x{:08X}/0x{:08X}",
-                parsed.iconTgi->type, parsed.iconTgi->group, parsed.iconTgi->instance);
+                          parsed.iconTgi->type, parsed.iconTgi->group, parsed.iconTgi->instance);
         }
     }
 
@@ -436,8 +434,6 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
             preview.width = rendered->width;
             preview.height = rendered->height;
             building.thumbnail = preview;
-
-            dumpRenderedThumbnail_(*parsed.modelTgi, parsed.tgi.instance);
         } else {
             spdlog::debug("Thumbnail render failed for building {} ({})",
                           parsed.name, parsed.modelTgi->ToString());
@@ -462,60 +458,6 @@ Lot ExemplarParser::lotFromParsed(const ParsedLotConfigExemplar& parsed, const B
     lot.purposeType = parsed.purposeType;
     lot.building = building;
     return lot;
-}
-
-void ExemplarParser::dumpRenderedThumbnail_(const DBPF::Tgi& modelTgi, const uint32_t buildingInstanceId) const {
-    if (!thumbnailRenderer_ || !thumbnailDumpDir_) {
-        return;
-    }
-
-    constexpr uint32_t kDumpThumbnailSize = 128;
-    auto rendered = thumbnailRenderer_->renderModel(modelTgi, kDumpThumbnailSize);
-    if (!rendered.has_value() || rendered->pixels.empty()) {
-        return;
-    }
-
-    std::error_code ec;
-    fs::create_directories(*thumbnailDumpDir_, ec);
-    if (ec) {
-        spdlog::warn("Could not create thumbnail dump directory {}: {}", thumbnailDumpDir_->string(), ec.message());
-        return;
-    }
-
-    auto rgba = convertBgraToRgba_(rendered->pixels);
-    if (rgba.empty()) {
-        return;
-    }
-
-    std::ostringstream nameBuilder;
-    nameBuilder << "thumb_0x" << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
-                << buildingInstanceId << "_"
-                << std::dec << kDumpThumbnailSize << ".png";
-    const auto outPath = *thumbnailDumpDir_ / nameBuilder.str();
-
-    Image img{
-        .data = rgba.data(),
-        .width = static_cast<int>(rendered->width),
-        .height = static_cast<int>(rendered->height),
-        .mipmaps = 1,
-        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
-    };
-
-    if (!ExportImage(img, outPath.string().c_str())) {
-        spdlog::warn("Failed to export thumbnail for building 0x{:08X}", buildingInstanceId);
-    }
-}
-
-std::vector<std::byte> ExemplarParser::convertBgraToRgba_(const std::vector<std::byte>& pixels) {
-    std::vector<std::byte> rgba;
-    rgba.resize(pixels.size());
-    for (size_t i = 0; i + 3 < pixels.size(); i += 4) {
-        rgba[i + 0] = pixels[i + 2];
-        rgba[i + 1] = pixels[i + 1];
-        rgba[i + 2] = pixels[i + 0];
-        rgba[i + 3] = pixels[i + 3];
-    }
-    return rgba;
 }
 
 const Exemplar::Property* ExemplarParser::findProperty(
@@ -573,7 +515,7 @@ const Exemplar::Property* ExemplarParser::findPropertyRecursive(
             const Exemplar::Record* parentExemplar = *parentExemplarResult;
             // Recursively search parent
             spdlog::trace("Searching parent cohort 0x{:08X}/0x{:08X}/0x{:08X} for property 0x{:08X}", parentTgi.type,
-                         parentTgi.group, parentTgi.instance, propertyId);
+                          parentTgi.group, parentTgi.instance, propertyId);
             const auto prop = findPropertyRecursive(*parentExemplar, propertyId, visitedCohorts);
             if (prop != nullptr) {
                 spdlog::trace("Found property 0x{:08X} in parent cohort: {}", propertyId, prop->ToString());
@@ -599,8 +541,8 @@ std::string ExemplarParser::resolveLTextTags_(std::string_view text,
             return std::nullopt;
         }
 
-        return std::visit([mode](const auto& value) -> std::optional<std::string> {
-            using V = std::decay_t<decltype(value)>;
+        return std::visit([mode]<typename T>(const T& value) -> std::optional<std::string> {
+            using V = std::decay_t<T>;
             if constexpr (std::is_same_v<V, std::string>) {
                 if (mode == 'd') {
                     return value;
@@ -646,7 +588,7 @@ std::string ExemplarParser::resolveLTextTags_(std::string_view text,
         }
 
         const auto token = text.substr(i + 1, end - i - 1);
-        bool replaced = false;
+        auto replaced = false;
         if (token.size() > 2 && token[1] == ':' && (token[0] == 'm' || token[0] == 'd')) {
             uint32_t propertyId = 0;
             const auto* begin = token.data() + 2;
@@ -678,9 +620,9 @@ std::string ExemplarParser::resolveLTextTags_(std::string_view text,
 }
 
 std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record& exemplar,
-                                                         const DBPF::Tgi& exemplarTgi) const {
+                                                          const DBPF::Tgi& exemplarTgi) const {
     constexpr int kZoomLevel = 5;
-    constexpr int kRotation = 2; // South
+    constexpr int kRotation = 0; // South
     auto getU32 = [](const Exemplar::Property* prop, size_t index) -> std::optional<uint32_t> {
         if (!prop || index >= prop->values.size()) {
             return std::nullopt;
@@ -745,7 +687,7 @@ std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record
 
     if (const auto* rkt2 = findProperty(exemplar, kRkt2PropertyId)) {
         const size_t index = 2 + static_cast<size_t>(kZoomLevel - 1) * 4 +
-                             static_cast<size_t>(kRotation);
+            static_cast<size_t>(kRotation);
         if (rkt2->values.size() > index) {
             const auto instance = getU32(rkt2, index);
             if (instance) {
@@ -774,4 +716,16 @@ std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record
     }
 
     return std::nullopt;
+}
+
+std::vector<std::byte> ExemplarParser::convertBgraToRgba_(const std::vector<std::byte>& pixels) {
+    std::vector<std::byte> rgba;
+    rgba.resize(pixels.size());
+    for (size_t i = 0; i + 3 < pixels.size(); i += 4) {
+        rgba[i + 0] = pixels[i + 2];
+        rgba[i + 1] = pixels[i + 1];
+        rgba[i + 2] = pixels[i + 0];
+        rgba[i + 3] = pixels[i + 3];
+    }
+    return rgba;
 }

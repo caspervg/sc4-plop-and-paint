@@ -1,31 +1,31 @@
 #include <args.hxx>
+#include <chrono>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <optional>
-#include <string_view>
-#include <vector>
 #include <set>
-#include <chrono>
+#include <string_view>
 #include <thread>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <fstream>
 
+#include "DbpfIndexService.hpp"
 #include "DBPFReader.h"
 #include "ExemplarParser.hpp"
+#include "PluginLocator.hpp"
 #include "PropertyMapper.hpp"
-#include "services/PluginLocator.hpp"
-#include "services/DbpfIndexService.hpp"
-#include "../shared/index.hpp"
 #include "../shared/entities.hpp"
+#include "../shared/index.hpp"
 
 #include <rfl/cbor.hpp>
 
 #ifndef SC4_ADVANCED_LOT_PLOP_VERSION
-#define SC4_ADVANCED_LOT_PLOP_VERSION "0.0.0"
+#define SC4_ADVANCED_LOT_PLOP_VERSION "0.0.1"
 #endif
 
 namespace fs = std::filesystem;
@@ -50,8 +50,7 @@ PluginConfiguration GetDefaultPluginConfiguration()
 
 void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
                              spdlog::logger& logger,
-                             bool renderModelThumbnails,
-                             std::optional<fs::path> thumbnailDumpDir = std::nullopt)
+                             bool renderModelThumbnails)
 {
     try {
         logger.info("Initializing plugin scanner...");
@@ -64,7 +63,7 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
         logger.info("Starting background indexing service...");
         indexService.start();
 
-        // While indexing happens in background, load the property mapper
+        // While indexing happens in the background, load the property mapper
         logger.info("Loading property mapper...");
         PropertyMapper propertyMapper;
         auto mapperLoaded = false;
@@ -121,7 +120,7 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
         uint32_t parseErrors = 0;
         std::set<uint32_t> missingBuildingIds;
 
-        ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails, thumbnailDumpDir);
+        ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails);
         std::vector<Lot> allLots;
         std::unordered_map<uint32_t, ParsedBuildingExemplar> buildingMap;
 
@@ -223,8 +222,7 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
                     continue;
                 }
 
-                auto parsedLot = parser.parseLotConfig(*exemplarResult, tgi, buildingMap, familyToBuildingsMap);
-                if (parsedLot) {
+                if (auto parsedLot = parser.parseLotConfig(*exemplarResult, tgi, buildingMap, familyToBuildingsMap)) {
                     // Get building for this lot
                     auto buildingIt = buildingMap.find(parsedLot->buildingInstanceId);
                     if (buildingIt != buildingMap.end()) {
@@ -267,40 +265,15 @@ void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
         // Export lot config data to CBOR file in user plugins directory
         if (!allLots.empty()) {
             try {
-                // Deduplicate lots by (group, instance) - keep the last occurrence
-                struct PairHash {
-                    size_t operator()(const std::pair<uint32_t, uint32_t>& p) const {
-                        return std::hash<uint64_t>{}((static_cast<uint64_t>(p.first) << 32) | p.second);
-                    }
-                };
-                std::unordered_map<std::pair<uint32_t, uint32_t>, Lot, PairHash> uniqueLots;
-                for (auto& lot : allLots) {
-                    auto key = std::make_pair(lot.groupId.value(), lot.instanceId.value());
-                    uniqueLots[key] = std::move(lot);
-                }
-
-                // Convert back to vector
-                std::vector<Lot> deduplicatedLots;
-                deduplicatedLots.reserve(uniqueLots.size());
-                for (auto& [key, lot] : uniqueLots) {
-                    deduplicatedLots.push_back(std::move(lot));
-                }
-
-                const size_t duplicatesRemoved = allLots.size() - deduplicatedLots.size();
-                if (duplicatesRemoved > 0) {
-                    logger.warn("Removed {} duplicate lot(s) before export", duplicatesRemoved);
-                }
-
                 auto cborPath = config.userPluginsRoot / "lot_configs.cbor";
                 fs::create_directories(config.userPluginsRoot);
 
-                logger.info("Exporting {} unique lot configs to {}", deduplicatedLots.size(), cborPath.string());
+                logger.info("Exporting {} unique lot configs to {}", allLots.size(), cborPath.string());
 
-                std::ofstream file(cborPath, std::ios::binary);
-                if (!file) {
+                if (std::ofstream file(cborPath, std::ios::binary); !file) {
                     logger.error("Failed to open file for writing: {}", cborPath.string());
                 } else {
-                    rfl::cbor::write(deduplicatedLots, file);
+                    rfl::cbor::write(allLots, file);
                     file.close();
                     logger.info("Successfully exported lot configs");
                 }
@@ -374,13 +347,10 @@ int main(int argc, char* argv[])
             logger->info("  Game Plugins: {}", config.gamePluginsRoot.string());
             logger->info("  User Plugins: {}", config.userPluginsRoot.string());
 
-            std::optional<fs::path> thumbnailDumpDir;
             if (renderThumbnailsFlag) {
-                logger->info("3D thumbnail rendering enabled (Zoom 5 South, 44x44)");
-                thumbnailDumpDir = config.userPluginsRoot / "rendered_thumbnails";
-                logger->info("Dumping rendered thumbnails to {}", thumbnailDumpDir->string());
+                logger->info("3D thumbnail rendering enabled");
             }
-            ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailDumpDir);
+            ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag);
             return 0;
         }
 

@@ -3,7 +3,7 @@
 #include "DBPFReader.h"
 #include "ExemplarReader.h"
 #include "PropertyMapper.hpp"
-#include "services/DbpfIndexService.hpp"
+#include "DbpfIndexService.hpp"
 #include "../shared/entities.hpp"
 #include <memory>
 #include <filesystem>
@@ -49,13 +49,13 @@ constexpr auto kRkt4PropertyId = 0x27812824u;
 constexpr auto kRkt5PropertyId = 0x27812825u;
 
 // Lot object array indices (0-based, spec uses 1-based rep numbers)
-constexpr auto kLotObjectIndexType = 0;       // Rep 1: Object type (0 = building, 1 = prop, etc.)
-constexpr auto kLotObjectIndexObjectID = 11;  // Rep 12: ObjectID (0xABBBBCCC format)
-constexpr auto kLotObjectIndexIID = 12;       // Rep 13: IID (building exemplar) or Family ID (for growables)
+constexpr auto kLotObjectIndexType = 0; // Rep 1: Object type (0 = building, 1 = prop, etc.)
+constexpr auto kLotObjectIndexObjectID = 11; // Rep 12: ObjectID (0xABBBBCCC format)
+constexpr auto kLotObjectIndexIID = 12; // Rep 13: IID (building exemplar) or Family ID (for growables)
 
 enum class ExemplarType {
-    Building,   // Exemplar Type 0x02
-    LotConfig,  // Exemplar Type 0x10
+    Building, // Exemplar Type 0x02
+    LotConfig, // Exemplar Type 0x10
 };
 
 struct ParsedBuildingExemplar {
@@ -63,7 +63,7 @@ struct ParsedBuildingExemplar {
     std::string name;
     std::string description;
     std::vector<uint32_t> occupantGroups;
-    std::vector<uint32_t> familyIds;  // Building/prop Family values
+    std::vector<uint32_t> familyIds; // Building/prop Family values
     std::optional<DBPF::Tgi> iconTgi;
     std::optional<DBPF::Tgi> modelTgi;
     // TODO other building props
@@ -74,25 +74,25 @@ struct ParsedLotConfigExemplar {
     std::string name;
     std::pair<uint8_t, uint8_t> lotSize;
     uint32_t buildingInstanceId;
-    uint32_t buildingFamilyId = 0;      // Family ID if isFamilyReference is true
-    bool isFamilyReference = false;      // True if lot references a family instead of specific building
+    uint32_t buildingFamilyId = 0; // Family ID if isFamilyReference is true
+    bool isFamilyReference = false; // True if lot references a family instead of specific building
     std::optional<uint8_t> growthStage;
     std::optional<std::pair<uint8_t, uint8_t>> capacity; // (min, max)
-    std::optional<uint8_t> zoneType;        // LotConfigPropertyZoneTypes
-    std::optional<uint8_t> wealthType;      // LotConfigPropertyWealthTypes
-    std::optional<uint8_t> purposeType;     // LotConfigPropertyPurposeTypes
+    std::optional<uint8_t> zoneType; // LotConfigPropertyZoneTypes
+    std::optional<uint8_t> wealthType; // LotConfigPropertyWealthTypes
+    std::optional<uint8_t> purposeType; // LotConfigPropertyPurposeTypes
 };
 
 class ExemplarParser {
 public:
     explicit ExemplarParser(const PropertyMapper& mapper,
                             const DbpfIndexService* indexService = nullptr,
-                            bool renderModelThumbnails = false,
-                            std::optional<std::filesystem::path> thumbnailDumpDir = std::nullopt);
+                            bool renderThumbnails = false);
     ~ExemplarParser();
 
     [[nodiscard]] std::optional<ExemplarType> getExemplarType(const Exemplar::Record& exemplar) const;
-    [[nodiscard]] std::optional<ParsedBuildingExemplar> parseBuilding(const Exemplar::Record& exemplar, const DBPF::Tgi& tgi) const;
+    [[nodiscard]] std::optional<ParsedBuildingExemplar> parseBuilding(const Exemplar::Record& exemplar,
+                                                                      const DBPF::Tgi& tgi) const;
     [[nodiscard]] std::optional<ParsedLotConfigExemplar> parseLotConfig(
         const Exemplar::Record& exemplar,
         const DBPF::Tgi& tgi,
@@ -119,12 +119,10 @@ private:
     [[nodiscard]] std::string resolveLTextTags_(std::string_view text,
                                                 const Exemplar::Record& exemplar) const;
     [[nodiscard]] std::optional<DBPF::Tgi> resolveModelTgi_(const Exemplar::Record& exemplar,
-                                                           const DBPF::Tgi& exemplarTgi) const;
-    void dumpRenderedThumbnail_(const DBPF::Tgi& modelTgi, uint32_t buildingInstanceId) const;
+                                                            const DBPF::Tgi& exemplarTgi) const;
     static std::vector<std::byte> convertBgraToRgba_(const std::vector<std::byte>& pixels);
 
     const PropertyMapper& propertyMapper_;
     const DbpfIndexService* indexService_;
     std::unique_ptr<thumb::ThumbnailRenderer> thumbnailRenderer_;
-    std::optional<std::filesystem::path> thumbnailDumpDir_;
 };

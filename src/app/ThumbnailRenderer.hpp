@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "DBPFReader.h"
-#include "services/DbpfIndexService.hpp"
+#include "DbpfIndexService.hpp"
 
 namespace thumb {
     struct LoadedModelHandle;
