@@ -227,7 +227,12 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
             }
             ImGui::TableNextColumn();
             ImGui::PushID(reinterpret_cast<void*>(static_cast<uintptr_t>(key)));
-            ImGui::TextUnformatted(prop.visibleName.c_str());
+            if (prop.visibleName.empty()) {
+                ImGui::TextUnformatted(prop.exemplarName.c_str());
+            } else {
+                ImGui::TextUnformatted(prop.visibleName.c_str());
+                ImGui::TextDisabled("%s", prop.exemplarName.c_str());
+            }
             ImGui::PopID();
 
             ImGui::TableNextColumn();
@@ -282,8 +287,10 @@ void PropPanelTab::RenderRotationModal_() {
         ImGui::TextUnformatted("Mode");
         int mode = static_cast<int>(pendingPaint_.settings.mode);
         ImGui::RadioButton("Direct paint", &mode, static_cast<int>(PropPaintMode::Direct));
+#ifdef _DEBUG
         ImGui::RadioButton("Paint along line", &mode, static_cast<int>(PropPaintMode::Line));
         ImGui::RadioButton("Paint inside polygon", &mode, static_cast<int>(PropPaintMode::Polygon));
+#endif
         pendingPaint_.settings.mode = static_cast<PropPaintMode>(mode);
 
         ImGui::Separator();

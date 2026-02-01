@@ -188,6 +188,10 @@ void BuildingLotPanelTab::RenderFilterUI_() {
     ImGui::SetNextItemWidth(UI::kSliderWidth);
     ImGui::SliderInt("##MaxSizeX", &filterHelper_.maxSizeX, LotSize::kMinSize, LotSize::kMaxSize);
 
+    ImGui::SameLine();
+    ImGui::Spacing();
+    ImGui::SameLine();
+
     // Row 5: Depth filters
     ImGui::Text("Depth:");
     ImGui::SameLine();
@@ -237,9 +241,7 @@ void BuildingLotPanelTab::RenderTableInternal_(const std::vector<LotView>& filte
     constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
         ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
         ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti;
-    constexpr ImGuiTreeNodeFlags nodeFlagsBase = ImGuiTreeNodeFlags_DrawLinesFull;
-
-    if (ImGui::BeginTable("LotsTable", 4, tableFlags, ImVec2(0, UI::kTableHeight))) {
+    if (ImGui::BeginTable("LotsTable", 3, tableFlags, ImVec2(0, UI::kTableHeight))) {
         ImGui::TableSetupColumn("Name",
                                 ImGuiTableColumnFlags_NoHide |
                                 ImGuiTableColumnFlags_DefaultSort |
@@ -253,10 +255,6 @@ void BuildingLotPanelTab::RenderTableInternal_(const std::vector<LotView>& filte
                                 ImGuiTableColumnFlags_WidthFixed |
                                 ImGuiTableColumnFlags_NoSort,
                                 UI::kActionColumnWidth);
-        ImGui::TableSetupColumn("Thumbnail",
-                                ImGuiTableColumnFlags_WidthFixed |
-                                ImGuiTableColumnFlags_NoSort,
-                                UI::kIconColumnWidth);
         ImGui::TableHeadersRow();
 
         if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsCount > 0) {
@@ -318,84 +316,58 @@ void BuildingLotPanelTab::RenderTableInternal_(const std::vector<LotView>& filte
 
         for (const auto* building : buildingOrder) {
             const auto& lots = grouped[building];
+            const auto iconCacheKey = building->instanceId.value();
 
             ImGui::TableNextRow();
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(40, 40, 40, 80));
             ImGui::TableNextColumn();
-            const bool isMulti = lots.size() > 1;
-            ImGuiTreeNodeFlags nodeFlags = nodeFlagsBase;
-
-            if (isMulti) {
-                nodeFlags |= ImGuiTreeNodeFlags_LabelSpanAllColumns;
-                ImGui::PushID(building->instanceId.value());
-                const bool open = ImGui::TreeNodeEx(building->name.c_str(), nodeFlags);
-                if (!building->description.empty()) {
-                    ImGui::SetItemTooltip("%s", building->description.c_str());
-                }
-                ImGui::PopID();
-                auto const iconCacheKey = building->instanceId.value();
-
-                if (open) {
-                    ImGui::TableSetColumnIndex(3);
-                    if (iconCache_.contains(iconCacheKey)) {
-                        ImGui::Image(iconCache_[iconCacheKey].GetID(), ImVec2(UI::kIconSize, UI::kIconSize));
-                    }
-                    ImGui::TableSetColumnIndex(0);
-                    for (const auto* v : lots) {
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn();
-                        ImGui::PushID(v->lot->instanceId.value());
-                        ImGui::TreeNodeEx(v->lot->name.c_str(),
-                                          ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet |
-                                          ImGuiTreeNodeFlags_NoTreePushOnOpen);
-                        ImGui::PopID();
-                        ImGui::TableNextColumn();
-                        ImGui::Text("%dx%d", v->lot->sizeX, v->lot->sizeZ);
-                        ImGui::TableNextColumn();
-                        if (ImGui::Button(("Plop##" + std::to_string(v->lot->instanceId.value())).c_str()))
-                            director_->TriggerLotPlop(v->lot->instanceId.value());
-                        ImGui::SameLine();
-                        RenderFavButton_(v->lot->instanceId.value());
-                    }
-                    ImGui::TreePop();
-                }
-                else {
-                    ImGui::TableSetColumnIndex(3);
-                    if (iconCache_.contains(iconCacheKey)) {
-                        ImGui::Image(iconCache_[iconCacheKey].GetID(), ImVec2(UI::kIconSize, UI::kIconSize));
-                    }
-                    else {
-                        ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
-                    }
-                    ImGui::TableSetColumnIndex(0);
-                }
+            ImGui::BeginGroup();
+            if (iconCache_.contains(iconCacheKey)) {
+                ImGui::Image(iconCache_[iconCacheKey].GetID(), ImVec2(UI::kIconSize, UI::kIconSize));
             }
             else {
-                const auto v = lots.front();
-                nodeFlags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-                ImGui::Bullet();
-                ImGui::BeginGroup();
-                ImGui::Text(v->building->name.c_str());
-                ImGui::TextDisabled(v->lot->name.c_str());
-                ImGui::EndGroup();
+                ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
+            }
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            ImGui::Text("-> %s", building->name.c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("%zu lots", lots.size());
+            if (!building->description.empty()) {
+                std::string desc = building->description;
+                std::ranges::replace(desc, '\n', ' ');
+                std::ranges::replace(desc, '\r', ' ');
+                if (!desc.empty()) {
+                    ImGui::TextDisabled("   %s", desc.c_str());
+                }
+            }
+            ImGui::EndGroup();
+            ImGui::EndGroup();
+            ImGui::TableNextColumn();
 
-                if (!building->description.empty()) {
-                    ImGui::SetItemTooltip("%s", building->description.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Dummy(ImVec2(0, 0));
+            ImGui::TableNextColumn();
+            ImGui::Dummy(ImVec2(0, 0));
+
+            for (auto i = 0; i < lots.size(); ++i) {
+                auto symbol = "|-";
+                if (i == lots.size() - 1) {
+                    symbol = "`-";
                 }
+                ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::Text("%dx%d", v->lot->sizeX, v->lot->sizeZ);
-                ImGui::TableNextColumn();
-                if (ImGui::Button(("Plop##" + std::to_string(v->lot->instanceId.value())).c_str()))
-                    director_->TriggerLotPlop(v->lot->instanceId.value());
+                ImGui::Dummy(ImVec2(UI::kIconSize, 1));
                 ImGui::SameLine();
-                RenderFavButton_(v->lot->instanceId.value());
+                ImGui::Text("%s %s", symbol, lots[i]->lot->name.c_str());
                 ImGui::TableNextColumn();
-                auto const iconCacheKey = building->instanceId.value();
-                if (iconCache_.contains(iconCacheKey)) {
-                    ImGui::Image(iconCache_[iconCacheKey].GetID(), ImVec2(UI::kIconSize, UI::kIconSize));
+                ImGui::Text("%d x %d", lots[i]->lot->sizeX, lots[i]->lot->sizeZ);
+                ImGui::TableNextColumn();
+                if (ImGui::Button(("Plop##" + std::to_string(lots[i]->lot->instanceId.value())).c_str())) {
+                    director_->TriggerLotPlop(lots[i]->lot->instanceId.value());
                 }
-                else {
-                    ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
-                }
+                ImGui::SameLine();
+                RenderFavButton_(lots[i]->lot->instanceId.value());
             }
         }
         ImGui::EndTable();

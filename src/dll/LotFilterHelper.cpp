@@ -24,8 +24,6 @@ std::vector<LotView> LotFilterHelper::ApplyFiltersAndSort(
     for (const auto& lot : lots) {
         if (PassesFilters(lot) && PassesFavoritesOnlyFilter_(lot, favorites)) {
             filtered.push_back(lot);
-        } else {
-            spdlog::warn("Lot {} {} filtered out by filter criteria", lot.lot->instanceId.value(), lot.building->name);
         }
     }
 
