@@ -17,6 +17,7 @@ constexpr auto kZero = 0x0000000u;
 constexpr auto kExemplarType = "Exemplar Type";
 constexpr auto kExemplarTypeBuilding = "Buildings";
 constexpr auto kExemplarTypeLotConfig = "LotConfigurations";
+constexpr auto kExemplarTypeProp = "Prop";
 constexpr auto kExemplarName = "Exemplar Name";
 constexpr auto kItemName = "Item Name";
 constexpr auto kUserVisibleNameKey = "User Visible Name Key";
@@ -47,15 +48,18 @@ constexpr auto kRkt2PropertyId = 0x27812822u;
 constexpr auto kRkt3PropertyId = 0x27812823u;
 constexpr auto kRkt4PropertyId = 0x27812824u;
 constexpr auto kRkt5PropertyId = 0x27812825u;
+constexpr auto kOccupantSize = "Occupant Size";
 
 // Lot object array indices (0-based, spec uses 1-based rep numbers)
 constexpr auto kLotObjectIndexType = 0; // Rep 1: Object type (0 = building, 1 = prop, etc.)
 constexpr auto kLotObjectIndexObjectID = 11; // Rep 12: ObjectID (0xABBBBCCC format)
 constexpr auto kLotObjectIndexIID = 12; // Rep 13: IID (building exemplar) or Family ID (for growables)
+constexpr auto kRenderedThumbnailSize = 88u;
 
 enum class ExemplarType {
     Building, // Exemplar Type 0x02
     LotConfig, // Exemplar Type 0x10
+    Prop, // Exemplar Type 0x1E
 };
 
 struct ParsedBuildingExemplar {
@@ -66,7 +70,6 @@ struct ParsedBuildingExemplar {
     std::vector<uint32_t> familyIds; // Building/prop Family values
     std::optional<DBPF::Tgi> iconTgi;
     std::optional<DBPF::Tgi> modelTgi;
-    // TODO other building props
 };
 
 struct ParsedLotConfigExemplar {
@@ -83,6 +86,15 @@ struct ParsedLotConfigExemplar {
     std::optional<uint8_t> purposeType; // LotConfigPropertyPurposeTypes
 };
 
+struct ParsedPropExemplar {
+    DBPF::Tgi tgi;
+    std::string name;
+    float width{-1.0};
+    float height{-1.0};
+    float depth{-1.0};
+    std::optional<DBPF::Tgi> modelTgi;
+};
+
 class ExemplarParser {
 public:
     explicit ExemplarParser(const PropertyMapper& mapper,
@@ -97,11 +109,14 @@ public:
         const Exemplar::Record& exemplar,
         const DBPF::Tgi& tgi,
         const std::unordered_map<uint32_t, ParsedBuildingExemplar>& buildingMap,
-        const std::unordered_map<uint32_t, std::vector<uint32_t>>& familyToBuildingsMap) const;
+        const std::unordered_map<uint32_t, std::vector<uint32_t>>& familyToBuildingsMap) const;\
+    [[nodiscard]] std::optional<ParsedPropExemplar> parseProp(const Exemplar::Record& exemplar,
+                                                              const DBPF::Tgi& tgi) const;
 
     // Conversion functions to canonical entities
     [[nodiscard]] Building buildingFromParsed(const ParsedBuildingExemplar& parsed) const;
     [[nodiscard]] Lot lotFromParsed(const ParsedLotConfigExemplar& parsed) const;
+    [[nodiscard]] Prop propFromParsed(const ParsedPropExemplar& parsed) const;
 
     // Cohort-aware property lookup - searches exemplar and parent cohorts recursively
     [[nodiscard]] const Exemplar::Property* findProperty(

@@ -1,14 +1,11 @@
 #include "ExemplarParser.hpp"
 #include "LTextReader.h"
 #include "ThumbnailRenderer.hpp"
-#include "raylib.h"
 
 #include <charconv>
 #include <cmath>
 #include <filesystem>
-#include <iomanip>
 #include <optional>
-#include <sstream>
 #include <span>
 #include <unordered_set>
 
@@ -173,9 +170,11 @@ std::optional<ExemplarType> ExemplarParser::getExemplarType(const Exemplar::Reco
 
     const auto buildingTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeBuilding);
     const auto lotConfigTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeLotConfig);
+    const auto propTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeProp);
 
     if (buildingTypeOpt && *exemplarTypeOpt == *buildingTypeOpt) return ExemplarType::Building;
     if (lotConfigTypeOpt && *exemplarTypeOpt == *lotConfigTypeOpt) return ExemplarType::LotConfig;
+    if (propTypeOpt && *exemplarTypeOpt == *propTypeOpt) return ExemplarType::Prop;
     return std::nullopt;
 }
 
@@ -391,6 +390,61 @@ std::optional<ParsedLotConfigExemplar> ExemplarParser::parseLotConfig(
     return parsedLotConfigExemplar;
 }
 
+std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Record& exemplar,
+                                                            const DBPF::Tgi& tgi) const {
+    ParsedPropExemplar parsedPropExemplar;
+    parsedPropExemplar.tgi = tgi;
+    parsedPropExemplar.name = "";
+    parsedPropExemplar.modelTgi = std::nullopt;
+
+    if (auto propId = propertyMapper_.propertyId(kUserVisibleNameKey)) {
+        if (auto* prop = findProperty(exemplar, *propId)) {
+            if (auto tgiKey = tgiFromProperty(prop, kTypeIdLText)) {
+                if (auto localized = loadLocalizedText(indexService_, *tgiKey)) {
+                    parsedPropExemplar.name = resolveLTextTags_(*localized, exemplar);
+                }
+            }
+        }
+    }
+
+    // Use the ExemplarName as a backup if UVNK is not available
+    if (parsedPropExemplar.name.empty()) {
+        if (const auto propId = propertyMapper_.propertyId(kExemplarName)) {
+            if (auto* prop = findProperty(exemplar, *propId)) {
+                if (const auto name = prop->GetScalarAs<std::string>()) {
+                    parsedPropExemplar.name = *name;
+                }
+            }
+        }
+    }
+
+    if (const auto propId = propertyMapper_.propertyId(kOccupantSize)) {
+        if (auto* prop = findProperty(exemplar, *propId)) {
+            if (prop->IsNumericList()) {
+                if (prop->values.size() >= 3) {
+                    auto width = prop->GetScalarAs<float>(0);
+                    auto height = prop->GetScalarAs<float>(1);
+                    auto depth = prop->GetScalarAs<float>(2);
+                    if (width && height && depth) {
+                        parsedPropExemplar.width = *width;
+                        parsedPropExemplar.height = *height;
+                        parsedPropExemplar.depth = *depth;
+                    }
+                    else {
+                        spdlog::warn("Failed to parse occupant size for {} at {}",
+                                     parsedPropExemplar.name,
+                                     tgi.ToString());
+                    }
+                }
+            }
+        }
+    }
+
+    parsedPropExemplar.modelTgi = resolveModelTgi_(exemplar, tgi);
+
+    return parsedPropExemplar;
+}
+
 Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed) const {
     Building building;
     building.instanceId = parsed.tgi.instance;
@@ -429,7 +483,6 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
     }
 
     if (!building.thumbnail.has_value() && parsed.modelTgi.has_value() && thumbnailRenderer_) {
-        constexpr uint32_t kRenderedThumbnailSize = 88;
         auto rendered = thumbnailRenderer_->renderModel(*parsed.modelTgi, kRenderedThumbnailSize);
         if (rendered.has_value() && !rendered->pixels.empty()) {
             PreRendered preview;
@@ -461,6 +514,32 @@ Lot ExemplarParser::lotFromParsed(const ParsedLotConfigExemplar& parsed) const {
     lot.wealthType = parsed.wealthType;
     lot.purposeType = parsed.purposeType;
     return lot;
+}
+
+Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
+    Prop prop;
+    prop.instanceId = parsed.tgi.instance;
+    prop.groupId = parsed.tgi.group;
+    prop.name = parsed.name;
+    prop.width = parsed.width;
+    prop.height = parsed.height;
+    prop.depth = parsed.depth;
+
+    if (parsed.modelTgi.has_value() && thumbnailRenderer_) {
+        auto rendered = thumbnailRenderer_->renderModel(*parsed.modelTgi, kRenderedThumbnailSize);
+        if (rendered.has_value() && !rendered->pixels.empty()) {
+            PreRendered preview;
+            preview.data = rfl::Bytestring(std::move(rendered->pixels));
+            preview.width = rendered->width;
+            preview.height = rendered->height;
+            prop.thumbnail = preview;
+        }
+        else {
+            spdlog::debug("Thumbnail render failed for prop {} ({})",
+                          parsed.name, parsed.modelTgi->ToString());
+        }
+    }
+    return prop;
 }
 
 const Exemplar::Property* ExemplarParser::findProperty(
@@ -628,9 +707,9 @@ std::string ExemplarParser::resolveLTextTags_(std::string_view text,
 
 std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record& exemplar,
                                                           const DBPF::Tgi& exemplarTgi) const {
-    constexpr int kZoomLevel = 5;
-    constexpr int kRotation = 0; // South
-    auto getU32 = [](const Exemplar::Property* prop, size_t index) -> std::optional<uint32_t> {
+    constexpr auto kZoomLevel = 5;
+    constexpr auto kRotation = 0; // South
+    auto getU32 = [](const Exemplar::Property* prop, const size_t index) -> std::optional<uint32_t> {
         if (!prop || index >= prop->values.size()) {
             return std::nullopt;
         }
@@ -645,8 +724,8 @@ std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record
         if (type == 0) {
             type = kTypeIdS3D;
         }
-        auto group = getU32(prop, 1);
-        auto instance = getU32(prop, 2);
+        const auto group = getU32(prop, 1);
+        const auto instance = getU32(prop, 2);
         if (!group || !instance) {
             return std::nullopt;
         }
@@ -661,8 +740,8 @@ std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record
 
     if (const auto* rkt1 = findProperty(exemplar, kRkt1PropertyId)) {
         if (auto tgi = tgiFromList(rkt1)) {
-            const uint32_t zoomOffset = static_cast<uint32_t>(kZoomLevel - 1) * 0x100u;
-            const uint32_t rotationOffset = static_cast<uint32_t>(kRotation) * 0x10u;
+            constexpr uint32_t zoomOffset = static_cast<uint32_t>(kZoomLevel - 1) * 0x100u;
+            constexpr uint32_t rotationOffset = static_cast<uint32_t>(kRotation) * 0x10u;
             tgi->instance = tgi->instance + zoomOffset + rotationOffset;
             return tgi;
         }
@@ -670,15 +749,15 @@ std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record
 
     if (const auto* rkt5 = findProperty(exemplar, kRkt5PropertyId)) {
         if (auto tgi = tgiFromList(rkt5)) {
-            const uint32_t zoomOffset = static_cast<uint32_t>(kZoomLevel - 1) * 0x100u;
-            const uint32_t rotationOffset = static_cast<uint32_t>(kRotation) * 0x10u;
+            constexpr uint32_t zoomOffset = static_cast<uint32_t>(kZoomLevel - 1) * 0x100u;
+            constexpr uint32_t rotationOffset = static_cast<uint32_t>(kRotation) * 0x10u;
             tgi->instance = tgi->instance + zoomOffset + rotationOffset;
             return tgi;
         }
     }
 
     if (const auto* rkt3 = findProperty(exemplar, kRkt3PropertyId)) {
-        const size_t index = 2 + static_cast<size_t>(kZoomLevel - 1);
+        constexpr size_t index = 2 + static_cast<size_t>(kZoomLevel - 1);
         if (rkt3->values.size() > index) {
             auto type = getU32(rkt3, 0).value_or(kTypeIdS3D);
             if (type == 0) {
@@ -693,7 +772,7 @@ std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record
     }
 
     if (const auto* rkt2 = findProperty(exemplar, kRkt2PropertyId)) {
-        const size_t index = 2 + static_cast<size_t>(kZoomLevel - 1) * 4 +
+        constexpr size_t index = 2 + static_cast<size_t>(kZoomLevel - 1) * 4 +
             static_cast<size_t>(kRotation);
         if (rkt2->values.size() > index) {
             const auto instance = getU32(rkt2, index);
@@ -704,7 +783,7 @@ std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record
     }
 
     if (const auto* rkt4 = findProperty(exemplar, kRkt4PropertyId)) {
-        const size_t blockSize = 8;
+        constexpr size_t blockSize = 8;
         for (size_t i = 0; i + blockSize - 1 < rkt4->values.size(); i += blockSize) {
             const auto state = getU32(rkt4, i);
             if (!state || *state != 0) {

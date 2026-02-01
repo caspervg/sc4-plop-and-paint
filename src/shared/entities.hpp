@@ -56,6 +56,19 @@ struct Building {
     std::vector<Lot> lots;
 };
 
+struct Prop {
+    rfl::Hex<uint32_t> groupId;
+    rfl::Hex<uint32_t> instanceId;
+
+    std::string name;
+
+    float width;
+    float height;
+    float depth;
+
+    std::optional<Thumbnail> thumbnail;
+};
+
 struct TabFavorites {
     std::vector<rfl::Hex<uint32_t>> items;
 };

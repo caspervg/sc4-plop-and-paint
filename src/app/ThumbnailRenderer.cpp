@@ -14,6 +14,7 @@ namespace thumb {
     namespace {
         constexpr auto kTypeIdS3D = 0x5AD0E817u;
         constexpr auto kTypeIdFSH = 0x7AB50E44u;
+        constexpr auto kTypeIdATC = 0x29A5D1ECu;
     }
 
     ThumbnailRenderer::ThumbnailRenderer(const DbpfIndexService& indexService)
@@ -36,7 +37,12 @@ namespace thumb {
         }
 
         if (tgi.type != kTypeIdS3D) {
-            spdlog::warn("Thumbnail renderer received non-S3D TGI {}", tgi.ToString());
+            if (tgi.type == kTypeIdATC) {
+                spdlog::debug("Thumbnail render received an ATC {}", tgi.ToString());
+                return std::nullopt;
+            }
+
+            spdlog::warn("Thumbnail renderer received non-S3D unknown {}", tgi.ToString());
             return std::nullopt;
         }
 

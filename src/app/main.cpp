@@ -33,307 +33,351 @@
 namespace fs = std::filesystem;
 
 namespace {
-
-PluginConfiguration GetDefaultPluginConfiguration()
-{
-    const char* userProfile = std::getenv("USERPROFILE");
-    const char* programFiles = std::getenv("PROGRAMFILES(x86)");
-    const auto gameRoot = fs::path(programFiles) / "SimCity 4 Deluxe Edition";
-    if (userProfile && programFiles) {
-        return PluginConfiguration{
-            .gameRoot = gameRoot,
-            .localeDir = "English",
-            .gamePluginsRoot = gameRoot / "Plugins",
-            .userPluginsRoot = fs::path(userProfile) / "Documents" / "SimCity 4" / "Plugins"
-        };
+    PluginConfiguration GetDefaultPluginConfiguration() {
+        const char* userProfile = std::getenv("USERPROFILE");
+        const char* programFiles = std::getenv("PROGRAMFILES(x86)");
+        const auto gameRoot = fs::path(programFiles) / "SimCity 4 Deluxe Edition";
+        if (userProfile && programFiles) {
+            return PluginConfiguration{
+                .gameRoot = gameRoot,
+                .localeDir = "English",
+                .gamePluginsRoot = gameRoot / "Plugins",
+                .userPluginsRoot = fs::path(userProfile) / "Documents" / "SimCity 4" / "Plugins"
+            };
+        }
+        return PluginConfiguration{};
     }
-    return PluginConfiguration{};
-}
 
-void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
-                             spdlog::logger& logger,
-                             bool renderModelThumbnails)
-{
-    try {
-        logger.info("Initializing plugin scanner...");
+    void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
+                                 spdlog::logger& logger,
+                                 bool renderModelThumbnails) {
+        try {
+            logger.info("Initializing plugin scanner...");
 
-        // Create locator to discover plugin files
-        PluginLocator locator(config);
+            // Create locator to discover plugin files
+            PluginLocator locator(config);
 
-        // Create and start the index service immediately for parallel indexing
-        DbpfIndexService indexService(locator);
-        logger.info("Starting background indexing service...");
-        indexService.start();
+            // Create and start the index service immediately for parallel indexing
+            DbpfIndexService indexService(locator);
+            logger.info("Starting background indexing service...");
+            indexService.start();
 
-        // While indexing happens in the background, load the property mapper
-        logger.info("Loading property mapper...");
-        PropertyMapper propertyMapper;
-        auto mapperLoaded = false;
+            // While indexing happens in the background, load the property mapper
+            logger.info("Loading property mapper...");
+            PropertyMapper propertyMapper;
+            auto mapperLoaded = false;
 
-        // Try common locations for the property mapper XML
-        std::vector<fs::path> mapperLocations{
-            fs::path("PropertyMapper.xml"),
-            fs::current_path() / "PropertyMapper.xml",
-            config.gameRoot / "PropertyMapper.xml"
-        };
+            // Try common locations for the property mapper XML
+            std::vector<fs::path> mapperLocations{
+                fs::path("PropertyMapper.xml"),
+                fs::current_path() / "PropertyMapper.xml",
+                config.gameRoot / "PropertyMapper.xml"
+            };
 
-        for (const auto& loc : mapperLocations) {
-            if (fs::exists(loc)) {
-                if (propertyMapper.loadFromXml(loc)) {
-                    logger.info("Loaded property mapper from: {}", loc.string());
-                    mapperLoaded = true;
+            for (const auto& loc : mapperLocations) {
+                if (fs::exists(loc)) {
+                    if (propertyMapper.loadFromXml(loc)) {
+                        logger.info("Loaded property mapper from: {}", loc.string());
+                        mapperLoaded = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!mapperLoaded) {
+                logger.warn("Could not load PropertyMapper XML - some features may be limited");
+            }
+
+            // Wait for indexing to complete, logging progress periodically
+            logger.info("Waiting for indexing to complete...");
+            using namespace std::chrono_literals;
+            auto logIntervalCount = 0;
+            while (true) {
+                auto progress = indexService.snapshot();
+
+                // Check if done
+                if (progress.done) {
                     break;
                 }
-            }
-        }
 
-        if (!mapperLoaded) {
-            logger.warn("Could not load PropertyMapper XML - some features may be limited");
-        }
+                std::this_thread::sleep_for(100ms);
 
-        // Wait for indexing to complete, logging progress periodically
-        logger.info("Waiting for indexing to complete...");
-        using namespace std::chrono_literals;
-        int logIntervalCount = 0;
-        while (true) {
-            auto progress = indexService.snapshot();
-
-            // Check if done
-            if (progress.done) {
-                break;
-            }
-
-            std::this_thread::sleep_for(100ms);
-
-            // Log progress every 2 seconds
-            if (++logIntervalCount % 20 == 0) {
-                logger.info("  Indexing progress: {}/{} files processed, {} entries indexed",
-                           progress.processedFiles, progress.totalFiles, progress.entriesIndexed);
-            }
-        }
-
-        // Log final indexing results
-        auto finalProgress = indexService.snapshot();
-        logger.info("Indexing complete: {} files processed, {} entries indexed, {} errors",
-                   finalProgress.processedFiles, finalProgress.totalFiles, finalProgress.errorCount);
-
-        uint32_t buildingsFound = 0;
-        uint32_t lotsFound = 0;
-        uint32_t parseErrors = 0;
-        std::set<uint32_t> missingBuildingIds;
-
-        ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails);
-        std::vector<Building> allBuildings;
-        std::unordered_map<uint32_t, ParsedBuildingExemplar> buildingMap;
-        std::unordered_map<uint32_t, Building> builtBuildings;
-        std::unordered_set<uint64_t> seenLotKeys;
-
-        // Use the index service to get all exemplars across all files
-        logger.info("Processing exemplars using type index...");
-        const auto& tgiIndex = indexService.tgiIndex();
-        const auto exemplarTgis = indexService.typeIndex(0x6534284Au);
-
-        logger.info("Found {} exemplars to process", exemplarTgis.size());
-
-        // Group exemplar TGIs by file for efficient batch processing
-        std::unordered_map<fs::path, std::vector<DBPF::Tgi>> fileToExemplarTgis;
-        for (const auto& tgi : exemplarTgis) {
-            const auto& filePaths = tgiIndex.at(tgi);
-            // Add this TGI to the first file that contains it
-            if (!filePaths.empty()) {
-                fileToExemplarTgis[filePaths[0]].push_back(tgi);
-            }
-        }
-
-        size_t filesProcessed = 0;
-
-        // Store lot config TGIs for second pass
-        std::vector<std::pair<fs::path, DBPF::Tgi>> lotConfigTgis;
-
-        for (const auto& [filePath, tgis] : fileToExemplarTgis) {
-            try {
-                // Get cached reader from index service
-                auto* reader = indexService.getReader(filePath);
-                if (!reader) {
-                    logger.warn("Failed to get reader for file: {}", filePath.string());
-                    continue;
+                // Log progress every 2 seconds
+                if (++logIntervalCount % 20 == 0) {
+                    logger.info("  Indexing progress: {}/{} files processed, {} entries indexed",
+                                progress.processedFiles, progress.totalFiles, progress.entriesIndexed);
                 }
+            }
 
-                logger.debug("Processing {} exemplars from {}", tgis.size(), filePath.filename().string());
+            // Log final indexing results
+            auto finalProgress = indexService.snapshot();
+            logger.info("Indexing complete: {} files processed, {} entries indexed, {} errors",
+                        finalProgress.processedFiles, finalProgress.totalFiles, finalProgress.errorCount);
 
-                // Process all exemplars in this file
-                for (const auto& tgi : tgis) {
-                    try {
-                        auto exemplarResult = reader->LoadExemplar(tgi);
-                        if (!exemplarResult.has_value()) {
-                            continue;
-                        }
+            uint32_t buildingsFound = 0;
+            uint32_t lotsFound = 0;
+            uint32_t parseErrors = 0;
+            std::set<uint32_t> missingBuildingIds;
 
-                        auto exemplarType = parser.getExemplarType(*exemplarResult);
-                        if (!exemplarType) {
-                            continue;
-                        }
+            ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails);
+            std::vector<Building> allBuildings;
+            std::vector<Prop> allProps;
+            std::unordered_map<uint32_t, ParsedBuildingExemplar> buildingMap;
+            std::unordered_map<uint32_t, Building> builtBuildings;
+            std::unordered_set<uint64_t> seenLotKeys;
 
-                        if (*exemplarType == ExemplarType::Building) {
-                            auto building = parser.parseBuilding(*exemplarResult, tgi);
-                            if (building) {
-                                buildingMap[tgi.instance] = *building;
-                                builtBuildings.try_emplace(tgi.instance, parser.buildingFromParsed(*building));
-                                buildingsFound++;
-                                logger.trace("  Building: {} (0x{:08X})", building->name, tgi.instance);
+            // Use the index service to get all exemplars across all files
+            logger.info("Processing exemplars using type index...");
+            const auto& tgiIndex = indexService.tgiIndex();
+            const auto exemplarTgis = indexService.typeIndex(0x6534284Au);
+
+            logger.info("Found {} exemplars to process", exemplarTgis.size());
+
+            // Group exemplar TGIs by file for efficient batch processing
+            std::unordered_map<fs::path, std::vector<DBPF::Tgi>> fileToExemplarTgis;
+            for (const auto& tgi : exemplarTgis) {
+                const auto& filePaths = tgiIndex.at(tgi);
+                // Add this TGI to the first file that contains it
+                if (!filePaths.empty()) {
+                    fileToExemplarTgis[filePaths[0]].push_back(tgi);
+                }
+            }
+
+            size_t filesProcessed = 0;
+
+            // Store lot config TGIs for second pass
+            std::vector<std::pair<fs::path, DBPF::Tgi>> lotConfigTgis;
+
+            for (const auto& [filePath, tgis] : fileToExemplarTgis) {
+                try {
+                    // Get cached reader from index service
+                    auto* reader = indexService.getReader(filePath);
+                    if (!reader) {
+                        logger.warn("Failed to get reader for file: {}", filePath.string());
+                        continue;
+                    }
+
+                    logger.debug("Processing {} exemplars from {}", tgis.size(), filePath.filename().string());
+
+                    // Process all exemplars in this file
+                    for (const auto& tgi : tgis) {
+                        try {
+                            auto exemplarResult = reader->LoadExemplar(tgi);
+                            if (!exemplarResult.has_value()) {
+                                continue;
                             }
-                        } else if (*exemplarType == ExemplarType::LotConfig) {
-                            // Queue for second pass
-                            lotConfigTgis.emplace_back(filePath, tgi);
-                        }
 
-                    } catch (const std::exception& error) {
-                        logger.debug("Error processing TGI {}/{}/{}: {}",
-                                   tgi.type, tgi.group, tgi.instance, error.what());
-                        parseErrors++;
+                            auto exemplarType = parser.getExemplarType(*exemplarResult);
+                            if (!exemplarType) {
+                                continue;
+                            }
+
+                            if (*exemplarType == ExemplarType::Building) {
+                                auto building = parser.parseBuilding(*exemplarResult, tgi);
+                                if (building) {
+                                    buildingMap[tgi.instance] = *building;
+                                    builtBuildings.try_emplace(tgi.instance, parser.buildingFromParsed(*building));
+                                    buildingsFound++;
+                                    logger.trace("  Building: {} (0x{:08X})", building->name, tgi.instance);
+                                }
+                            }
+                            else if (*exemplarType == ExemplarType::LotConfig) {
+                                // Queue for second pass
+                                lotConfigTgis.emplace_back(filePath, tgi);
+                            }
+                            else if (*exemplarType == ExemplarType::Prop) {
+                                if (auto prop = parser.parseProp(*exemplarResult, tgi)) {
+                                    logger.trace("  Prop: {} (0x{:08X})", prop->name, tgi.instance);
+                                    allProps.emplace_back(
+                                        parser.propFromParsed(*prop)
+                                    );
+                                }
+                            }
+                        }
+                        catch (const std::exception& error) {
+                            logger.debug("Error processing TGI {}/{}/{}: {}",
+                                         tgi.type, tgi.group, tgi.instance, error.what());
+                            parseErrors++;
+                        }
+                    }
+
+                    filesProcessed++;
+
+                    // Log progress periodically
+                    if (filesProcessed % 100 == 0) {
+                        logger.info("  Processed {}/{} files ({} buildings found so far)",
+                                    filesProcessed, fileToExemplarTgis.size(), buildingsFound);
                     }
                 }
-
-                filesProcessed++;
-
-                // Log progress periodically
-                if (filesProcessed % 100 == 0) {
-                    logger.info("  Processed {}/{} files ({} buildings found so far)",
-                               filesProcessed, fileToExemplarTgis.size(), buildingsFound);
+                catch (const std::exception& error) {
+                    logger.warn("Error processing file {}: {}", filePath.filename().string(), error.what());
                 }
-
-            } catch (const std::exception& error) {
-                logger.warn("Error processing file {}: {}", filePath.filename().string(), error.what());
             }
-        }
 
-        // Build family-to-buildings map for resolving growable lot references
-        std::unordered_map<uint32_t, std::vector<uint32_t>> familyToBuildingsMap;
-        for (const auto& [instanceId, building] : buildingMap) {
-            for (uint32_t familyId : building.familyIds) {
-                familyToBuildingsMap[familyId].push_back(instanceId);
+            // Build family-to-buildings map for resolving growable lot references
+            std::unordered_map<uint32_t, std::vector<uint32_t>> familyToBuildingsMap;
+            for (const auto& [instanceId, building] : buildingMap) {
+                for (uint32_t familyId : building.familyIds) {
+                    familyToBuildingsMap[familyId].push_back(instanceId);
+                }
             }
-        }
 
-        for (const auto& [filePath, tgi] : lotConfigTgis) {
-            try {
-                auto* reader = indexService.getReader(filePath);
-                if (!reader) {
-                    continue;
-                }
+            for (const auto& [filePath, tgi] : lotConfigTgis) {
+                try {
+                    auto* reader = indexService.getReader(filePath);
+                    if (!reader) {
+                        continue;
+                    }
 
-                auto exemplarResult = reader->LoadExemplar(tgi);
-                if (!exemplarResult.has_value()) {
-                    continue;
-                }
+                    auto exemplarResult = reader->LoadExemplar(tgi);
+                    if (!exemplarResult.has_value()) {
+                        continue;
+                    }
 
-                if (auto parsedLot = parser.parseLotConfig(*exemplarResult, tgi, buildingMap, familyToBuildingsMap)) {
-                    // Get building for this lot
-                    auto buildingIt = builtBuildings.find(parsedLot->buildingInstanceId);
-                    if (buildingIt != builtBuildings.end()) {
-                        Lot lot = parser.lotFromParsed(*parsedLot);
-                        if (parsedLot->isFamilyReference) {
-                            logger.trace("  Lot: {} (0x{:08X}) [family 0x{:08X} -> building 0x{:08X}]",
-                                       lot.name, lot.instanceId.get(),
-                                       parsedLot->buildingFamilyId, parsedLot->buildingInstanceId);
-                        } else {
-                            logger.trace("  Lot: {} (0x{:08X})", lot.name, lot.instanceId.get());
+                    if (auto parsedLot = parser.
+                        parseLotConfig(*exemplarResult, tgi, buildingMap, familyToBuildingsMap)) {
+                        // Get building for this lot
+                        auto buildingIt = builtBuildings.find(parsedLot->buildingInstanceId);
+                        if (buildingIt != builtBuildings.end()) {
+                            Lot lot = parser.lotFromParsed(*parsedLot);
+                            if (parsedLot->isFamilyReference) {
+                                logger.trace("  Lot: {} (0x{:08X}) [family 0x{:08X} -> building 0x{:08X}]",
+                                             lot.name, lot.instanceId.get(),
+                                             parsedLot->buildingFamilyId, parsedLot->buildingInstanceId);
+                            }
+                            else {
+                                logger.trace("  Lot: {} (0x{:08X})", lot.name, lot.instanceId.get());
+                            }
+                            const uint64_t lotKey = (static_cast<uint64_t>(lot.groupId.value()) << 32) |
+                                static_cast<uint64_t>(lot.instanceId.value());
+                            if (seenLotKeys.insert(lotKey).second) {
+                                buildingIt->second.lots.push_back(lot);
+                                lotsFound++;
+                            }
+                            else {
+                                logger.warn("Duplicate lot skipped: {} (group=0x{:08X}, instance=0x{:08X})",
+                                            lot.name, lot.groupId.value(), lot.instanceId.value());
+                            }
                         }
-                        const uint64_t lotKey = (static_cast<uint64_t>(lot.groupId.value()) << 32) |
-                                                static_cast<uint64_t>(lot.instanceId.value());
-                        if (seenLotKeys.insert(lotKey).second) {
-                            buildingIt->second.lots.push_back(lot);
-                            lotsFound++;
-                        } else {
-                            logger.warn("Duplicate lot skipped: {} (group=0x{:08X}, instance=0x{:08X})",
-                                        lot.name, lot.groupId.value(), lot.instanceId.value());
+                        else {
+                            if (parsedLot->isFamilyReference) {
+                                logger.warn(
+                                    "  Lot {} references family 0x{:08X} but resolved building 0x{:08X} not found",
+                                    parsedLot->name, parsedLot->buildingFamilyId, parsedLot->buildingInstanceId);
+                            }
+                            else {
+                                logger.warn("  Lot {} references unknown building 0x{:08X}",
+                                            parsedLot->name, parsedLot->buildingInstanceId);
+                            }
+                            missingBuildingIds.insert(parsedLot->buildingInstanceId);
                         }
-                    } else {
-                        if (parsedLot->isFamilyReference) {
-                            logger.warn("  Lot {} references family 0x{:08X} but resolved building 0x{:08X} not found",
-                                       parsedLot->name, parsedLot->buildingFamilyId, parsedLot->buildingInstanceId);
-                        } else {
-                            logger.warn("  Lot {} references unknown building 0x{:08X}",
-                                       parsedLot->name, parsedLot->buildingInstanceId);
-                        }
-                        missingBuildingIds.insert(parsedLot->buildingInstanceId);
                     }
                 }
-            } catch (const std::exception& error) {
-                logger.debug("Error processing lot config TGI {}/{}/{}: {}",
-                           tgi.type, tgi.group, tgi.instance, error.what());
-                parseErrors++;
-            }
-        }
-
-        if (!missingBuildingIds.empty()) {
-            logger.warn("Missing building references for {} lots:", missingBuildingIds.size());
-        }
-
-        // Collect buildings that actually have lots
-        for (auto& [instanceId, building] : builtBuildings) {
-            if (!building.lots.empty()) {
-                allBuildings.push_back(std::move(building));
-            }
-        }
-
-        logger.info("Scan complete: {} buildings with lots, {} lots, {} parse errors",
-                   allBuildings.size(), lotsFound, parseErrors);
-
-        // Export grouped building/lot data to CBOR file in user plugins directory
-        if (!allBuildings.empty()) {
-            try {
-                auto cborPath = config.userPluginsRoot / "lot_configs.cbor";
-                fs::create_directories(config.userPluginsRoot);
-
-                logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound, cborPath.string());
-
-                if (std::ofstream file(cborPath, std::ios::binary); !file) {
-                    logger.error("Failed to open file for writing: {}", cborPath.string());
-                } else {
-                    rfl::cbor::write(allBuildings, file);
-                    file.close();
-                    logger.info("Successfully exported lot configs");
+                catch (const std::exception& error) {
+                    logger.debug("Error processing lot config TGI {}/{}/{}: {}",
+                                 tgi.type, tgi.group, tgi.instance, error.what());
+                    parseErrors++;
                 }
-            } catch (const std::exception& error) {
-                logger.error("Error exporting lot configs: {}", error.what());
             }
-        }
 
-        // Shutdown the indexing service
-        indexService.shutdown();
-    } catch (const std::exception& error) {
-        logger.error("Error during exemplar scan: {}", error.what());
+            if (!missingBuildingIds.empty()) {
+                logger.warn("Missing building references for {} lots:", missingBuildingIds.size());
+            }
+
+            // Collect buildings that actually have lots
+            for (auto& [instanceId, building] : builtBuildings) {
+                if (!building.lots.empty()) {
+                    allBuildings.push_back(std::move(building));
+                }
+            }
+
+            logger.info("Scan complete: {} buildings with lots, {} lots, {} parse errors",
+                        allBuildings.size(), lotsFound, parseErrors);
+
+            // Export grouped building/lot data to CBOR file in user plugins directory
+            if (!allBuildings.empty()) {
+                try {
+                    auto cborPath = config.userPluginsRoot / "lot_configs.cbor";
+                    fs::create_directories(config.userPluginsRoot);
+
+                    logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound,
+                                cborPath.string());
+
+                    if (std::ofstream file(cborPath, std::ios::binary); !file) {
+                        logger.error("Failed to open file for writing: {}", cborPath.string());
+                    }
+                    else {
+                        rfl::cbor::write(allBuildings, file);
+                        file.close();
+                        logger.info("Successfully exported lot configs");
+                    }
+                }
+                catch (const std::exception& error) {
+                    logger.error("Error exporting lot configs: {}", error.what());
+                }
+            }
+
+            if (!allProps.empty()) {
+                try {
+                    auto cborPath = config.userPluginsRoot / "props.cbor";
+                    fs::create_directories(config.userPluginsRoot);
+
+                    logger.info("Exporting {} props to {}", allProps.size(), cborPath.string());
+
+                    if (std::ofstream file(cborPath, std::ios::binary); !file) {
+                        logger.error("Failed to open file for writing: {}", cborPath.string());
+                    }
+                    else {
+                        rfl::cbor::write(allProps, file);
+                        file.close();
+                        logger.info("Successfully exported props");
+                    }
+                }
+                catch (const std::exception& error) {
+                    logger.error("Error exporting props: {}", error.what());
+                }
+            }
+
+            // Shutdown the indexing service
+            indexService.shutdown();
+        }
+        catch (const std::exception& error) {
+            logger.error("Error during exemplar scan: {}", error.what());
+        }
     }
-}
-
 } // namespace
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     try {
         auto logger = spdlog::stdout_color_mt("lotplop-cli");
         logger->set_level(spdlog::level::debug);
         spdlog::set_pattern("[%H:%M:%S] [%^%l%$] %v");
         logger->info("SC4AdvancedLotPlop CLI {}", SC4_ADVANCED_LOT_PLOP_VERSION);
 
-        args::ArgumentParser parser("SC4AdvancedLotPlop CLI", "Inspect and extract Lot and Building exemplars from SimCity 4 plugins.");
+        args::ArgumentParser parser("SC4AdvancedLotPlop CLI",
+                                    "Inspect and extract Lot and Building exemplars from SimCity 4 plugins.");
         args::HelpFlag helpFlag(parser, "help", "Show this help message", {'h', "help"});
         args::Flag versionFlag(parser, "version", "Print version", {"version"});
         args::Flag scanFlag(parser, "scan", "Scan plugins and extract exemplars", {"scan"});
-        args::ValueFlag<std::string> gameFlag(parser, "path", "Game root directory (plugins will be in {path}/Plugins)", {"game"});
+        args::ValueFlag<std::string> gameFlag(parser, "path", "Game root directory (plugins will be in {path}/Plugins)",
+                                              {"game"});
         args::ValueFlag<std::string> pluginsFlag(parser, "path", "User plugins directory", {"plugins"});
-        args::ValueFlag<std::string> localeFlag(parser, "path", "Locale directory under game root (e.g., English)", {"locale"});
-        args::Flag renderThumbnailsFlag(parser, "render-thumbnails", "Render 3D thumbnails for buildings without icons", {"render-thumbnails"});
+        args::ValueFlag<std::string> localeFlag(parser, "path", "Locale directory under game root (e.g., English)",
+                                                {"locale"});
+        args::Flag renderThumbnailsFlag(parser, "render-thumbnails", "Render 3D thumbnails for buildings without icons",
+                                        {"render-thumbnails"});
 
         try {
             parser.ParseCLI(argc, argv);
-        } catch (const args::Completion& e) {
+        }
+        catch (const args::Completion& e) {
             std::cout << e.what();
-        } catch (const args::Help&) {
+        }
+        catch (const args::Help&) {
             std::cout << parser.Help() << std::endl;
             return 0;
-        } catch (const args::ParseError& error) {
+        }
+        catch (const args::ParseError& error) {
             std::cerr << error.what() << std::endl;
             std::cerr << parser.Help() << std::endl;
             return 1;
@@ -395,7 +439,8 @@ int main(int argc, char* argv[])
         logger->info("Use --scan to scan and extract exemplars");
 
         return 0;
-    } catch (const std::exception& error) {
+    }
+    catch (const std::exception& error) {
         std::cerr << "Fatal error: " << error.what() << std::endl;
         return 1;
     }
