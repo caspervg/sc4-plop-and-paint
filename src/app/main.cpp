@@ -187,7 +187,7 @@ namespace {
                             }
                             else if (*exemplarType == ExemplarType::Prop) {
                                 if (auto prop = parser.parseProp(*exemplarResult, tgi)) {
-                                    logger.trace("  Prop: {} (0x{:08X})", prop->name, tgi.instance);
+                                    logger.trace("  Prop: {} (0x{:08X})", prop->visibleName, tgi.instance);
                                     allProps.emplace_back(
                                         parser.propFromParsed(*prop)
                                     );

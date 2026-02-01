@@ -27,6 +27,79 @@ namespace {
         uint32_t height = 0;
     };
 
+    bool IsValidUtf8(const std::string_view text) {
+        size_t i = 0;
+        while (i < text.size()) {
+            const unsigned char c = static_cast<unsigned char>(text[i]);
+            if (c <= 0x7F) {
+                ++i;
+                continue;
+            }
+            size_t len = 0;
+            if ((c & 0xE0) == 0xC0) len = 2;
+            else if ((c & 0xF0) == 0xE0) len = 3;
+            else if ((c & 0xF8) == 0xF0) len = 4;
+            else return false;
+
+            if (i + len > text.size()) {
+                return false;
+            }
+            for (size_t j = 1; j < len; ++j) {
+                const unsigned char cc = static_cast<unsigned char>(text[i + j]);
+                if ((cc & 0xC0) != 0x80) {
+                    return false;
+                }
+            }
+            i += len;
+        }
+        return true;
+    }
+
+    std::string SanitizeUtf8(const std::string_view text) {
+        std::string out;
+        out.reserve(text.size());
+        size_t i = 0;
+        while (i < text.size()) {
+            const unsigned char c = static_cast<unsigned char>(text[i]);
+            if (c <= 0x7F) {
+                out.push_back(static_cast<char>(c));
+                ++i;
+                continue;
+            }
+            size_t len = 0;
+            if ((c & 0xE0) == 0xC0) len = 2;
+            else if ((c & 0xF0) == 0xE0) len = 3;
+            else if ((c & 0xF8) == 0xF0) len = 4;
+            else {
+                out.push_back('?');
+                ++i;
+                continue;
+            }
+
+            if (i + len > text.size()) {
+                out.push_back('?');
+                break;
+            }
+            bool valid = true;
+            for (size_t j = 1; j < len; ++j) {
+                const unsigned char cc = static_cast<unsigned char>(text[i + j]);
+                if ((cc & 0xC0) != 0x80) {
+                    valid = false;
+                    break;
+                }
+            }
+            if (!valid) {
+                out.push_back('?');
+                ++i;
+                continue;
+            }
+
+            out.append(text.substr(i, len));
+            i += len;
+        }
+        return out;
+    }
+
     std::optional<DBPF::Tgi> tgiFromProperty(const Exemplar::Property* prop, uint32_t defaultType) {
         if (!prop || prop->values.size() < 3) {
             return std::nullopt;
@@ -394,26 +467,34 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
                                                             const DBPF::Tgi& tgi) const {
     ParsedPropExemplar parsedPropExemplar;
     parsedPropExemplar.tgi = tgi;
-    parsedPropExemplar.name = "";
+    parsedPropExemplar.visibleName = "";
+    parsedPropExemplar.exemplarName = "";
     parsedPropExemplar.modelTgi = std::nullopt;
 
     if (auto propId = propertyMapper_.propertyId(kUserVisibleNameKey)) {
         if (auto* prop = findProperty(exemplar, *propId)) {
             if (auto tgiKey = tgiFromProperty(prop, kTypeIdLText)) {
                 if (auto localized = loadLocalizedText(indexService_, *tgiKey)) {
-                    parsedPropExemplar.name = resolveLTextTags_(*localized, exemplar);
+                    auto resolved = resolveLTextTags_(*localized, exemplar);
+                    if (!IsValidUtf8(resolved)) {
+                        spdlog::warn("Invalid UTF-8 in prop visible name for {} -> {}", tgi.ToString(), resolved);
+                        resolved = SanitizeUtf8(resolved);
+                    }
+                    parsedPropExemplar.visibleName = std::move(resolved);
                 }
             }
         }
     }
 
-    // Use the ExemplarName as a backup if UVNK is not available
-    if (parsedPropExemplar.name.empty()) {
-        if (const auto propId = propertyMapper_.propertyId(kExemplarName)) {
-            if (auto* prop = findProperty(exemplar, *propId)) {
-                if (const auto name = prop->GetScalarAs<std::string>()) {
-                    parsedPropExemplar.name = *name;
+    if (const auto propId = propertyMapper_.propertyId(kExemplarName)) {
+        if (auto* prop = findProperty(exemplar, *propId)) {
+            if (const auto name = prop->GetScalarAs<std::string>()) {
+                auto exemplarName = std::format("{}", *name);
+                if (!IsValidUtf8(exemplarName)) {
+                    spdlog::warn("Invalid UTF-8 in prop exemplar name for {} -> {}", tgi.ToString(), exemplarName);
+                    exemplarName = SanitizeUtf8(exemplarName);
                 }
+                parsedPropExemplar.exemplarName = std::move(exemplarName);
             }
         }
     }
@@ -432,7 +513,7 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
                     }
                     else {
                         spdlog::warn("Failed to parse occupant size for {} at {}",
-                                     parsedPropExemplar.name,
+                                     parsedPropExemplar.exemplarName,
                                      tgi.ToString());
                     }
                 }
@@ -520,7 +601,8 @@ Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
     Prop prop;
     prop.instanceId = parsed.tgi.instance;
     prop.groupId = parsed.tgi.group;
-    prop.name = parsed.name;
+    prop.exemplarName = parsed.exemplarName;
+    prop.visibleName = parsed.visibleName;
     prop.width = parsed.width;
     prop.height = parsed.height;
     prop.depth = parsed.depth;
@@ -536,7 +618,7 @@ Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
         }
         else {
             spdlog::debug("Thumbnail render failed for prop {} ({})",
-                          parsed.name, parsed.modelTgi->ToString());
+                          parsed.visibleName, parsed.modelTgi->ToString());
         }
     }
     return prop;

@@ -54,7 +54,7 @@ constexpr auto kOccupantSize = "Occupant Size";
 constexpr auto kLotObjectIndexType = 0; // Rep 1: Object type (0 = building, 1 = prop, etc.)
 constexpr auto kLotObjectIndexObjectID = 11; // Rep 12: ObjectID (0xABBBBCCC format)
 constexpr auto kLotObjectIndexIID = 12; // Rep 13: IID (building exemplar) or Family ID (for growables)
-constexpr auto kRenderedThumbnailSize = 88u;
+constexpr auto kRenderedThumbnailSize = 44u;
 
 enum class ExemplarType {
     Building, // Exemplar Type 0x02
@@ -88,7 +88,8 @@ struct ParsedLotConfigExemplar {
 
 struct ParsedPropExemplar {
     DBPF::Tgi tgi;
-    std::string name;
+    std::string exemplarName;
+    std::string visibleName;
     float width{-1.0};
     float height{-1.0};
     float depth{-1.0};

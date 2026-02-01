@@ -60,7 +60,8 @@ struct Prop {
     rfl::Hex<uint32_t> groupId;
     rfl::Hex<uint32_t> instanceId;
 
-    std::string name;
+    std::string exemplarName;
+    std::string visibleName;
 
     float width;
     float height;
@@ -70,7 +71,7 @@ struct Prop {
 };
 
 struct TabFavorites {
-    std::vector<rfl::Hex<uint32_t>> items;
+    std::vector<rfl::Hex<uint64_t>> items;
 };
 
 struct AllFavorites {
