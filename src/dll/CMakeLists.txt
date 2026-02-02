@@ -60,6 +60,8 @@ find_library(IMGUI_LIB NAMES imgui
         "${IMGUI_LIB_DIR}"
         "${IMGUI_LIB_DIR}/Release"
         "${IMGUI_LIB_DIR}/Debug"
+        "${IMGUI_LIB_DIR}/build/Release"
+        "${IMGUI_LIB_DIR}/build/Debug"
         "${IMGUI_LIB_DIR}/cmake-build-debug-visual-studio/Debug"
         "${IMGUI_LIB_DIR}/cmake-build-release-visual-studio/Release"
     NO_DEFAULT_PATH

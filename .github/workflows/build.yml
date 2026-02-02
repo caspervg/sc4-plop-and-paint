@@ -1,0 +1,101 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '66c0373dc7fca549e5803087b9487edfe3aca0a1'
+
+      - name: Link vcpkg
+        run: |
+          if (Test-Path vcpkg) { Remove-Item vcpkg -Recurse -Force }
+          New-Item -ItemType Junction -Path vcpkg -Target $env:VCPKG_ROOT
+        shell: pwsh
+
+      # sc4-imgui-service (32-bit) - provides imgui.dll and SC4CustomServices.dll
+      - name: Build sc4-imgui-service
+        working-directory: vendor/sc4-imgui-service
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A Win32
+          cmake --build build --config Release --target imgui SC4CustomServices
+
+      # Main DLL (32-bit for SC4)
+      - name: Build DLL
+        run: |
+          cmake --preset vs2022-win32-release
+          cmake --build --preset vs2022-win32-release-build --target SC4AdvancedLotPlop
+
+      # CLI app (64-bit)
+      - name: Build CLI
+        run: |
+          cmake --preset vs2022-x64-release
+          cmake --build --preset vs2022-x64-release-build --target SC4AdvancedLotPlopCli
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist-package/PLACE_IN_YOUR_PLUGINS_FOLDER
+          mkdir -p dist-package/PLACE_IN_YOUR_SC4_APPS_FOLDER
+
+          cp vendor/sc4-imgui-service/build/Release/SC4CustomServices.dll dist-package/PLACE_IN_YOUR_PLUGINS_FOLDER/
+          cp cmake-build-release-visual-studio/src/dll/Release/SC4AdvancedLotPlop.dll dist-package/PLACE_IN_YOUR_PLUGINS_FOLDER/SC4PlopAndPaint.dll
+          cp vendor/sc4-imgui-service/build/Release/imgui.dll dist-package/PLACE_IN_YOUR_SC4_APPS_FOLDER/
+          cp cmake-build-release-visual-studio-x64/src/app/Release/SC4AdvancedLotPlopCli.exe dist-package/_SC4PlopAndPaintCacheBuilder.exe
+
+          cp dist/README.txt dist-package/
+          cp dist/RUN_CACHE_BUILDER.ps1 dist-package/
+          [ -f dist/SC4PlopAndPaint.dat ] && cp dist/SC4PlopAndPaint.dat dist-package/PLACE_IN_YOUR_PLUGINS_FOLDER/
+          [ -f vendor/sc4-properties/new_properties.xml ] && cp vendor/sc4-properties/new_properties.xml dist-package/PropertyMapper.xml
+
+          echo "Package contents:"
+          find dist-package -type f | sort
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SC4PlopAndPaint-${{ github.ref_name || github.sha }}
+          path: dist-package/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: SC4PlopAndPaint-${{ github.ref_name }}
+          path: dist-package
+
+      - name: Create zip
+        run: cd dist-package && zip -r ../SC4PlopAndPaint-${{ github.ref_name }}.zip .
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: SC4PlopAndPaint-${{ github.ref_name }}.zip
+          generate_release_notes: true
