@@ -17,6 +17,10 @@ void PropPanelTab::OnRender() {
         return;
     }
 
+    if (iconCache_.empty()) {
+        iconCache_.reserve(props.size());
+    }
+
     RenderFilterUI_();
 
     ImGui::Separator();
@@ -38,7 +42,12 @@ void PropPanelTab::OnRender() {
         }
     }
 
-    RenderTableInternal_(filteredProps, director_->GetFavoritePropIds());
+    // Table in scrollable child region so filters stay visible
+    if (ImGui::BeginChild("PropTableRegion", ImVec2(0, 0), false)) {
+        RenderTableInternal_(filteredProps, director_->GetFavoritePropIds());
+    }
+    ImGui::EndChild();
+
     RenderRotationModal_();
 }
 
@@ -149,7 +158,7 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
         ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
         ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti;
 
-    if (ImGui::BeginTable("PropsTable", 4, tableFlags, ImVec2(0, UI::kTableHeight))) {
+    if (ImGui::BeginTable("PropsTable", 4, tableFlags, ImVec2(0, 0))) {
         ImGui::TableSetupColumn("Thumbnail",
                                 ImGuiTableColumnFlags_WidthFixed |
                                 ImGuiTableColumnFlags_NoSort,
@@ -193,8 +202,8 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
             }
             if (!newSpecs.empty()) {
                 sortSpecs_ = std::move(newSpecs);
+                specs->SpecsDirty = false;
             }
-            specs->SpecsDirty = false;
         }
 
         if (!texturesLoaded_ && imguiService_) {
@@ -213,10 +222,11 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
             }
         }
 
-        for (const auto& view : filteredProps) {
-            const auto& prop = *view.prop;
+        for (size_t rowIdx = 0; rowIdx < filteredProps.size(); ++rowIdx) {
+            const auto& prop = *filteredProps[rowIdx].prop;
             const uint64_t key = (static_cast<uint64_t>(prop.groupId.value()) << 32) | prop.instanceId.value();
 
+            ImGui::PushID(static_cast<int>(rowIdx));
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             if (iconCache_.contains(key)) {
@@ -226,34 +236,32 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
             }
             ImGui::TableNextColumn();
-            ImGui::PushID(reinterpret_cast<void*>(static_cast<uintptr_t>(key)));
             if (prop.visibleName.empty()) {
                 ImGui::TextUnformatted(prop.exemplarName.c_str());
             } else {
                 ImGui::TextUnformatted(prop.visibleName.c_str());
                 ImGui::TextDisabled("%s", prop.exemplarName.c_str());
             }
-            ImGui::PopID();
 
             ImGui::TableNextColumn();
             ImGui::Text("%.1f x %.1f x %.1f", prop.width, prop.height, prop.depth);
             ImGui::TableNextColumn();
-            const std::string paintLabel = "Paint##paint" + std::to_string(key);
-            if (ImGui::Button(paintLabel.c_str())) {
+            if (ImGui::Button("Paint")) {
                 if (director_->IsPropPainting() &&
                     director_->SwitchPropPaintingTarget(prop.instanceId.value(), prop.visibleName)) {
                     // Reuse current paint mode and rotation; no modal.
                 }
                 else {
-                pendingPaint_.propId = prop.instanceId.value();
-                pendingPaint_.propName = prop.visibleName;
-                pendingPaint_.settings.mode = PropPaintMode::Direct;
-                pendingPaint_.settings.rotation = 0;
-                pendingPaint_.open = true;
+                    pendingPaint_.propId = prop.instanceId.value();
+                    pendingPaint_.propName = prop.visibleName;
+                    pendingPaint_.settings.mode = PropPaintMode::Direct;
+                    pendingPaint_.settings.rotation = 0;
+                    pendingPaint_.open = true;
                 }
             }
             ImGui::SameLine();
             RenderFavButton_(prop);
+            ImGui::PopID();
         }
         ImGui::EndTable();
     }
@@ -261,14 +269,9 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
 
 void PropPanelTab::RenderFavButton_(const Prop& prop) const {
     const bool isFavorite = director_->IsPropFavorite(prop.groupId.value(), prop.instanceId.value());
-    const char* label = isFavorite ? "Unstar" : "Star";
-
-    const std::string buttonLabel = std::string(label) + "##favProp" +
-        std::to_string(prop.groupId.value()) + "_" + std::to_string(prop.instanceId.value());
-    if (ImGui::Button(buttonLabel.c_str())) {
+    if (ImGui::Button(isFavorite ? "Unstar" : "Star")) {
         director_->TogglePropFavorite(prop.groupId.value(), prop.instanceId.value());
     }
-
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(isFavorite ? "Remove from favorites" : "Add to favorites");
     }

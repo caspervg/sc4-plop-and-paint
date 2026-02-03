@@ -44,9 +44,9 @@ bool PropPainterInputControl::OnMouseDownL(int32_t x, int32_t z, uint32_t modifi
     case PropPaintMode::Polygon:
         UpdatePreviewState(x, z);
         return true;
+    default:
+        return false;
     }
-
-    return false;
 }
 
 bool PropPainterInputControl::OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) {

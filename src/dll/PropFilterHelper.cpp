@@ -97,8 +97,15 @@ bool PropFilterHelper::PassesTextFilter_(const PropView& view) const {
     nameLower.reserve(view.prop->visibleName.size());
     std::ranges::transform(view.prop->visibleName, std::back_inserter(nameLower),
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (nameLower.find(searchLower) != std::string::npos) {
+        return true;
+    }
 
-    return nameLower.find(searchLower) != std::string::npos;
+    std::string exemplarLower;
+    exemplarLower.reserve(view.prop->exemplarName.size());
+    std::ranges::transform(view.prop->exemplarName, std::back_inserter(exemplarLower),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return exemplarLower.find(searchLower) != std::string::npos;
 }
 
 bool PropFilterHelper::PassesSizeFilter_(const PropView& view) const {

@@ -95,7 +95,7 @@ private:
     bool panelRegistered_{false};
     bool panelVisible_{false};
     bool shortcutRegistered_{false};
-    LotPlopPanel* panel_ = nullptr;
+    std::unique_ptr<LotPlopPanel> panel_;
     cRZAutoRefCount<PropPainterInputControl> propPainterControl_;
     bool propPainting_{false};
 };

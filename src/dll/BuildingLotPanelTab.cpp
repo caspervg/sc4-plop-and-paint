@@ -1,5 +1,6 @@
 #include "BuildingLotPanelTab.hpp"
 
+#include <algorithm>
 #include "Constants.hpp"
 #include "OccupantGroups.hpp"
 #include "rfl/visit.hpp"
@@ -16,6 +17,10 @@ void BuildingLotPanelTab::OnRender() {
     if (buildings.empty()) {
         ImGui::TextUnformatted("No buildings/lots loaded. Please ensure lot_configs.cbor exists in the Plugins directory.");
         return;
+    }
+
+    if (iconCache_.empty()) {
+        iconCache_.reserve(buildings.size());
     }
 
     // Render filter UI
@@ -103,10 +108,6 @@ void BuildingLotPanelTab::LoadIconTexture_(uint32_t buildingInstanceId, const Bu
 void BuildingLotPanelTab::RenderFilterUI_() {
     // Search bar - use local buffer for ImGui compatibility
     static char searchBuf[256] = {};
-    if (filterHelper_.searchBuffer != searchBuf) {
-        std::strncpy(searchBuf, filterHelper_.searchBuffer.c_str(), sizeof(searchBuf) - 1);
-        searchBuf[sizeof(searchBuf) - 1] = '\0';
-    }
 
     // Row 1: Search bar (full width)
     ImGui::SetNextItemWidth(-1); // Full width
@@ -180,13 +181,17 @@ void BuildingLotPanelTab::RenderFilterUI_() {
     // Row 4: Size filters
     ImGui::Text("Width:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSliderWidth);
-    ImGui::SliderInt("##MinSizeX", &filterHelper_.minSizeX, LotSize::kMinSize, LotSize::kMaxSize);
+    ImGui::SetNextItemWidth(50.0f);
+    if (ImGui::InputInt("##MinSizeX", &filterHelper_.minSizeX, 1, 1)) {
+        filterHelper_.minSizeX = std::clamp(filterHelper_.minSizeX, LotSize::kMinSize, LotSize::kMaxSize);
+    }
     ImGui::SameLine();
     ImGui::Text("to");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSliderWidth);
-    ImGui::SliderInt("##MaxSizeX", &filterHelper_.maxSizeX, LotSize::kMinSize, LotSize::kMaxSize);
+    ImGui::SetNextItemWidth(50.0f);
+    if (ImGui::InputInt("##MaxSizeX", &filterHelper_.maxSizeX, 1, 1)) {
+        filterHelper_.maxSizeX = std::clamp(filterHelper_.maxSizeX, LotSize::kMinSize, LotSize::kMaxSize);
+    }
 
     ImGui::SameLine();
     ImGui::Spacing();
@@ -195,13 +200,17 @@ void BuildingLotPanelTab::RenderFilterUI_() {
     // Row 5: Depth filters
     ImGui::Text("Depth:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSliderWidth);
-    ImGui::SliderInt("##MinSizeZ", &filterHelper_.minSizeZ, LotSize::kMinSize, LotSize::kMaxSize);
+    ImGui::SetNextItemWidth(50.0f);
+    if (ImGui::InputInt("##MinSizeZ", &filterHelper_.minSizeZ, 1, 1)) {
+        filterHelper_.minSizeZ = std::clamp(filterHelper_.minSizeZ, LotSize::kMinSize, LotSize::kMaxSize);
+    }
     ImGui::SameLine();
     ImGui::Text("to");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSliderWidth);
-    ImGui::SliderInt("##MaxSizeZ", &filterHelper_.maxSizeZ, LotSize::kMinSize, LotSize::kMaxSize);
+    ImGui::SetNextItemWidth(50.0f);
+    if (ImGui::InputInt("##MaxSizeZ", &filterHelper_.maxSizeZ, 1, 1)) {
+        filterHelper_.maxSizeZ = std::clamp(filterHelper_.maxSizeZ, LotSize::kMinSize, LotSize::kMaxSize);
+    }
 
     ImGui::SameLine();
     ImGui::Spacing();
@@ -281,8 +290,8 @@ void BuildingLotPanelTab::RenderTableInternal_(const std::vector<LotView>& filte
             }
             if (!newSpecs.empty()) {
                 sortSpecs_ = std::move(newSpecs);
+                specs->SpecsDirty = false;
             }
-            specs->SpecsDirty = false;
         }
 
         // Keep building iteration in sorted order.
@@ -343,14 +352,10 @@ void BuildingLotPanelTab::RenderTableInternal_(const std::vector<LotView>& filte
             }
             ImGui::EndGroup();
             ImGui::EndGroup();
-            ImGui::TableNextColumn();
+            ImGui::TableNextColumn(); // Size column (empty for building header)
+            ImGui::TableNextColumn(); // Action column (empty for building header)
 
-            ImGui::TableNextColumn();
-            ImGui::Dummy(ImVec2(0, 0));
-            ImGui::TableNextColumn();
-            ImGui::Dummy(ImVec2(0, 0));
-
-            for (auto i = 0; i < lots.size(); ++i) {
+            for (size_t i = 0; i < lots.size(); ++i) {
                 auto symbol = "|-";
                 if (i == lots.size() - 1) {
                     symbol = "`-";
