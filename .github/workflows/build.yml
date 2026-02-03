@@ -26,15 +26,10 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: '66c0373dc7fca549e5803087b9487edfe3aca0a1'
-
-      - name: Link vcpkg
+      - name: Bootstrap vcpkg
         run: |
-          if (Test-Path vcpkg) { Remove-Item vcpkg -Recurse -Force }
-          New-Item -ItemType Junction -Path vcpkg -Target $env:VCPKG_ROOT
-        shell: pwsh
+          ./vcpkg/bootstrap-vcpkg.bat
+          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $env:GITHUB_ENV
 
       # sc4-imgui-service (32-bit) - provides imgui.dll and SC4CustomServices.dll
       - name: Build sc4-imgui-service
