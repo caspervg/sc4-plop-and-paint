@@ -371,3 +371,5 @@ vcpkg/
 *.iml
 extra-info/
 plans/
+*.zip
+cmake-build-*/

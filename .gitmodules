@@ -12,7 +12,7 @@
 	url = https://github.com/caspervg/sc4-imgui-service.git
 [submodule "vendor/D3D7Imgui"]
 	path = vendor/D3D7Imgui
-	url = https://github.com/AndenDev/D3D7Imgui.git
+	url = https://github.com/caspervg/D3D7Imgui.git
 [submodule "vendor/spdlog"]
 	path = vendor/spdlog
 	url = https://github.com/gabime/spdlog.git
