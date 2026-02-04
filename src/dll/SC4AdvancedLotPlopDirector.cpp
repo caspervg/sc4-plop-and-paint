@@ -263,24 +263,27 @@ bool SC4AdvancedLotPlopDirector::StartPropPainting(uint32_t propId, const PropPa
     if (!propPainterControl_) {
         auto* control = new PropPainterInputControl();
         propPainterControl_ = control;
-    }
-    propPainterControl_->SetCity(pCity_);
-    propPainterControl_->SetWindow(pView3D_->AsIGZWin());
-    propPainterControl_->SetCameraService(cameraService_);
-    propPainterControl_->SetOnCancel([this]() { StopPropPainting(); });
-    if (!propPainterControl_->Init()) {
-        spdlog::error("Failed to initialize PropPainterInputControl");
-        propPainterControl_.Reset();
-        return false;
+
+        propPainterControl_->SetCity(pCity_);
+        propPainterControl_->SetWindow(pView3D_->AsIGZWin());
+        propPainterControl_->SetCameraService(cameraService_);
+        propPainterControl_->SetOnCancel([this]() {
+            if (propPainting_) {
+                StopPropPainting();
+            }
+        });
+
+        if (!propPainterControl_->Init()) {
+            spdlog::error("Failed to initialize PropPainterInputControl");
+            propPainterControl_.Reset();
+            return false;
+        }
     }
 
     propPainterControl_->SetPropToPaint(propId, settings, name);
 
     pView3D_->RemoveAllViewInputControls(false);
-    pView3D_->SetCurrentViewInputControl(
-        propPainterControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_None
-    );
+    pView3D_->AddPersistentViewInputControl(propPainterControl_);
 
     propPainting_ = true;
     spdlog::info("Started prop painting: 0x{:08X}, rotation {}", propId, settings.rotation);

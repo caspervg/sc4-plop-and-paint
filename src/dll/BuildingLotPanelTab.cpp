@@ -19,7 +19,7 @@ void BuildingLotPanelTab::OnRender() {
         return;
     }
 
-    if (iconCache_.empty()) {
+    if (iconCache_.empty() && !buildings.empty()) {
         iconCache_.reserve(buildings.size());
     }
 

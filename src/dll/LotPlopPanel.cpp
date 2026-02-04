@@ -18,7 +18,7 @@ void LotPlopPanel::OnRender() {
         return;
     }
 
-    ImGui::Begin("Advanced Plopping & Painting", &isOpen_);
+    ImGui::Begin("Advanced Plopping & Painting", &isOpen_, ImGuiWindowFlags_NoNavFocus);
     if (!isOpen_) {
         ImGui::End();
         return;

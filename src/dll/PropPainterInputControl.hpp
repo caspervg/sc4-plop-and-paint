@@ -3,6 +3,7 @@
 #include <string>
 
 #include "cISC4City.h"
+#include "cISC4Occupant.h"
 #include "cISC4PropManager.h"
 #include "cRZAutoRefCount.h"
 #include "cS3DVector3.h"
@@ -52,12 +53,20 @@ public:
     void SetCameraService(cIGZS3DCameraService* cameraService);
     void SetOnCancel(std::function<void()> onCancel);
 
-    [[nodiscard]] const PropPainterPreviewState& GetPreviewState() const { return previewState_; }
     [[nodiscard]] const PropPaintSettings& GetSettings() const { return settings_; }
 
+    void UndoLastPlacement();
+    void CancelAllPlacements();
+    void CommitPlacements();
+    // void ShowPropPreview(const cS3DVector3& position, int32_t rotation);
+    // void ClearPreview();
+
 private:
-    bool PlacePropAt(int32_t screenX, int32_t screenZ);
-    void UpdatePreviewState(int32_t screenX, int32_t screenZ);
+    bool PlacePropAt_(int32_t screenX, int32_t screenZ);
+    void CreatePreviewProp_();
+    void DestroyPreviewProp_();
+    void UpdatePreviewPropRotation_();
+    void UpdatePreviewProp_(int32_t screenX, int32_t screenZ);
 
     cRZAutoRefCount<cISC4City> city_;
     cRZAutoRefCount<cISC4PropManager> propManager_;
@@ -68,5 +77,15 @@ private:
     cIGZS3DCameraService* cameraService_ = nullptr;
     std::function<void()> onCancel_{};
 
-    PropPainterPreviewState previewState_;
+    std::vector<cRZAutoRefCount<cISC4Occupant>> placedProps_;
+
+    cRZAutoRefCount<cISC4PropOccupant> previewProp_;
+    cRZAutoRefCount<cISC4Occupant> previewOccupant_;
+    bool previewActive_ = false;
+    cS3DVector3 lastPreviewPosition_;
+    int32_t lastPreviewRotation_{0};
+
+    struct PreviewSettings {
+        bool showPreview = true;
+    } previewSettings_;
 };
