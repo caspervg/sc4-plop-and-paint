@@ -316,9 +316,13 @@ void BuildingsPanelTab::RenderBuildingRow_(const Building& building, const bool 
     // highlight covers the entire row, then overlay the thumbnail.
     ImGui::TableNextColumn();
     if (ImGui::Selectable("##row", isSelected,
-                          ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
+                          ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap |
+                          ImGuiSelectableFlags_AllowDoubleClick,
                           ImVec2(0, rowHeight))) {
         selectedBuilding_ = &building;
+        if (ImGui::IsMouseDoubleClicked(0) && building.lots.size() == 1) {
+            director_->TriggerLotPlop(building.lots[0].instanceId.value());
+        }
     }
     ImGui::SameLine();
     auto thumbTextureId = thumbnailCache_.Get(key);
@@ -351,9 +355,13 @@ void BuildingsPanelTab::RenderLotRow_(const Lot& lot) {
     ImGui::PushID(static_cast<int>(lot.instanceId.value()));
     ImGui::TableNextRow();
 
-    // Name
+    // Name — Selectable for full-row highlight and double-click to plop
     ImGui::TableNextColumn();
-    ImGui::TextUnformatted(lot.name.c_str());
+    if (ImGui::Selectable(lot.name.c_str(), false,
+                          ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap |
+                          ImGuiSelectableFlags_AllowDoubleClick) && ImGui::IsMouseDoubleClicked(0)) {
+        director_->TriggerLotPlop(lot.instanceId.value());
+    }
 
     // Size
     ImGui::TableNextColumn();
