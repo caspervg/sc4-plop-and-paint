@@ -202,7 +202,7 @@ void DbpfIndexService::worker_() {
             try {
                 DBPF::Reader reader;
                 if (!reader.LoadFile(filePath.string())) {
-                    spdlog::warn("Failed to load {}", currentFile_);
+                    spdlog::warn("Failed to load {}, not a DBPF file?", filePath.string());
                     ++errorCount_;
                     ++processedFiles_;
                     continue;

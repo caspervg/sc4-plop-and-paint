@@ -249,9 +249,10 @@ void BuildingLotPanelTab::RenderTableInternal_(const std::vector<LotView>& filte
                                                const std::unordered_set<uint32_t>& favorites) {
     constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
         ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
-        ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti;
+        ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_ScrollY;
     if (ImGui::BeginTable("LotsTable", 3, tableFlags, ImVec2(0, UI::kTableHeight))) {
         ImGui::TableSetupColumn("Name",
+                                ImGuiTableColumnFlags_WidthFixed |
                                 ImGuiTableColumnFlags_NoHide |
                                 ImGuiTableColumnFlags_DefaultSort |
                                 ImGuiTableColumnFlags_PreferSortAscending,
@@ -453,3 +454,4 @@ void BuildingLotPanelTab::RenderOccupantGroupFilter_() {
         ImGui::PopStyleVar();
     }
 }
+

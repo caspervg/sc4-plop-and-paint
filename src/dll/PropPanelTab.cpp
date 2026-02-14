@@ -156,7 +156,7 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                                         const std::unordered_set<uint64_t>& favorites) {
     constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
         ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
-        ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti;
+        ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("PropsTable", 4, tableFlags, ImVec2(0, 0))) {
         ImGui::TableSetupColumn("Thumbnail",

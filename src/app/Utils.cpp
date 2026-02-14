@@ -9,17 +9,6 @@
 #include "spdlog/spdlog.h"
 
 namespace {
-    std::string SanitizeString(const std::string_view text) {
-        if (utf8::is_valid(text.begin(), text.end())) {
-            return std::string(text);
-        }
-
-        std::string sanitized;
-        sanitized.reserve(text.size());
-        utf8::replace_invalid(text.begin(), text.end(), std::back_inserter(sanitized));
-        return sanitized;
-    }
-
     bool SanitizeField(std::string& value, std::string_view fieldName, auto&&... ids) {
         if (utf8::is_valid(value.begin(), value.end())) {
             return false;
@@ -60,4 +49,15 @@ size_t SanitizeStrings(std::vector<Building>& allBuildings, std::vector<Prop>& a
     }
 
     return sanitizedFields;
+}
+
+std::string SanitizeString(const std::string_view text) {
+    if (utf8::is_valid(text.begin(), text.end())) {
+        return std::string(text);
+    }
+
+    std::string sanitized;
+    sanitized.reserve(text.size());
+    utf8::replace_invalid(text.begin(), text.end(), std::back_inserter(sanitized));
+    return sanitized;
 }
