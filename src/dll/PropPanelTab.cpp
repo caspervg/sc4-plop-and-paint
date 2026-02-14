@@ -227,10 +227,13 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 const uint64_t key = MakeGIKey(prop.groupId.value(), prop.instanceId.value());
 
                 ImGui::PushID(static_cast<int>(key));
-                ImGui::TableNextRow();
+                ImGui::TableNextRow(0, rowHeight);
 
-                // Thumbnail
                 ImGui::TableNextColumn();
+                ImGui::Selectable("##row", false,
+                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
+                                  ImVec2(0, rowHeight));
+                ImGui::SameLine();
                 auto thumbTextureId = thumbnailCache_.Get(key);
                 if (thumbTextureId.has_value() && *thumbTextureId != nullptr) {
                     ImGui::Image(*thumbTextureId, ImVec2(UI::kIconSize, UI::kIconSize));
