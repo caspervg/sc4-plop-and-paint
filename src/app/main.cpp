@@ -1,4 +1,5 @@
 #include <args.hxx>
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <filesystem>
@@ -36,6 +37,9 @@
 namespace fs = std::filesystem;
 
 namespace {
+    constexpr uint32_t kTypeIdExemplar = 0x6534284Au;
+    constexpr uint32_t kTypeIdCohort = 0x05342861u;
+
     PluginConfiguration GetDefaultPluginConfiguration() {
         const char* userProfile = std::getenv("USERPROFILE");
         const char* programFiles = std::getenv("PROGRAMFILES(x86)");
@@ -125,21 +129,29 @@ namespace {
             ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails);
             std::vector<Building> allBuildings;
             std::vector<Prop> allProps;
+            std::unordered_map<uint32_t, std::string> propFamilyNamesById;
             std::unordered_map<uint32_t, ParsedBuildingExemplar> buildingMap;
             std::unordered_map<uint32_t, Building> builtBuildings;
             std::unordered_set<uint64_t> seenLotKeys;
             std::unordered_set<uint64_t> seenPropKeys;
 
-            // Use the index service to get all exemplars across all files
-            logger.info("Processing exemplars using type index...");
+            // Use the index service to get exemplars and cohorts across all files.
+            logger.info("Processing exemplar/cohort records using type index...");
             const auto& tgiIndex = indexService.tgiIndex();
-            const auto exemplarTgis = indexService.typeIndex(0x6534284Au);
+            const auto exemplarTgis = indexService.typeIndex(kTypeIdExemplar);
+            const auto cohortTgis = indexService.typeIndex(kTypeIdCohort);
 
-            logger.info("Found {} exemplars to process", exemplarTgis.size());
+            std::vector<DBPF::Tgi> recordTgis;
+            recordTgis.reserve(exemplarTgis.size() + cohortTgis.size());
+            recordTgis.insert(recordTgis.end(), exemplarTgis.begin(), exemplarTgis.end());
+            recordTgis.insert(recordTgis.end(), cohortTgis.begin(), cohortTgis.end());
 
-            // Group exemplar TGIs by file for efficient batch processing
+            logger.info("Found {} exemplars and {} cohorts to process",
+                        exemplarTgis.size(), cohortTgis.size());
+
+            // Group record TGIs by file for efficient batch processing.
             std::unordered_map<fs::path, std::vector<DBPF::Tgi>> fileToExemplarTgis;
-            for (const auto& tgi : exemplarTgis) {
+            for (const auto& tgi : recordTgis) {
                 const auto& filePaths = tgiIndex.at(tgi);
                 // Add this TGI to the first file that contains it
                 if (!filePaths.empty()) {
@@ -171,8 +183,26 @@ namespace {
                                 continue;
                             }
 
+                            if (tgi.type == kTypeIdCohort) {
+                                if (auto parsedFamily = parser.parsePropFamilyFromCohort(*exemplarResult)) {
+                                    const uint32_t familyId = parsedFamily->familyId.value();
+                                    auto [it, inserted] = propFamilyNamesById.emplace(
+                                        familyId, parsedFamily->displayName);
+                                    if (!inserted && it->second != parsedFamily->displayName) {
+                                        spdlog::debug(
+                                            "Duplicate prop family name for 0x{:08X}: keeping '{}', ignoring '{}'",
+                                            familyId, it->second, parsedFamily->displayName);
+                                    }
+                                }
+                                continue;
+                            }
+
                             auto exemplarType = parser.getExemplarType(*exemplarResult);
                             if (!exemplarType) {
+                                continue;
+                            }
+
+                            if (tgi.type != kTypeIdExemplar) {
                                 continue;
                             }
 
@@ -306,6 +336,18 @@ namespace {
 
             SanitizeStrings(allBuildings, allProps);
 
+            std::vector<PropFamilyInfo> propFamilies;
+            propFamilies.reserve(propFamilyNamesById.size());
+            for (auto& [familyId, displayName] : propFamilyNamesById) {
+                propFamilies.push_back(PropFamilyInfo{
+                    rfl::Hex<uint32_t>(familyId),
+                    std::move(displayName)
+                });
+            }
+            std::sort(propFamilies.begin(), propFamilies.end(), [](const PropFamilyInfo& a, const PropFamilyInfo& b) {
+                return a.familyId.value() < b.familyId.value();
+            });
+
             // Export grouped building/lot data to CBOR file in user plugins directory
             if (!allBuildings.empty()) {
                 try {
@@ -329,18 +371,23 @@ namespace {
                 }
             }
 
-            if (!allProps.empty()) {
+            if (!allProps.empty() || !propFamilies.empty()) {
                 try {
                     auto cborPath = config.userPluginsRoot / "props.cbor";
                     fs::create_directories(config.userPluginsRoot);
 
-                    logger.info("Exporting {} props to {}", allProps.size(), cborPath.string());
+                    PropsCache propsCache;
+                    propsCache.props = std::move(allProps);
+                    propsCache.propFamilies = std::move(propFamilies);
+
+                    logger.info("Exporting {} props and {} prop families to {}",
+                                propsCache.props.size(), propsCache.propFamilies.size(), cborPath.string());
 
                     if (std::ofstream file(cborPath, std::ios::binary); !file) {
                         logger.error("Failed to open file for writing: {}", cborPath.string());
                     }
                     else {
-                        rfl::cbor::write(allProps, file);
+                        rfl::cbor::write(propsCache, file);
                         file.close();
                         logger.info("Successfully exported props");
                     }

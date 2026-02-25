@@ -3,6 +3,7 @@
 #include "BuildingsPanelTab.hpp"
 #include "imgui_impl_win32.h"
 #include "OccupantGroups.hpp"
+#include "PalettesPanelTab.hpp"
 #include "PropPanelTab.hpp"
 #include "spdlog/spdlog.h"
 
@@ -11,6 +12,7 @@ LotPlopPanel::LotPlopPanel(SC4AdvancedLotPlopDirector* director, cIGZImGuiServic
     : director_(director), imguiService_(imguiService) {
     tabs_.push_back(std::make_unique<BuildingsPanelTab>(director_, imguiService_));
     tabs_.push_back(std::make_unique<PropPanelTab>(director_, imguiService_));
+    tabs_.push_back(std::make_unique<PalettesPanelTab>(director_, imguiService_));
 }
 
 void LotPlopPanel::OnRender() {

@@ -1,5 +1,6 @@
 #include "PropPanelTab.hpp"
 
+#include <cstdio>
 #include <cstring>
 #include "Constants.hpp"
 #include "Utils.hpp"
@@ -155,11 +156,13 @@ void PropPanelTab::RenderTable_() {
 
 void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredProps,
                                         const std::unordered_set<uint64_t>& favorites) {
+    (void)favorites;
+
     constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
         ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoBordersInBody |
         ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_ScrollY;
 
-    if (ImGui::BeginTable("PropsTable", 4, tableFlags, ImVec2(0, 0))) {
+    if (ImGui::BeginTable("PropsTable", 5, tableFlags, ImVec2(0, 0))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Thumbnail",
                                 ImGuiTableColumnFlags_WidthFixed |
@@ -177,6 +180,10 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                                 ImGuiTableColumnFlags_WidthFixed |
                                 ImGuiTableColumnFlags_NoSort,
                                 UI::kActionColumnWidth);
+        ImGui::TableSetupColumn("##palette",
+                                ImGuiTableColumnFlags_WidthFixed |
+                                ImGuiTableColumnFlags_NoSort,
+                                26.0f);
         ImGui::TableHeadersRow();
 
         if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsCount > 0) {
@@ -252,6 +259,23 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                     ImGui::TextDisabled("%s", prop.exemplarName.c_str());
                 }
 
+                if (!prop.familyIds.empty() && ImGui::IsItemHovered()) {
+                    const auto& familyNames = director_->GetPropFamilyNames();
+                    ImGui::BeginTooltip();
+                    ImGui::Text("Families (%zu)", prop.familyIds.size());
+                    for (const auto& familyIdHex : prop.familyIds) {
+                        const uint32_t familyId = familyIdHex.value();
+                        const auto it = familyNames.find(familyId);
+                        if (it != familyNames.end()) {
+                            ImGui::Text("0x%08X  %s", familyId, it->second.c_str());
+                        }
+                        else {
+                            ImGui::Text("0x%08X", familyId);
+                        }
+                    }
+                    ImGui::EndTooltip();
+                }
+
                 // Size
                 ImGui::TableNextColumn();
                 ImGui::Text("%.1f x %.1f x %.1f", prop.width, prop.height, prop.depth);
@@ -273,6 +297,68 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 }
                 ImGui::SameLine();
                 RenderFavButton_(prop);
+
+                ImGui::TableNextColumn();
+                if (ImGui::SmallButton("+")) {
+                    ImGui::OpenPopup("AddToPalette");
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Add to palette");
+                }
+
+                if (ImGui::BeginPopup("AddToPalette")) {
+                    const auto& palettes = director_->GetPropPalettes();
+                    if (palettes.empty()) {
+                        ImGui::TextDisabled("No palettes yet.");
+                        if (ImGui::Selectable("+ New palette...")) {
+                            const std::string& baseName = prop.visibleName.empty() ? prop.exemplarName : prop.visibleName;
+                            director_->AddPropToNewPalette(prop.instanceId.value(), baseName);
+                            ImGui::CloseCurrentPopup();
+                        }
+                    }
+                    else {
+                        for (size_t paletteIndex = 0; paletteIndex < palettes.size(); ++paletteIndex) {
+                            if (ImGui::Selectable(palettes[paletteIndex].name.c_str())) {
+                                director_->AddPropToPalette(prop.instanceId.value(), paletteIndex);
+                                ImGui::CloseCurrentPopup();
+                                break;
+                            }
+                        }
+                        ImGui::Separator();
+                        if (ImGui::Selectable("+ New palette...")) {
+                            const std::string& baseName = prop.visibleName.empty() ? prop.exemplarName : prop.visibleName;
+                            director_->AddPropToNewPalette(prop.instanceId.value(), baseName);
+                            ImGui::CloseCurrentPopup();
+                        }
+                    }
+
+                    if (!prop.familyIds.empty()) {
+                        ImGui::Separator();
+                        if (ImGui::BeginMenu("Create palette from family")) {
+                            const auto& familyNames = director_->GetPropFamilyNames();
+                            for (const auto& familyIdHex : prop.familyIds) {
+                                const uint32_t familyId = familyIdHex.value();
+                                std::string label;
+                                if (const auto it = familyNames.find(familyId); it != familyNames.end()) {
+                                    label = it->second + "##fam" + std::to_string(familyId);
+                                }
+                                else {
+                                    char familyHex[16];
+                                    std::snprintf(familyHex, sizeof(familyHex), "0x%08X", familyId);
+                                    label = std::string(familyHex) + "##fam" + std::to_string(familyId);
+                                }
+
+                                if (ImGui::MenuItem(label.c_str())) {
+                                    director_->AddPropFamilyToNewPalette(familyId);
+                                    ImGui::CloseCurrentPopup();
+                                    break;
+                                }
+                            }
+                            ImGui::EndMenu();
+                        }
+                    }
+                    ImGui::EndPopup();
+                }
 
                 ImGui::PopID();
             }

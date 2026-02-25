@@ -2,17 +2,19 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <windows.h>
 
 #include "PropLinePlacer.hpp"
 #include "PropPolygonPlacer.hpp"
+#include "WeightedPropPicker.hpp"
 #include "cISC4Occupant.h"
 #include "cISTETerrain.h"
 #include "spdlog/spdlog.h"
 
 namespace {
     constexpr auto kPropPainterControlID = 0x8A3F9D2B;
-    constexpr size_t kMaxPreviewPlacements = 500;
+    constexpr size_t kMaxPreviewPlacements = 5000;
 }
 
 PropPainterInputControl::PropPainterInputControl()
@@ -386,6 +388,13 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
     std::vector<cS3DVector3> plannedPositions;
     plannedPositions.reserve(kMaxPreviewPlacements);
 
+    std::unique_ptr<WeightedPropPicker> picker;
+    uint32_t singlePropID = propIDToPaint_;
+    if (!settings_.activePalette.empty()) {
+        picker = std::make_unique<WeightedPropPicker>(settings_.activePalette, settings_.randomSeed);
+        singlePropID = 0;
+    }
+
     if (state_ == ControlState::ActiveLine) {
         if (previewPoints.size() >= 2) {
             const auto placements = PropLinePlacer::ComputePlacements(
@@ -396,6 +405,8 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
                 settings_.randomOffset,
                 GetTerrain_(),
                 settings_.randomSeed,
+                picker.get(),
+                singlePropID,
                 kMaxPreviewPlacements);
 
             for (const auto& placement : placements) {
@@ -415,6 +426,8 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
             settings_.randomRotation,
             GetTerrain_(),
             settings_.randomSeed,
+            picker.get(),
+            singlePropID,
             kMaxPreviewPlacements);
 
         for (const auto& placement : placements) {
@@ -436,6 +449,13 @@ void PropPainterInputControl::ExecuteLinePlacement_() {
         linePoints.push_back(cp.worldPos);
     }
 
+    std::unique_ptr<WeightedPropPicker> picker;
+    uint32_t singlePropID = propIDToPaint_;
+    if (!settings_.activePalette.empty()) {
+        picker = std::make_unique<WeightedPropPicker>(settings_.activePalette, settings_.randomSeed);
+        singlePropID = 0;
+    }
+
     const auto placements = PropLinePlacer::ComputePlacements(
         linePoints,
         std::max(settings_.spacingMeters, 0.25f),
@@ -443,11 +463,13 @@ void PropPainterInputControl::ExecuteLinePlacement_() {
         settings_.alignToPath,
         settings_.randomOffset,
         GetTerrain_(),
-        settings_.randomSeed);
+        settings_.randomSeed,
+        picker.get(),
+        singlePropID);
 
     size_t placedCount = 0;
     for (const auto& placement : placements) {
-        if (PlacePropAtWorld_(placement.position, placement.rotation)) {
+        if (PlacePropAtWorld_(placement.position, placement.rotation, placement.propID)) {
             ++placedCount;
         }
     }
@@ -467,17 +489,26 @@ void PropPainterInputControl::ExecutePolygonPlacement_() {
         polygonVertices.push_back(cp.worldPos);
     }
 
+    std::unique_ptr<WeightedPropPicker> picker;
+    uint32_t singlePropID = propIDToPaint_;
+    if (!settings_.activePalette.empty()) {
+        picker = std::make_unique<WeightedPropPicker>(settings_.activePalette, settings_.randomSeed);
+        singlePropID = 0;
+    }
+
     const auto placements = PropPolygonPlacer::ComputePlacements(
         polygonVertices,
         std::max(settings_.densityPer100Sqm, 0.1f),
         settings_.rotation,
         settings_.randomRotation,
         GetTerrain_(),
-        settings_.randomSeed);
+        settings_.randomSeed,
+        picker.get(),
+        singlePropID);
 
     size_t placedCount = 0;
     for (const auto& placement : placements) {
-        if (PlacePropAtWorld_(placement.position, placement.rotation)) {
+        if (PlacePropAtWorld_(placement.position, placement.rotation, placement.propID)) {
             ++placedCount;
         }
     }
@@ -555,18 +586,26 @@ bool PropPainterInputControl::PlacePropAt_(const int32_t screenX, const int32_t 
         return false;
     }
 
-    return PlacePropAtWorld_(cS3DVector3(worldCoords[0], worldCoords[1], worldCoords[2]), settings_.rotation);
+    return PlacePropAtWorld_(cS3DVector3(worldCoords[0], worldCoords[1], worldCoords[2]), settings_.rotation,
+                             propIDToPaint_);
 }
 
-bool PropPainterInputControl::PlacePropAtWorld_(const cS3DVector3& position, const int32_t rotation) {
+bool PropPainterInputControl::PlacePropAtWorld_(const cS3DVector3& position, const int32_t rotation,
+                                                const uint32_t propID) {
     if (!propManager_) {
         spdlog::warn("PropPainterInputControl: PropManager not available");
         return false;
     }
 
+    const uint32_t propToCreate = propID != 0 ? propID : propIDToPaint_;
+    if (propToCreate == 0) {
+        spdlog::warn("PlacePropAtWorld_: no prop ID available");
+        return false;
+    }
+
     cISC4PropOccupant* prop = nullptr;
-    if (!propManager_->CreateProp(propIDToPaint_, prop)) {
-        spdlog::warn("Failed to create prop 0x{:08X}", propIDToPaint_);
+    if (!propManager_->CreateProp(propToCreate, prop)) {
+        spdlog::warn("Failed to create prop 0x{:08X}", propToCreate);
         return false;
     }
 
@@ -602,7 +641,7 @@ bool PropPainterInputControl::PlacePropAtWorld_(const cS3DVector3& position, con
     placedProps_.emplace_back(occupant);
 
     spdlog::info("Placed prop 0x{:08X} at ({:.2f}, {:.2f}, {:.2f}), rotation: {}",
-                 propIDToPaint_, placePos.fX, placePos.fY, placePos.fZ, rotation & 3);
+                 propToCreate, placePos.fX, placePos.fY, placePos.fZ, rotation & 3);
     return true;
 }
 

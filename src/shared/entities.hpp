@@ -66,8 +66,31 @@ struct Prop {
     float width;
     float height;
     float depth;
+    std::vector<rfl::Hex<uint32_t>> familyIds;
 
     std::optional<Thumbnail> thumbnail;
+};
+
+struct PropFamilyInfo {
+    rfl::Hex<uint32_t> familyId;
+    std::string displayName;
+};
+
+struct PropsCache {
+    uint32_t version = 1;
+    std::vector<Prop> props;
+    std::vector<PropFamilyInfo> propFamilies;
+};
+
+struct PaletteEntry {
+    rfl::Hex<uint32_t> propID;
+    float weight = 1.0f;
+};
+
+struct PropPalette {
+    std::string name;
+    std::vector<PaletteEntry> entries;
+    float densityVariation = 0.0f;
 };
 
 struct TabFavorites {
@@ -75,9 +98,10 @@ struct TabFavorites {
 };
 
 struct AllFavorites {
-    uint32_t version = 1;
+    uint32_t version = 2;
     TabFavorites lots;
     std::optional<TabFavorites> props;  // Future: prop favorites
     std::optional<TabFavorites> flora;  // Future: flora favorites
+    std::optional<std::vector<PropPalette>> palettes;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

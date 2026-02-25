@@ -7,4 +7,5 @@
 struct PlannedProp {
     cS3DVector3 position{};
     int32_t rotation = 0;
+    uint32_t propID = 0;
 };

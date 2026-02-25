@@ -4,6 +4,7 @@
 #include <cmath>
 #include <random>
 
+#include "WeightedPropPicker.hpp"
 #include "cISTETerrain.h"
 
 namespace {
@@ -29,6 +30,8 @@ std::vector<PlannedProp> PropLinePlacer::ComputePlacements(
     const float randomOffset,
     cISTETerrain* terrain,
     const uint32_t seed,
+    WeightedPropPicker* picker,
+    const uint32_t singlePropID,
     const size_t maxPlacements) {
     std::vector<PlannedProp> result;
     if (linePoints.size() < 2 || spacingMeters <= kEpsilon || maxPlacements == 0) {
@@ -83,7 +86,8 @@ std::vector<PlannedProp> PropLinePlacer::ComputePlacements(
 
                 result.push_back({
                     cS3DVector3(worldX, worldY, worldZ),
-                    rotation
+                    rotation,
+                    picker ? picker->Pick() : singlePropID
                 });
 
                 if (result.size() >= maxPlacements) {

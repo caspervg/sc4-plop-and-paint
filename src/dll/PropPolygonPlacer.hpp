@@ -6,6 +6,7 @@
 #include "PropPaintPlacement.hpp"
 
 class cISTETerrain;
+class WeightedPropPicker;
 
 class PropPolygonPlacer {
 public:
@@ -16,6 +17,8 @@ public:
         bool randomRotation,
         cISTETerrain* terrain,
         uint32_t seed,
+        WeightedPropPicker* picker = nullptr,
+        uint32_t singlePropID = 0,
         size_t maxPlacements = static_cast<size_t>(-1));
 
 private:

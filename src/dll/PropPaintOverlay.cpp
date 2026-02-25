@@ -69,11 +69,11 @@ void PropPaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
     }
 
     for (const auto& pt : points) {
-        EmitMarker_(pt, kMarkerSize, kMarkerColor, kMarkerOutlineColor, kLayerShape);
+        EmitMarker_(pt, kMarkerSize, kMarkerColor, kLayerShape);
     }
 
     for (const auto& pos : plannedPositions) {
-        EmitMarker_(pos, kMarkerSize * 0.9f, kPlannedMarkerColor, kPlannedMarkerOutlineColor, kLayerMarkers);
+        EmitMarker_(pos, kMarkerSize * 0.9f, kPlannedMarkerColor, kLayerMarkers);
     }
 }
 
@@ -98,11 +98,11 @@ void PropPaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& verti
     }
 
     for (const auto& vertex : vertices) {
-        EmitMarker_(vertex, kMarkerSize, kMarkerColor, kMarkerOutlineColor, kLayerShape);
+        EmitMarker_(vertex, kMarkerSize, kMarkerColor, kLayerShape);
     }
 
     for (const auto& pos : plannedPositions) {
-        EmitMarker_(pos, kMarkerSize * 0.9f, kPlannedMarkerColor, kPlannedMarkerOutlineColor, kLayerMarkers);
+        EmitMarker_(pos, kMarkerSize * 0.9f, kPlannedMarkerColor, kLayerMarkers);
     }
 }
 
@@ -226,27 +226,20 @@ void PropPaintOverlay::EmitQuad_(const cS3DVector3& a, const cS3DVector3& b, con
     verts.push_back({d.fX, d.fY, d.fZ, color});
 }
 
-void PropPaintOverlay::EmitMarker_(const cS3DVector3& center, const float size, const DWORD fillColor,
-                                   const DWORD outlineColor, const uint32_t layer) {
+void PropPaintOverlay::EmitMarker_(const cS3DVector3& center, const float size, const DWORD color,
+                                   const uint32_t layer) {
     if (layer >= layers_.size()) {
         return;
     }
 
-    const float halfOuter = size * 0.72f;
-    const float halfInner = size * 0.50f;
+    const float half = size * 0.65f;
     const float y = center.fY + kHeightOffset;
 
-    const cS3DVector3 outerA(center.fX - halfOuter, y, center.fZ - halfOuter);
-    const cS3DVector3 outerB(center.fX + halfOuter, y, center.fZ - halfOuter);
-    const cS3DVector3 outerC(center.fX + halfOuter, y, center.fZ + halfOuter);
-    const cS3DVector3 outerD(center.fX - halfOuter, y, center.fZ + halfOuter);
-    EmitQuad_(outerA, outerB, outerC, outerD, outlineColor, layer);
-
-    const cS3DVector3 innerA(center.fX - halfInner, y, center.fZ - halfInner);
-    const cS3DVector3 innerB(center.fX + halfInner, y, center.fZ - halfInner);
-    const cS3DVector3 innerC(center.fX + halfInner, y, center.fZ + halfInner);
-    const cS3DVector3 innerD(center.fX - halfInner, y, center.fZ + halfInner);
-    EmitQuad_(innerA, innerB, innerC, innerD, fillColor, layer);
+    const cS3DVector3 a(center.fX - half, y, center.fZ - half);
+    const cS3DVector3 b(center.fX + half, y, center.fZ - half);
+    const cS3DVector3 c(center.fX + half, y, center.fZ + half);
+    const cS3DVector3 d(center.fX - half, y, center.fZ + half);
+    EmitQuad_(a, b, c, d, color, layer);
 }
 
 void PropPaintOverlay::EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices,

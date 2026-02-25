@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "../shared/entities.hpp"
 #include "PropPaintOverlay.hpp"
 #include "cISC4City.h"
 #include "cISC4Occupant.h"
@@ -36,6 +37,8 @@ struct PropPaintSettings {
     bool alignToPath = false;
     bool randomRotation = false;
     uint32_t randomSeed = 0;
+    std::vector<PaletteEntry> activePalette{};
+    float densityVariation = 0.0f;
 };
 
 class PropPainterInputControl : public cSC4BaseViewInputControl {
@@ -94,7 +97,7 @@ private:
     void ExecutePolygonPlacement_();
 
     bool PlacePropAt_(int32_t screenX, int32_t screenZ);
-    bool PlacePropAtWorld_(const cS3DVector3& position, int32_t rotation);
+    bool PlacePropAtWorld_(const cS3DVector3& position, int32_t rotation, uint32_t propID);
     [[nodiscard]] cISTETerrain* GetTerrain_() const;
     void CreatePreviewProp_();
     void DestroyPreviewProp_();

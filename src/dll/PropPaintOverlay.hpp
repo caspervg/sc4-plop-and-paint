@@ -61,16 +61,14 @@ private:
     void EmitLine_(const cS3DVector3& a, const cS3DVector3& b, float thickness, DWORD color, uint32_t layer);
     void EmitQuad_(const cS3DVector3& a, const cS3DVector3& b, const cS3DVector3& c, const cS3DVector3& d,
                    DWORD color, uint32_t layer);
-    void EmitMarker_(const cS3DVector3& center, float size, DWORD fillColor, DWORD outlineColor, uint32_t layer);
+    void EmitMarker_(const cS3DVector3& center, float size, DWORD color, uint32_t layer);
     void EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices, DWORD color, uint32_t layer);
 
 private:
     static constexpr DWORD kLineColor = 0xC0FFFFFF;
     static constexpr DWORD kPolygonFillColor = 0x4000FF00;
     static constexpr DWORD kMarkerColor = 0xF0FFD700;
-    static constexpr DWORD kMarkerOutlineColor = 0xF0101010;
     static constexpr DWORD kPlannedMarkerColor = 0xF0FF8C00;
-    static constexpr DWORD kPlannedMarkerOutlineColor = 0xF0000000;
     static constexpr DWORD kCursorColor = 0xE0FF4444;
     static constexpr float kLineThickness = 0.6f;
     static constexpr float kMarkerSize = 1.0f;

@@ -153,6 +153,15 @@ ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
 
 ExemplarParser::~ExemplarParser() = default;
 
+namespace {
+    std::optional<uint32_t> ResolveBuildingFamilyPropertyId(const PropertyMapper& mapper) {
+        if (const auto id = mapper.propertyId(kBuildingFamily)) {
+            return id;
+        }
+        return mapper.propertyId(kBuildingFamilyAlt);
+    }
+}
+
 std::optional<ExemplarType> ExemplarParser::getExemplarType(const Exemplar::Record& exemplar) const {
     const auto propIdOpt = propertyMapper_.propertyId(kExemplarType);
     if (!propIdOpt) {
@@ -250,11 +259,12 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
     }
 
     // Extract building family IDs
-    const auto familyPropId = propertyMapper_.propertyId(kBuildingFamily).value();
-    if (auto* prop = findProperty(exemplar, familyPropId)) {
-        for (size_t i = 0; i < prop->values.size(); ++i) {
-            if (auto familyId = prop->GetScalarAs<uint32_t>(i)) {
-                parsedBuildingExemplar.familyIds.push_back(*familyId);
+    if (const auto familyPropId = ResolveBuildingFamilyPropertyId(propertyMapper_)) {
+        if (auto* prop = findProperty(exemplar, *familyPropId)) {
+            for (size_t i = 0; i < prop->values.size(); ++i) {
+                if (auto familyId = prop->GetScalarAs<uint32_t>(i)) {
+                    parsedBuildingExemplar.familyIds.push_back(*familyId);
+                }
             }
         }
     }
@@ -443,9 +453,64 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
         }
     }
 
+    if (const auto familyPropId = ResolveBuildingFamilyPropertyId(propertyMapper_)) {
+        if (auto* prop = findProperty(exemplar, *familyPropId)) {
+            for (size_t i = 0; i < prop->values.size(); ++i) {
+                if (auto familyId = prop->GetScalarAs<uint32_t>(i)) {
+                    parsedPropExemplar.familyIds.push_back(*familyId);
+                }
+            }
+        }
+    }
+
     parsedPropExemplar.modelTgi = resolveModelTgi_(exemplar, tgi);
 
     return parsedPropExemplar;
+}
+
+std::optional<PropFamilyInfo> ExemplarParser::parsePropFamilyFromCohort(const Exemplar::Record& cohort) const {
+    const auto familyPropId = ResolveBuildingFamilyPropertyId(propertyMapper_);
+    if (!familyPropId) {
+        return std::nullopt;
+    }
+    const auto* familyProp = findProperty(cohort, *familyPropId);
+    if (!familyProp || familyProp->values.empty()) {
+        return std::nullopt;
+    }
+
+    const auto familyId = familyProp->GetScalarAs<uint32_t>(0);
+    if (!familyId || *familyId == 0) {
+        return std::nullopt;
+    }
+
+    std::optional<std::string> name;
+    if (const auto exemplarNamePropId = propertyMapper_.propertyId(kExemplarName)) {
+        if (const auto* nameProp = findProperty(cohort, *exemplarNamePropId)) {
+            name = nameProp->GetScalarAs<std::string>();
+        }
+    }
+    if ((!name || name->empty())) {
+        const auto itemNamePropId = propertyMapper_.propertyId(kItemName);
+        if (itemNamePropId) {
+            if (const auto* itemNameProp = findProperty(cohort, *itemNamePropId)) {
+                name = itemNameProp->GetScalarAs<std::string>();
+            }
+        }
+    }
+
+    if (!name || name->empty()) {
+        return std::nullopt;
+    }
+
+    auto sanitizedName = SanitizeString(name.value());
+    if (sanitizedName.empty()) {
+        return std::nullopt;
+    }
+
+    return PropFamilyInfo{
+        rfl::Hex<uint32_t>(*familyId),
+        std::move(sanitizedName)
+    };
 }
 
 Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed) const {
@@ -528,6 +593,10 @@ Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
     prop.width = parsed.width;
     prop.height = parsed.height;
     prop.depth = parsed.depth;
+    prop.familyIds.reserve(parsed.familyIds.size());
+    for (const auto familyId : parsed.familyIds) {
+        prop.familyIds.emplace_back(familyId);
+    }
 
     if (parsed.modelTgi.has_value() && thumbnailRenderer_) {
         auto rendered = thumbnailRenderer_->renderModel(*parsed.modelTgi, kRenderedThumbnailSize);

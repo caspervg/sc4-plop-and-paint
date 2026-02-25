@@ -1,11 +1,14 @@
 #pragma once
 
 #include <cRZCOMDllDirector.h>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <vector>
+#include <string>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 #include "cIGZCommandServer.h"
 #include "cIGZMessage2Standard.h"
 #include "cIGZMessageServer2.h"
@@ -57,6 +60,7 @@ public:
     [[nodiscard]] const std::unordered_map<uint64_t, Lot>& GetLotsById() const;
     [[nodiscard]] const std::vector<Prop>& GetProps() const;
     [[nodiscard]] const std::unordered_map<uint64_t, Prop>& GetPropsById() const;
+    [[nodiscard]] const std::unordered_map<uint32_t, std::string>& GetPropFamilyNames() const;
     void TriggerLotPlop(uint32_t lotInstanceId) const;
 
     // Favorites management
@@ -66,6 +70,18 @@ public:
     [[nodiscard]] bool IsPropFavorite(uint32_t groupId, uint32_t instanceId) const;
     [[nodiscard]] const std::unordered_set<uint64_t>& GetFavoritePropIds() const;
     void TogglePropFavorite(uint32_t groupId, uint32_t instanceId);
+    [[nodiscard]] const std::vector<PropPalette>& GetPropPalettes() const;
+    std::vector<PropPalette>& GetPropPalettes();
+    [[nodiscard]] size_t GetActivePropPaletteIndex() const;
+    void SetActivePropPaletteIndex(size_t index);
+    [[nodiscard]] const PropPalette* GetActivePropPalette() const;
+    bool AddPropToPalette(uint32_t propID, size_t paletteIndex);
+    void AddPropToNewPalette(uint32_t propID, const std::string& baseName);
+    bool AddPropFamilyToNewPalette(uint32_t familyID);
+    bool CreatePropPalette(const std::string& name);
+    bool DeletePropPalette(size_t paletteIndex);
+    bool RenamePropPalette(size_t paletteIndex, const std::string& newName);
+    void SaveFavoritesNow() const;
     bool StartPropPainting(uint32_t propId, const PropPaintSettings& settings, const std::string& name);
     bool SwitchPropPaintingTarget(uint32_t propId, const std::string& name);
     void StopPropPainting();
@@ -84,6 +100,8 @@ private:
     void SaveFavorites_() const;
     static std::filesystem::path GetUserPluginsPath_();
     static void DrawOverlayCallback_(DrawServicePass pass, bool begin, void* pThis);
+    [[nodiscard]] const Prop* FindPropByInstanceId_(uint32_t propID) const;
+    static std::string BuildDefaultPaletteName_(const std::string& baseName);
 
 private:
     cIGZImGuiService* imguiService_ = nullptr;
@@ -99,8 +117,11 @@ private:
     std::unordered_map<uint64_t, Lot> lotsById_{};
     std::vector<Prop> props_{};
     std::unordered_map<uint64_t, Prop> propsById_{};
+    std::unordered_map<uint32_t, std::string> propFamilyNames_{};
     std::unordered_set<uint32_t> favoriteLotIds_{};
     std::unordered_set<uint64_t> favoritePropIds_{};
+    std::vector<PropPalette> propPalettes_{};
+    size_t activePropPaletteIndex_{0};
     bool panelRegistered_{false};
     bool panelVisible_{false};
     bool shortcutRegistered_{false};

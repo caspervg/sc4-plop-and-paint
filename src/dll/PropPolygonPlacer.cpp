@@ -4,6 +4,7 @@
 #include <cmath>
 #include <random>
 
+#include "WeightedPropPicker.hpp"
 #include "cISTETerrain.h"
 
 namespace {
@@ -17,6 +18,8 @@ std::vector<PlannedProp> PropPolygonPlacer::ComputePlacements(
     const bool randomRotation,
     cISTETerrain* terrain,
     const uint32_t seed,
+    WeightedPropPicker* picker,
+    const uint32_t singlePropID,
     const size_t maxPlacements) {
     std::vector<PlannedProp> result;
     if (polygonVertices.size() < 3 || densityPer100Sqm <= kEpsilon || maxPlacements == 0) {
@@ -62,7 +65,8 @@ std::vector<PlannedProp> PropPolygonPlacer::ComputePlacements(
             const int32_t rotation = randomRotation ? rotDist(rng) : (baseRotation & 3);
             result.push_back({
                 cS3DVector3(px, py, pz),
-                rotation
+                rotation,
+                picker ? picker->Pick() : singlePropID
             });
 
             if (result.size() >= maxPlacements) {

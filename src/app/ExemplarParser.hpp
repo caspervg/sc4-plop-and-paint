@@ -42,6 +42,7 @@ constexpr auto kTypeIdS3D = 0x5AD0E817u;
 constexpr auto kTypeIdLText = 0x2026960Bu;
 constexpr auto kLotIconGroup = 0x6A386D26u;
 constexpr auto kBuildingFamily = "Building/prop Family";
+constexpr auto kBuildingFamilyAlt = "Building/Prop Family";
 constexpr auto kRkt0PropertyId = 0x27812820u;
 constexpr auto kRkt1PropertyId = 0x27812821u;
 constexpr auto kRkt2PropertyId = 0x27812822u;
@@ -93,6 +94,7 @@ struct ParsedPropExemplar {
     float width{-1.0};
     float height{-1.0};
     float depth{-1.0};
+    std::vector<uint32_t> familyIds;
     std::optional<DBPF::Tgi> modelTgi;
 };
 
@@ -110,9 +112,10 @@ public:
         const Exemplar::Record& exemplar,
         const DBPF::Tgi& tgi,
         const std::unordered_map<uint32_t, ParsedBuildingExemplar>& buildingMap,
-        const std::unordered_map<uint32_t, std::vector<uint32_t>>& familyToBuildingsMap) const;\
+        const std::unordered_map<uint32_t, std::vector<uint32_t>>& familyToBuildingsMap) const;
     [[nodiscard]] std::optional<ParsedPropExemplar> parseProp(const Exemplar::Record& exemplar,
                                                               const DBPF::Tgi& tgi) const;
+    [[nodiscard]] std::optional<PropFamilyInfo> parsePropFamilyFromCohort(const Exemplar::Record& cohort) const;
 
     // Conversion functions to canonical entities
     [[nodiscard]] Building buildingFromParsed(const ParsedBuildingExemplar& parsed) const;
