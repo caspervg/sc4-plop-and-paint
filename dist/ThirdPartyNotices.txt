@@ -1,0 +1,178 @@
+THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
+SC4 Plop and Paint
+
+This software incorporates components from the following third-party projects.
+Full license texts are included below or available at the URLs listed.
+
+===============================================================================
+TABLE OF CONTENTS
+===============================================================================
+
+ 1. SC4 Render Services (LGPL 2.1)
+ 2. gzcom-dll (LGPL 2.1)
+ 3. Dear ImGui (MIT)
+ 4. reflect-cpp (MIT)
+ 5. spdlog (MIT)
+ 6. {fmt} (MIT)
+ 7. args (MIT)
+ 8. pugixml (MIT)
+ 9. yyjson (MIT)
+10. stb (MIT / Public Domain)
+11. Windows Implementation Library - WIL (MIT)
+12. libsquish (MIT)
+13. mio (MIT)
+14. jsoncons (Boost Software License 1.0)
+15. utfcpp (Boost Software License 1.0)
+16. ctre - Compile Time Regular Expressions (Apache 2.0)
+17. raylib (zlib/libpng)
+18. GLFW (zlib/libpng)
+
+===============================================================================
+1. SC4 Render Services
+   https://github.com/caspervg/sc4-render-services
+   License: GNU Lesser General Public License v2.1 (LGPL-2.1)
+   Full text: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt
+===============================================================================
+
+2. gzcom-dll
+   https://github.com/nsgomez/gzcom-dll
+   License: GNU Lesser General Public License v2.1 (LGPL-2.1)
+   Full text: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt
+
+===============================================================================
+MIT-LICENSED COMPONENTS
+===============================================================================
+
+The following components are available under the MIT License:
+
+-------------------------------------------------------------------------------
+3. Dear ImGui - https://github.com/ocornut/imgui
+   Copyright (c) 2014-2025 Omar Cornut
+
+4. reflect-cpp - https://github.com/getml/reflect-cpp
+   Copyright (c) 2023-2025 Code17 GmbH
+
+5. spdlog - https://github.com/gabime/spdlog
+   Copyright (c) 2016 Gabi Melman and spdlog contributors
+
+6. {fmt} - https://github.com/fmtlib/fmt
+   Copyright (c) 2012-present Victor Zverovich and {fmt} contributors
+
+7. args - https://github.com/Taywee/args
+   Copyright (c) 2016-2024 Taylor C. Richberger and Pavel Belikov
+
+8. pugixml - https://pugixml.org
+   Copyright (c) 2006-2025 Arseny Kapoulkine
+
+9. yyjson - https://github.com/ibireme/yyjson
+   Copyright (c) 2020 YaoYuan
+
+10. stb - https://github.com/nothings/stb
+    Copyright (c) 2017 Sean Barrett
+
+11. Windows Implementation Library (WIL) - https://github.com/microsoft/wil
+    Copyright (c) Microsoft Corporation. All rights reserved.
+
+12. libsquish - https://sourceforge.net/projects/libsquish/
+    Copyright (c) 2006 Simon Brown
+
+13. mio - https://github.com/mandreyel/mio
+    Copyright (c) 2018 mandreyel
+-------------------------------------------------------------------------------
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+===============================================================================
+BOOST SOFTWARE LICENSE 1.0 COMPONENTS
+===============================================================================
+
+The following components are available under the Boost Software License 1.0:
+
+-------------------------------------------------------------------------------
+14. jsoncons - https://github.com/danielaparker/jsoncons
+    Copyright (c) 2013-2020 Daniel Parker
+
+15. utfcpp - https://github.com/nemtrif/utfcpp
+-------------------------------------------------------------------------------
+
+Boost Software License - Version 1.0 - August 17th, 2003
+
+Permission is hereby granted, free of charge, to any person or organization
+obtaining a copy of the software and accompanying documentation covered by
+this license (the "Software") to use, reproduce, display, distribute,
+execute, and transmit the Software, and to prepare derivative works of the
+Software, and to permit third-parties to whom the Software is furnished to
+do so, all subject to the following:
+
+The copyright notices in the Software and this entire statement, including
+the above license grant, this restriction and the following disclaimer,
+must be included in all copies of the Software, in whole or in part, and
+all derivative works of the Software, unless such copies or derivative
+works are solely in the form of machine-executable object code generated by
+a source language processor.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT. IN NO EVENT
+SHALL THE COPYRIGHT HOLDERS OR ANYONE DISTRIBUTING THE SOFTWARE BE LIABLE
+FOR ANY DAMAGES OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+===============================================================================
+16. ctre - Compile Time Regular Expressions
+    https://github.com/hanickadot/compile-time-regular-expressions
+    License: Apache License 2.0 with LLVM Exceptions
+    Full text: https://github.com/hanickadot/compile-time-regular-expressions/blob/main/LICENSE
+===============================================================================
+
+===============================================================================
+ZLIB/LIBPNG LICENSE COMPONENTS
+===============================================================================
+
+The following components are available under the zlib/libpng License:
+
+-------------------------------------------------------------------------------
+17. raylib - https://www.raylib.com
+    Copyright (c) 2013-2024 Ramon Santamaria (@raysan5)
+
+18. GLFW - https://www.glfw.org
+    Copyright (c) 2002-2006 Marcus Geelnard
+    Copyright (c) 2006-2019 Camilla Loewy
+-------------------------------------------------------------------------------
+
+This software is provided 'as-is', without any express or implied warranty.
+In no event will the authors be held liable for any damages arising from the
+use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+  2. Altered source versions must be plainly marked as such, and must not
+     be misrepresented as being the original software.
+
+  3. This notice may not be removed or altered from any source distribution.

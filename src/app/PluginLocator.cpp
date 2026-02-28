@@ -28,6 +28,6 @@ auto PluginLocator::CollectFiles_(const std::filesystem::path& root, bool recurs
              std::filesystem::recursive_directory_iterator(), out);
     }
     else {
-        FindPlugins(std::filesystem::directory_iterator(root), std::filesystem::directory_iterator(), out);
+        FindPlugins(std::filesystem::directory_iterator(root, ec), std::filesystem::directory_iterator(), out);
     }
 }

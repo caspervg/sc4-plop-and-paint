@@ -66,11 +66,28 @@ jobs:
 
           cp dist/README.txt dist-package/
           cp dist/RUN_CACHE_BUILDER.ps1 dist-package/
+          cp dist/ThirdPartyNotices.txt dist-package/
+          cp dist/SC4PlopAndPaintInstaller.nsi dist-package/
           [ -f dist/SC4PlopAndPaint.dat ] && cp dist/SC4PlopAndPaint.dat dist-package/PLACE_IN_YOUR_PLUGINS_FOLDER/
           [ -f vendor/sc4-properties/new_properties.xml ] && cp vendor/sc4-properties/new_properties.xml dist-package/PropertyMapper.xml
 
           echo "Package contents:"
           find dist-package -type f | sort
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Build installer
+        shell: powershell
+        run: |
+          $refName = "${{ github.ref_name }}"
+          $version = if ($refName -match '^v(.+)') { $Matches[1] } else { "${{ github.sha }}".Substring(0, 7) }
+          Write-Host "Building installer for version: $version"
+          Set-Location dist-package
+          & "C:\Program Files (x86)\NSIS\makensis.exe" /DAPP_VERSION=$version SC4PlopAndPaintInstaller.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE" }
+          Write-Host "Installer contents:"
+          Get-ChildItem -Filter "*.exe" | Select-Object Name, Length
 
       - uses: actions/upload-artifact@v4
         with:
@@ -90,8 +107,13 @@ jobs:
           name: SC4PlopAndPaint-${{ github.ref_name }}
           path: dist-package
 
-      - name: Create zip
-        run: cd dist-package && zip -r ../SC4PlopAndPaint-${{ github.ref_name }}.zip .
+      - name: Create release zip
+        run: |
+          VERSION=${{ github.ref_name }}
+          zip -j SC4PlopAndPaint-${VERSION}.zip \
+            dist-package/SC4PlopAndPaint-*.exe \
+            dist-package/README.txt \
+            dist-package/ThirdPartyNotices.txt
 
       - uses: softprops/action-gh-release@v2
         with:
