@@ -28,6 +28,13 @@ namespace {
         previewPlacement.minZ = prop.minZ;
         previewPlacement.maxZ = prop.maxZ;
     }
+
+    float SnapCoordinate(const float value, const float gridStep) {
+        if (gridStep <= 0.0f) {
+            return value;
+        }
+        return std::round(value / gridStep) * gridStep;
+    }
 }
 
 PropPainterInputControl::PropPainterInputControl()
@@ -366,8 +373,31 @@ bool PropPainterInputControl::UpdateCursorWorldFromScreen_(const int32_t screenX
     }
 
     currentCursorWorld_ = cS3DVector3(worldCoords[0], worldCoords[1], worldCoords[2]);
+    if (settings_.snapToGrid) {
+        currentCursorWorld_ = SnapWorldToGrid_(currentCursorWorld_);
+    }
     cursorValid_ = true;
     return true;
+}
+
+float PropPainterInputControl::GetGridStepMeters_() const {
+    return std::max(settings_.gridStepMeters, 1.0f);
+}
+
+cS3DVector3 PropPainterInputControl::SnapWorldToGrid_(const cS3DVector3& position) const {
+    const float gridStep = GetGridStepMeters_();
+    return cS3DVector3(
+        SnapCoordinate(position.fX, gridStep),
+        position.fY,
+        SnapCoordinate(position.fZ, gridStep));
+}
+
+void PropPainterInputControl::SnapPlacementToGrid_(PlannedProp& placement) const {
+    if (!settings_.snapToGrid) {
+        return;
+    }
+
+    placement.position = SnapWorldToGrid_(placement.position);
 }
 
 void PropPainterInputControl::ClearCollectedPoints_() {
@@ -399,7 +429,7 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
             }
         }
 
-        overlay_.BuildDirectPreview(cursorValid_, previewPlacement);
+        overlay_.BuildDirectPreview(cursorValid_, currentCursorWorld_, settings_, previewPlacement);
         return;
     }
 
@@ -441,9 +471,10 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
             for (const auto& placement : placements) {
                 PropPaintOverlay::PreviewPlacement previewPlacement;
                 previewPlacement.placement = placement;
+                SnapPlacementToGrid_(previewPlacement.placement);
 
                 if (propRepository_) {
-                    if (const Prop* prop = propRepository_->FindPropByInstanceId(placement.propID)) {
+                    if (const Prop* prop = propRepository_->FindPropByInstanceId(previewPlacement.placement.propID)) {
                         PopulatePreviewBounds(previewPlacement, *prop);
                     }
                 }
@@ -452,7 +483,7 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
             }
         }
 
-        overlay_.BuildLinePreview(points, currentCursorWorld_, cursorValid_, plannedPlacements);
+        overlay_.BuildLinePreview(points, currentCursorWorld_, cursorValid_, settings_, plannedPlacements);
         return;
     }
 
@@ -474,9 +505,10 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
         for (const auto& placement : placements) {
             PropPaintOverlay::PreviewPlacement previewPlacement;
             previewPlacement.placement = placement;
+            SnapPlacementToGrid_(previewPlacement.placement);
 
             if (propRepository_) {
-                if (const Prop* prop = propRepository_->FindPropByInstanceId(placement.propID)) {
+                if (const Prop* prop = propRepository_->FindPropByInstanceId(previewPlacement.placement.propID)) {
                     PopulatePreviewBounds(previewPlacement, *prop);
                 }
             }
@@ -487,7 +519,7 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
         polygonPreviewDirty_ = false;
     }
 
-    overlay_.BuildPolygonPreview(points, currentCursorWorld_, cursorValid_, cachedPolygonPlacements_);
+    overlay_.BuildPolygonPreview(points, currentCursorWorld_, cursorValid_, settings_, cachedPolygonPlacements_);
 }
 
 void PropPainterInputControl::ExecuteLinePlacement_() {
@@ -520,7 +552,8 @@ void PropPainterInputControl::ExecuteLinePlacement_() {
         singlePropID);
 
     size_t placedCount = 0;
-    for (const auto& placement : placements) {
+    for (auto placement : placements) {
+        SnapPlacementToGrid_(placement);
         if (PlacePropAtWorld_(placement.position, placement.rotation, placement.propID)) {
             ++placedCount;
         }
@@ -559,7 +592,8 @@ void PropPainterInputControl::ExecutePolygonPlacement_() {
         singlePropID);
 
     size_t placedCount = 0;
-    for (const auto& placement : placements) {
+    for (auto placement : placements) {
+        SnapPlacementToGrid_(placement);
         if (PlacePropAtWorld_(placement.position, placement.rotation, placement.propID)) {
             ++placedCount;
         }
@@ -638,8 +672,12 @@ bool PropPainterInputControl::PlacePropAt_(const int32_t screenX, const int32_t 
         return false;
     }
 
-    return PlacePropAtWorld_(cS3DVector3(worldCoords[0], worldCoords[1], worldCoords[2]), settings_.rotation,
-                             propIDToPaint_);
+    cS3DVector3 targetPosition(worldCoords[0], worldCoords[1], worldCoords[2]);
+    if (settings_.snapToGrid) {
+        targetPosition = SnapWorldToGrid_(targetPosition);
+    }
+
+    return PlacePropAtWorld_(targetPosition, settings_.rotation, propIDToPaint_);
 }
 
 bool PropPainterInputControl::PlacePropAtWorld_(const cS3DVector3& position, const int32_t rotation,

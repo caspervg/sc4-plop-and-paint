@@ -5,6 +5,8 @@
 #include <cmath>
 #include <numeric>
 
+#include "PropPainterInputControl.hpp"
+
 namespace {
     constexpr DWORD kFvf = D3DFVF_XYZ | D3DFVF_DIFFUSE;
     constexpr DWORD kMaxBatchVertices = 60000;
@@ -67,19 +69,28 @@ bool PropPaintOverlay::Empty() const {
     return true;
 }
 
-void PropPaintOverlay::BuildDirectPreview(const bool cursorValid, const PreviewPlacement& plannedPlacement) {
+void PropPaintOverlay::BuildDirectPreview(const bool cursorValid,
+                                          const cS3DVector3& cursorPos,
+                                          const PropPaintSettings& settings,
+                                          const PreviewPlacement& plannedPlacement) {
     Clear();
     if (!cursorValid) {
         return;
     }
+    EmitGrid_(cursorPos, settings);
     EmitPreviewPlacement_(plannedPlacement, kLayerMarkers);
 }
 
 void PropPaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
                                         const cS3DVector3& cursorPos,
                                         const bool cursorValid,
+                                        const PropPaintSettings& settings,
                                         const std::vector<PreviewPlacement>& plannedPlacements) {
     Clear();
+
+    if (cursorValid) {
+        EmitGrid_(cursorPos, settings);
+    }
 
     for (size_t i = 1; i < points.size(); ++i) {
         EmitLine_(points[i - 1], points[i], kLineThickness, kLineColor, kLayerShape);
@@ -101,8 +112,13 @@ void PropPaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
 void PropPaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
                                            const cS3DVector3& cursorPos,
                                            const bool cursorValid,
+                                           const PropPaintSettings& settings,
                                            const std::vector<PreviewPlacement>& plannedPlacements) {
     Clear();
+
+    if (cursorValid) {
+        EmitGrid_(cursorPos, settings);
+    }
 
     for (size_t i = 1; i < vertices.size(); ++i) {
         EmitLine_(vertices[i - 1], vertices[i], kLineThickness, kLineColor, kLayerShape);
@@ -127,6 +143,43 @@ void PropPaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& verti
 
     for (const auto& placement : plannedPlacements) {
         EmitPreviewPlacement_(placement, kLayerMarkers);
+    }
+}
+
+void PropPaintOverlay::EmitGrid_(const cS3DVector3& center, const PropPaintSettings& settings) {
+    if (!settings.showGrid) {
+        return;
+    }
+
+    const float gridStep = std::max(settings.gridStepMeters, 1.0f);
+    const float majorStep = 16.0f;
+    const float halfSpan = std::max(32.0f, gridStep * 8.0f);
+    const float xStart = std::floor((center.fX - halfSpan) / gridStep) * gridStep;
+    const float xEnd = std::ceil((center.fX + halfSpan) / gridStep) * gridStep;
+    const float zStart = std::floor((center.fZ - halfSpan) / gridStep) * gridStep;
+    const float zEnd = std::ceil((center.fZ + halfSpan) / gridStep) * gridStep;
+
+    const auto isMajorLine = [&](const float coordinate) {
+        if (gridStep >= majorStep - kEpsilon) {
+            return true;
+        }
+
+        const float remainder = std::fmod(std::abs(coordinate), majorStep);
+        return remainder <= kEpsilon || std::abs(remainder - majorStep) <= kEpsilon;
+    };
+
+    for (float x = xStart; x <= xEnd + kEpsilon; x += gridStep) {
+        const bool major = isMajorLine(x);
+        const DWORD color = major ? kGridMajorColor : kGridMinorColor;
+        const float thickness = major ? 0.28f : 0.16f;
+        EmitLine_(cS3DVector3(x, center.fY, zStart), cS3DVector3(x, center.fY, zEnd), thickness, color, kLayerShape);
+    }
+
+    for (float z = zStart; z <= zEnd + kEpsilon; z += gridStep) {
+        const bool major = isMajorLine(z);
+        const DWORD color = major ? kGridMajorColor : kGridMinorColor;
+        const float thickness = major ? 0.28f : 0.16f;
+        EmitLine_(cS3DVector3(xStart, center.fY, z), cS3DVector3(xEnd, center.fY, z), thickness, color, kLayerShape);
     }
 }
 

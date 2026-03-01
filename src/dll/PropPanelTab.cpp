@@ -375,6 +375,12 @@ void PropPanelTab::RenderRotationModal_() {
         ImGui::RadioButton("270 deg", &rotation, 3);
         pendingPaint_.settings.rotation = rotation;
 
+        ImGui::Separator();
+        ImGui::TextUnformatted("Grid");
+        ImGui::Checkbox("Show grid overlay", &pendingPaint_.settings.showGrid);
+        ImGui::Checkbox("Snap to grid", &pendingPaint_.settings.snapToGrid);
+        ImGui::SliderFloat("Grid step (m)", &pendingPaint_.settings.gridStepMeters, 1.0f, 16.0f, "%.1f");
+
         if (pendingPaint_.settings.mode == PropPaintMode::Line) {
             ImGui::Separator();
             ImGui::SliderFloat("Spacing (m)", &pendingPaint_.settings.spacingMeters, 0.5f, 50.0f, "%.1f");

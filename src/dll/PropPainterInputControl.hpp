@@ -33,9 +33,12 @@ struct PropPaintSettings {
     int32_t rotation = 0;
     float spacingMeters = 5.0f;
     float densityPer100Sqm = 1.0f;
+    float gridStepMeters = 16.0f;
     float randomOffset = 0.0f;
     bool alignToPath = false;
     bool randomRotation = false;
+    bool showGrid = true;
+    bool snapToGrid = false;
     uint32_t randomSeed = 0;
     std::vector<FamilyEntry> activePalette{};
     float densityVariation = 0.0f;
@@ -94,6 +97,9 @@ private:
     bool HandleActiveMouseMove_(int32_t x, int32_t z, uint32_t modifiers);
     bool HandleActiveKeyDown_(int32_t vkCode, uint32_t modifiers);
     bool UpdateCursorWorldFromScreen_(int32_t screenX, int32_t screenZ);
+    [[nodiscard]] float GetGridStepMeters_() const;
+    [[nodiscard]] cS3DVector3 SnapWorldToGrid_(const cS3DVector3& position) const;
+    void SnapPlacementToGrid_(PlannedProp& placement) const;
     void ClearCollectedPoints_();
     void RebuildPreviewOverlay_();
     void ExecuteLinePlacement_();

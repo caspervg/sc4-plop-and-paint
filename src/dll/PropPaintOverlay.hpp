@@ -10,6 +10,8 @@
 #include "PropPaintPlacement.hpp"
 #include "cS3DVector3.h"
 
+struct PropPaintSettings;
+
 class PropPaintOverlay {
 public:
     static constexpr uint32_t kLayerShape = 0;
@@ -31,16 +33,21 @@ public:
     void Clear();
     [[nodiscard]] bool Empty() const;
 
-    void BuildDirectPreview(bool cursorValid, const PreviewPlacement& plannedPlacement);
+    void BuildDirectPreview(bool cursorValid,
+                            const cS3DVector3& cursorPos,
+                            const PropPaintSettings& settings,
+                            const PreviewPlacement& plannedPlacement);
 
     void BuildLinePreview(const std::vector<cS3DVector3>& points,
                           const cS3DVector3& cursorPos,
                           bool cursorValid,
+                          const PropPaintSettings& settings,
                           const std::vector<PreviewPlacement>& plannedPlacements);
 
     void BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
                              const cS3DVector3& cursorPos,
                              bool cursorValid,
+                             const PropPaintSettings& settings,
                              const std::vector<PreviewPlacement>& plannedPlacements);
 
     void Draw(IDirect3DDevice7* device);
@@ -80,8 +87,11 @@ private:
     void EmitMarker_(const cS3DVector3& center, float size, DWORD color, uint32_t layer);
     void EmitPreviewPlacement_(const PreviewPlacement& placement, uint32_t layer);
     void EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices, DWORD color, uint32_t layer);
+    void EmitGrid_(const cS3DVector3& center, const PropPaintSettings& settings);
 
 private:
+    static constexpr DWORD kGridMajorColor = 0x30FFFFFF;
+    static constexpr DWORD kGridMinorColor = 0x18B0E0FF;
     static constexpr DWORD kLineColor = 0xC0FFFFFF;
     static constexpr DWORD kPolygonFillColor = 0x4000FF00;
     static constexpr DWORD kMarkerColor = 0xF0FFD700;
