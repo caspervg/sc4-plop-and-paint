@@ -1,18 +1,22 @@
 #include "LotPlopPanel.hpp"
 
 #include "BuildingsPanelTab.hpp"
+#include "FamiliesPanelTab.hpp"
+#include "PropPanelTab.hpp"
 #include "imgui_impl_win32.h"
 #include "OccupantGroups.hpp"
-#include "PalettesPanelTab.hpp"
-#include "PropPanelTab.hpp"
 #include "spdlog/spdlog.h"
 
 
-LotPlopPanel::LotPlopPanel(SC4AdvancedLotPlopDirector* director, cIGZImGuiService* imguiService)
+LotPlopPanel::LotPlopPanel(SC4AdvancedLotPlopDirector* director,
+                           LotRepository* lots,
+                           PropRepository* props,
+                           FavoritesRepository* favorites,
+                           cIGZImGuiService* imguiService)
     : director_(director), imguiService_(imguiService) {
-    tabs_.push_back(std::make_unique<BuildingsPanelTab>(director_, imguiService_));
-    tabs_.push_back(std::make_unique<PropPanelTab>(director_, imguiService_));
-    tabs_.push_back(std::make_unique<PalettesPanelTab>(director_, imguiService_));
+    tabs_.push_back(std::make_unique<BuildingsPanelTab>(director_, lots, props, favorites, imguiService_));
+    tabs_.push_back(std::make_unique<PropPanelTab>(director_, lots, props, favorites, imguiService_));
+    tabs_.push_back(std::make_unique<FamiliesPanelTab>(director_, lots, props, favorites, imguiService_));
 }
 
 void LotPlopPanel::OnRender() {

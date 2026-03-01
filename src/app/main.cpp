@@ -1,6 +1,7 @@
 #include <args.hxx>
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -22,6 +23,7 @@
 #include "DBPFReader.h"
 #include "DbpfIndexService.hpp"
 #include "ExemplarParser.hpp"
+#include "BuiltinPropFamilyNames.hpp"
 #include "PluginLocator.hpp"
 #include "PropertyMapper.hpp"
 #include "Utils.hpp"
@@ -335,6 +337,31 @@ namespace {
                         allBuildings.size(), lotsFound, parseErrors);
 
             SanitizeStrings(allBuildings, allProps);
+
+            for (const auto& prop : allProps) {
+                for (const auto& familyIdHex : prop.familyIds) {
+                    const uint32_t familyId = familyIdHex.value();
+                    if (familyId == 0) {
+                        continue;
+                    }
+
+                    if (propFamilyNamesById.contains(familyId)) {
+                        continue;
+                    }
+
+                    std::string displayName;
+                    if (const auto it = kBuiltinPropFamilyNames.find(familyId); it != kBuiltinPropFamilyNames.end()) {
+                        displayName = std::string(it->second);
+                    }
+                    else {
+                        char buf[32];
+                        std::snprintf(buf, sizeof(buf), "Family 0x%08X", familyId);
+                        displayName = buf;
+                    }
+
+                    propFamilyNamesById.emplace(familyId, std::move(displayName));
+                }
+            }
 
             std::vector<PropFamilyInfo> propFamilies;
             propFamilies.reserve(propFamilyNamesById.size());

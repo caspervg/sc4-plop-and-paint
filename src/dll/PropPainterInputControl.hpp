@@ -37,7 +37,7 @@ struct PropPaintSettings {
     bool alignToPath = false;
     bool randomRotation = false;
     uint32_t randomSeed = 0;
-    std::vector<PaletteEntry> activePalette{};
+    std::vector<FamilyEntry> activePalette{};
     float densityVariation = 0.0f;
 };
 

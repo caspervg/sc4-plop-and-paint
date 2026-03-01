@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-WeightedPropPicker::WeightedPropPicker(const std::vector<PaletteEntry>& entries, const uint32_t seed)
+WeightedPropPicker::WeightedPropPicker(const std::vector<FamilyEntry>& entries, const uint32_t seed)
     : entries_(entries)
       , rng_(seed ? seed : std::random_device{}()) {
     cumulativeWeights_.reserve(entries_.size());

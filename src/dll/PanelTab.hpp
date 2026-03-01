@@ -2,14 +2,24 @@
 #include <cstdint>
 
 #include "SC4AdvancedLotPlopDirector.hpp"
+#include "LotRepository.hpp"
+#include "PropRepository.hpp"
+#include "FavoritesRepository.hpp"
 
 
 class cIGZImGuiService;
 
 class PanelTab {
 public:
-    explicit PanelTab(SC4AdvancedLotPlopDirector* director, cIGZImGuiService* imguiService)
+    PanelTab(SC4AdvancedLotPlopDirector* director,
+             LotRepository* lots,
+             PropRepository* props,
+             FavoritesRepository* favorites,
+             cIGZImGuiService* imguiService)
         : director_(director)
+        , lots_(lots)
+        , props_(props)
+        , favorites_(favorites)
         , imguiService_(imguiService) {}
 
     virtual ~PanelTab() = default;
@@ -29,6 +39,9 @@ public:
     virtual void Abandon() {}
 
 protected:
-    SC4AdvancedLotPlopDirector* director_;
-    cIGZImGuiService* imguiService_;
+    SC4AdvancedLotPlopDirector* director_;  // game actions only
+    LotRepository*       lots_;
+    PropRepository*      props_;
+    FavoritesRepository* favorites_;
+    cIGZImGuiService*    imguiService_;
 };

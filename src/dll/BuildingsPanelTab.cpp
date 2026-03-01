@@ -12,7 +12,7 @@ const char* BuildingsPanelTab::GetTabName() const {
 }
 
 void BuildingsPanelTab::OnRender() {
-    const auto& buildings = director_->GetBuildings();
+    const auto& buildings = lots_->GetBuildings();
 
     if (buildings.empty()) {
         ImGui::TextUnformatted("No buildings loaded. Please ensure lot_configs.cbor exists in the Plugins directory.");
@@ -52,7 +52,7 @@ ImGuiTexture BuildingsPanelTab::LoadBuildingTexture_(uint64_t buildingKey) {
         return texture;
     }
 
-    const auto& buildingsById = director_->GetBuildingsById();
+    const auto& buildingsById = lots_->GetBuildingsById();
     if (!buildingsById.contains(buildingKey)) {
         spdlog::warn("Could not find building with key 0x{:016X} in buildings map", buildingKey);
         return texture;
@@ -435,11 +435,11 @@ void BuildingsPanelTab::RenderOccupantGroupFilter_() {
 }
 
 void BuildingsPanelTab::RenderFavButton_(const uint32_t lotInstanceId) const {
-    const bool isFavorite = director_->IsFavorite(lotInstanceId);
+    const bool isFavorite = favorites_->IsLotFavorite(lotInstanceId);
     const char* label = isFavorite ? "Unstar" : "Star";
 
     if (ImGui::SmallButton(label)) {
-        director_->ToggleFavorite(lotInstanceId);
+        favorites_->ToggleLotFavorite(lotInstanceId);
     }
 
     if (ImGui::IsItemHovered()) {
@@ -448,8 +448,8 @@ void BuildingsPanelTab::RenderFavButton_(const uint32_t lotInstanceId) const {
 }
 
 void BuildingsPanelTab::ApplyFilters_() {
-    const auto& buildings = director_->GetBuildings();
-    const auto& favoriteLots = director_->GetFavoriteLotIds();
+    const auto& buildings = lots_->GetBuildings();
+    const auto& favoriteLots = favorites_->GetFavoriteLotIds();
 
     filteredBuildings_.clear();
     filteredBuildings_.reserve(buildings.size());

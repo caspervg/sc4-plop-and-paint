@@ -82,14 +82,14 @@ struct PropsCache {
     std::vector<PropFamilyInfo> propFamilies;
 };
 
-struct PaletteEntry {
+struct FamilyEntry {
     rfl::Hex<uint32_t> propID;
     float weight = 1.0f;
 };
 
-struct PropPalette {
+struct PropFamily {
     std::string name;
-    std::vector<PaletteEntry> entries;
+    std::vector<FamilyEntry> entries;
     float densityVariation = 0.0f;
 };
 
@@ -102,6 +102,6 @@ struct AllFavorites {
     TabFavorites lots;
     std::optional<TabFavorites> props;  // Future: prop favorites
     std::optional<TabFavorites> flora;  // Future: flora favorites
-    std::optional<std::vector<PropPalette>> palettes;
+    std::optional<std::vector<PropFamily>> families;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

@@ -10,8 +10,10 @@
 
 class PropPanelTab : public FilterableTablePanel, public PanelTab {
 public:
-    explicit PropPanelTab(SC4AdvancedLotPlopDirector* director, cIGZImGuiService* imguiService)
-        : PanelTab(director, imguiService) {}
+    PropPanelTab(SC4AdvancedLotPlopDirector* director,
+                 LotRepository* lots, PropRepository* props, FavoritesRepository* favorites,
+                 cIGZImGuiService* imguiService)
+        : PanelTab(director, lots, props, favorites, imguiService) {}
 
     ~PropPanelTab() override = default;
 

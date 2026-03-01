@@ -6,8 +6,10 @@
 
 class BuildingsPanelTab : public PanelTab {
 public:
-    explicit BuildingsPanelTab(SC4AdvancedLotPlopDirector* director, cIGZImGuiService* imguiService)
-        : PanelTab(director, imguiService) {}
+    BuildingsPanelTab(SC4AdvancedLotPlopDirector* director,
+                      LotRepository* lots, PropRepository* props, FavoritesRepository* favorites,
+                      cIGZImGuiService* imguiService)
+        : PanelTab(director, lots, props, favorites, imguiService) {}
 
     ~BuildingsPanelTab() override = default;
 

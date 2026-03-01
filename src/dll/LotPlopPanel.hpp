@@ -5,9 +5,17 @@
 #include "SC4AdvancedLotPlopDirector.hpp"
 #include "public/ImGuiTexture.h"
 
+class LotRepository;
+class PropRepository;
+class FavoritesRepository;
+
 class LotPlopPanel final : public ImGuiPanel {
 public:
-    explicit LotPlopPanel(SC4AdvancedLotPlopDirector* director, cIGZImGuiService* imguiService);
+    LotPlopPanel(SC4AdvancedLotPlopDirector* director,
+                 LotRepository* lots,
+                 PropRepository* props,
+                 FavoritesRepository* favorites,
+                 cIGZImGuiService* imguiService);
     void OnInit() override {}
     void OnRender() override;
     void OnShutdown() override { delete this; }

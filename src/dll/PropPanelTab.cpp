@@ -12,7 +12,7 @@ const char* PropPanelTab::GetTabName() const {
 }
 
 void PropPanelTab::OnRender() {
-    const auto& props = director_->GetProps();
+    const auto& props = props_->GetProps();
 
     if (props.empty()) {
         ImGui::TextUnformatted("No props loaded. Please ensure props.cbor exists in the Plugins directory.");
@@ -30,7 +30,7 @@ void PropPanelTab::OnRender() {
     }
 
     const auto filteredProps = filterHelper_.ApplyFiltersAndSort(
-        propViews, director_->GetFavoritePropIds(), sortSpecs_);
+        propViews, favorites_->GetFavoritePropIds(), sortSpecs_);
 
     ImGui::Text("Showing %zu of %zu props", filteredProps.size(), propViews.size());
     if (director_->IsPropPainting()) {
@@ -42,7 +42,7 @@ void PropPanelTab::OnRender() {
 
     // Table in scrollable child region so filters stay visible
     if (ImGui::BeginChild("PropTableRegion", ImVec2(0, 0), false)) {
-        RenderTableInternal_(filteredProps, director_->GetFavoritePropIds());
+        RenderTableInternal_(filteredProps, favorites_->GetFavoritePropIds());
     }
     ImGui::EndChild();
 
@@ -64,7 +64,7 @@ ImGuiTexture PropPanelTab::LoadPropTexture_(uint64_t propKey) {
         return texture;
     }
 
-    const auto& propsById = director_->GetPropsById();
+    const auto& propsById = props_->GetPropsById();
     if (!propsById.contains(propKey)) {
         spdlog::warn("Could not find prop with key 0x{:016X} in props map", propKey);
         return texture;
@@ -141,7 +141,7 @@ void PropPanelTab::RenderFilterUI_() {
 }
 
 void PropPanelTab::RenderTable_() {
-    const auto& props = director_->GetProps();
+    const auto& props = props_->GetProps();
     std::vector<PropView> propViews;
     propViews.reserve(props.size());
     for (const auto& prop : props) {
@@ -149,9 +149,9 @@ void PropPanelTab::RenderTable_() {
     }
 
     const auto filteredProps = filterHelper_.ApplyFiltersAndSort(
-        propViews, director_->GetFavoritePropIds(), sortSpecs_);
+        propViews, favorites_->GetFavoritePropIds(), sortSpecs_);
 
-    RenderTableInternal_(filteredProps, director_->GetFavoritePropIds());
+    RenderTableInternal_(filteredProps, favorites_->GetFavoritePropIds());
 }
 
 void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredProps,
@@ -260,7 +260,7 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 }
 
                 if (!prop.familyIds.empty() && ImGui::IsItemHovered()) {
-                    const auto& familyNames = director_->GetPropFamilyNames();
+                    const auto& familyNames = props_->GetPropFamilyNames();
                     ImGui::BeginTooltip();
                     ImGui::Text("Families (%zu)", prop.familyIds.size());
                     for (const auto& familyIdHex : prop.familyIds) {
@@ -307,54 +307,18 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 }
 
                 if (ImGui::BeginPopup("AddToPalette")) {
-                    const auto& palettes = director_->GetPropPalettes();
-                    if (palettes.empty()) {
-                        ImGui::TextDisabled("No palettes yet.");
-                        if (ImGui::Selectable("+ New palette...")) {
-                            const std::string& baseName = prop.visibleName.empty() ? prop.exemplarName : prop.visibleName;
-                            director_->AddPropToNewPalette(prop.instanceId.value(), baseName);
-                            ImGui::CloseCurrentPopup();
-                        }
+                    const auto& userFamilies = favorites_->GetUserFamilies();
+                    if (userFamilies.empty()) {
+                        ImGui::TextDisabled("No families yet.");
+                        ImGui::TextDisabled("Create a user family in the Families tab first.");
                     }
                     else {
-                        for (size_t paletteIndex = 0; paletteIndex < palettes.size(); ++paletteIndex) {
-                            if (ImGui::Selectable(palettes[paletteIndex].name.c_str())) {
-                                director_->AddPropToPalette(prop.instanceId.value(), paletteIndex);
+                        for (size_t familyIndex = 0; familyIndex < userFamilies.size(); ++familyIndex) {
+                            if (ImGui::Selectable(userFamilies[familyIndex].name.c_str())) {
+                                favorites_->AddPropToUserFamily(prop.instanceId.value(), familyIndex);
                                 ImGui::CloseCurrentPopup();
                                 break;
                             }
-                        }
-                        ImGui::Separator();
-                        if (ImGui::Selectable("+ New palette...")) {
-                            const std::string& baseName = prop.visibleName.empty() ? prop.exemplarName : prop.visibleName;
-                            director_->AddPropToNewPalette(prop.instanceId.value(), baseName);
-                            ImGui::CloseCurrentPopup();
-                        }
-                    }
-
-                    if (!prop.familyIds.empty()) {
-                        ImGui::Separator();
-                        if (ImGui::BeginMenu("Create palette from family")) {
-                            const auto& familyNames = director_->GetPropFamilyNames();
-                            for (const auto& familyIdHex : prop.familyIds) {
-                                const uint32_t familyId = familyIdHex.value();
-                                std::string label;
-                                if (const auto it = familyNames.find(familyId); it != familyNames.end()) {
-                                    label = it->second + "##fam" + std::to_string(familyId);
-                                }
-                                else {
-                                    char familyHex[16];
-                                    std::snprintf(familyHex, sizeof(familyHex), "0x%08X", familyId);
-                                    label = std::string(familyHex) + "##fam" + std::to_string(familyId);
-                                }
-
-                                if (ImGui::MenuItem(label.c_str())) {
-                                    director_->AddPropFamilyToNewPalette(familyId);
-                                    ImGui::CloseCurrentPopup();
-                                    break;
-                                }
-                            }
-                            ImGui::EndMenu();
                         }
                     }
                     ImGui::EndPopup();
@@ -373,9 +337,9 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
 }
 
 void PropPanelTab::RenderFavButton_(const Prop& prop) const {
-    const bool isFavorite = director_->IsPropFavorite(prop.groupId.value(), prop.instanceId.value());
+    const bool isFavorite = favorites_->IsPropFavorite(prop.groupId.value(), prop.instanceId.value());
     if (ImGui::Button(isFavorite ? "Unstar" : "Star")) {
-        director_->TogglePropFavorite(prop.groupId.value(), prop.instanceId.value());
+        favorites_->TogglePropFavorite(prop.groupId.value(), prop.instanceId.value());
     }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(isFavorite ? "Remove from favorites" : "Add to favorites");

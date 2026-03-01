@@ -4,6 +4,7 @@
 
 #include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -13,6 +14,7 @@
 
 #include <stb_image.h>
 
+#include "BuiltinPropFamilyNames.hpp"
 #include "Utils.hpp"
 
 namespace {
@@ -153,15 +155,6 @@ ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
 
 ExemplarParser::~ExemplarParser() = default;
 
-namespace {
-    std::optional<uint32_t> ResolveBuildingFamilyPropertyId(const PropertyMapper& mapper) {
-        if (const auto id = mapper.propertyId(kBuildingFamily)) {
-            return id;
-        }
-        return mapper.propertyId(kBuildingFamilyAlt);
-    }
-}
-
 std::optional<ExemplarType> ExemplarParser::getExemplarType(const Exemplar::Record& exemplar) const {
     const auto propIdOpt = propertyMapper_.propertyId(kExemplarType);
     if (!propIdOpt) {
@@ -259,7 +252,7 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
     }
 
     // Extract building family IDs
-    if (const auto familyPropId = ResolveBuildingFamilyPropertyId(propertyMapper_)) {
+    if (const auto familyPropId =  propertyMapper_.propertyId(kBuildingPropFamily)) {
         if (auto* prop = findProperty(exemplar, *familyPropId)) {
             for (size_t i = 0; i < prop->values.size(); ++i) {
                 if (auto familyId = prop->GetScalarAs<uint32_t>(i)) {
@@ -453,7 +446,7 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
         }
     }
 
-    if (const auto familyPropId = ResolveBuildingFamilyPropertyId(propertyMapper_)) {
+    if (const auto familyPropId =  propertyMapper_.propertyId(kBuildingPropFamily)) {
         if (auto* prop = findProperty(exemplar, *familyPropId)) {
             for (size_t i = 0; i < prop->values.size(); ++i) {
                 if (auto familyId = prop->GetScalarAs<uint32_t>(i)) {
@@ -469,7 +462,7 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
 }
 
 std::optional<PropFamilyInfo> ExemplarParser::parsePropFamilyFromCohort(const Exemplar::Record& cohort) const {
-    const auto familyPropId = ResolveBuildingFamilyPropertyId(propertyMapper_);
+    const auto familyPropId = propertyMapper_.propertyId(kBuildingPropFamily);
     if (!familyPropId) {
         return std::nullopt;
     }
@@ -498,18 +491,24 @@ std::optional<PropFamilyInfo> ExemplarParser::parsePropFamilyFromCohort(const Ex
         }
     }
 
-    if (!name || name->empty()) {
-        return std::nullopt;
+    std::string displayName;
+    if (name && !name->empty()) {
+        displayName = SanitizeString(*name);
     }
-
-    auto sanitizedName = SanitizeString(name.value());
-    if (sanitizedName.empty()) {
-        return std::nullopt;
+    if (displayName.empty()) {
+        if (const auto it = kBuiltinPropFamilyNames.find(*familyId); it != kBuiltinPropFamilyNames.end()) {
+            displayName = std::string(it->second);
+        }
+    }
+    if (displayName.empty()) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "Family 0x%08X", *familyId);
+        displayName = buf;
     }
 
     return PropFamilyInfo{
         rfl::Hex<uint32_t>(*familyId),
-        std::move(sanitizedName)
+        std::move(displayName)
     };
 }
 
