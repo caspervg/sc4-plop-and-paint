@@ -35,6 +35,7 @@ Var HCacheLocale
 Var HCacheRenderThumbs
 Var HCacheBuildNow
 Var HSummaryText
+Var GameExePath
 
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN
@@ -72,6 +73,81 @@ Function DetectDefaultGameRoot
   ReadRegStr $0 HKLM "SOFTWARE\Maxis\SimCity 4" "Install Dir"
   ${If} $0 != ""
     StrCpy $GameRoot $0
+  ${EndIf}
+FunctionEnd
+
+Function ValidateGameExecutable
+  StrCpy $GameExePath "$GameRoot\Apps\SimCity 4.exe"
+
+  ${IfNot} ${FileExists} "$GameExePath"
+    MessageBox MB_OK|MB_ICONSTOP "Could not find '$GameExePath'.$\r$\n$\r$\n${APP_NAME} requires the SimCity 4 1.1.641.x executable in the selected game folder."
+    Abort
+  ${EndIf}
+
+  ClearErrors
+  GetDLLVersion "$GameExePath" $0 $1
+  ${If} ${Errors}
+    MessageBox MB_OK|MB_ICONSTOP "Could not read the version information from '$GameExePath'.$\r$\n$\r$\n${APP_NAME} requires SimCity 4 version 1.1.641.x."
+    Abort
+  ${EndIf}
+
+  IntOp $2 $0 >> 16
+  IntOp $2 $2 & 0xFFFF
+  IntOp $3 $0 & 0xFFFF
+  IntOp $4 $1 >> 16
+  IntOp $4 $4 & 0xFFFF
+  IntOp $5 $1 & 0xFFFF
+
+  ${If} $2 != 1
+  ${OrIf} $3 != 1
+  ${OrIf} $4 != 641
+    MessageBox MB_OK|MB_ICONSTOP "Unsupported SimCity 4 version detected in '$GameExePath'.$\r$\n$\r$\nFound: $2.$3.$4.$5$\r$\nRequired: 1.1.641.x$\r$\n$\r$\nPlease install the 1.1.641 update before continuing."
+    Abort
+  ${EndIf}
+FunctionEnd
+
+Function WarnIfNo4GBPatch
+  ClearErrors
+  FileOpen $0 "$GameExePath" r
+  ${If} ${Errors}
+    Return
+  ${EndIf}
+
+  FileSeek $0 60 SET
+  ClearErrors
+  FileReadByte $0 $1
+  FileReadByte $0 $2
+  FileReadByte $0 $3
+  FileReadByte $0 $4
+  ${If} ${Errors}
+    FileClose $0
+    Return
+  ${EndIf}
+
+  IntOp $5 $2 << 8
+  IntOp $5 $5 + $1
+  IntOp $6 $3 << 16
+  IntOp $5 $5 + $6
+  IntOp $6 $4 << 24
+  IntOp $5 $5 + $6
+
+  IntOp $5 $5 + 22
+  FileSeek $0 $5 SET
+  ClearErrors
+  FileReadByte $0 $1
+  FileReadByte $0 $2
+  ${If} ${Errors}
+    FileClose $0
+    Return
+  ${EndIf}
+  FileClose $0
+
+  IntOp $3 $2 << 8
+  IntOp $3 $3 + $1
+  IntOp $3 $3 & 0x20
+
+  ${If} $3 == 0
+    MessageBox MB_OK|MB_ICONEXCLAMATION "The selected SimCity 4 executable does not appear to have the 4GB patch applied.$\r$\n$\r$\n${APP_NAME} can still be installed, but applying the 4GB patch is recommended for stability."
   ${EndIf}
 FunctionEnd
 
@@ -142,9 +218,12 @@ Function ConfigurePathsPageLeave
   StrCpy $SC4ToolsDir "$SC4ToolsDir\${APP_TOOLS_SUBDIR}"
 
   ${IfNot} ${FileExists} "$GameRoot\Apps\*.*"
-    MessageBox MB_YESNO|MB_ICONQUESTION "Could not find '$GameRoot\Apps'. Continue anyway?" IDYES +2
+    MessageBox MB_OK|MB_ICONSTOP "Could not find '$GameRoot\Apps'.$\r$\n$\r$\nPlease select your SimCity 4 game root folder (the folder that contains 'Apps')."
     Abort
   ${EndIf}
+
+  Call ValidateGameExecutable
+  Call WarnIfNo4GBPatch
 FunctionEnd
 
 Function ConfigureCachePage
@@ -262,10 +341,6 @@ FunctionEnd
 Section "Install"
   SetShellVarContext current
 
-  CreateDirectory "$GameRoot\Apps"
-  SetOutPath "$GameRoot\Apps"
-  File "PLACE_IN_YOUR_SC4_APPS_FOLDER\imgui.dll"
-
   CreateDirectory "$SC4PluginsDir"
   SetOutPath "$SC4PluginsDir"
   File "PLACE_IN_YOUR_PLUGINS_FOLDER\SC4PlopAndPaint.dll"
@@ -372,8 +447,6 @@ FunctionEnd
 
 Section "Uninstall"
   SetShellVarContext current
-
-  Delete "$GameRoot\Apps\imgui.dll"
 
   Delete "$SC4PluginsDir\SC4PlopAndPaint.dll"
   Delete "$SC4PluginsDir\SC4PlopAndPaint.dat"
