@@ -1,6 +1,7 @@
-set(SHARED_TESTS_NAME SC4AdvancedLotPlopCore_Tests)
+set(SHARED_TESTS_NAME SC4PlopAndPaintCore_Tests)
 
 set(SHARED_TEST_SOURCES
+    test_main.cpp
     test_entities.cpp
 )
 
@@ -13,9 +14,9 @@ target_include_directories(${SHARED_TESTS_NAME} PRIVATE
 )
 
 target_link_libraries(${SHARED_TESTS_NAME} PRIVATE
-    SC4AdvancedLotPlopCore
-    reflectcpp
-    Catch2::Catch2WithMain
+    ${SHARED_CORE_NAME}
+    reflectcpp::reflectcpp
+    Catch2::Catch2
 )
 
 # Enable C++20 for test target

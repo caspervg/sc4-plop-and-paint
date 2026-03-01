@@ -32,8 +32,8 @@
 
 #include "dll/Utils.hpp"
 
-#ifndef SC4_ADVANCED_LOT_PLOP_VERSION
-#define SC4_ADVANCED_LOT_PLOP_VERSION "0.0.1"
+#ifndef SC4_PLOP_AND_PAINT_VERSION
+#define SC4_PLOP_AND_PAINT_VERSION "0.0.1"
 #endif
 
 namespace fs = std::filesystem;
@@ -438,9 +438,9 @@ int main(int argc, char* argv[]) {
         auto logger = spdlog::stdout_color_mt("lotplop-cli");
         logger->set_level(spdlog::level::debug);
         spdlog::set_pattern("[%H:%M:%S] [%^%l%$] %v");
-        logger->info("SC4AdvancedLotPlop CLI {}", SC4_ADVANCED_LOT_PLOP_VERSION);
+        logger->info("SC4PlopAndPaint CLI {}", SC4_PLOP_AND_PAINT_VERSION);
 
-        args::ArgumentParser parser("SC4AdvancedLotPlop CLI",
+        args::ArgumentParser parser("SC4PlopAndPaint CLI",
                                     "Inspect and extract Lot and Building exemplars from SimCity 4 plugins.");
         args::HelpFlag helpFlag(parser, "help", "Show this help message", {'h', "help"});
         args::Flag versionFlag(parser, "version", "Print version", {"version"});
@@ -470,7 +470,7 @@ int main(int argc, char* argv[]) {
         }
 
         if (versionFlag) {
-            logger->info("Version: {}", SC4_ADVANCED_LOT_PLOP_VERSION);
+            logger->info("Version: {}", SC4_PLOP_AND_PAINT_VERSION);
             return 0;
         }
 

@@ -5,6 +5,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_message.hpp>
 
+inline bool operator==(const Lot& lhs, const Lot& rhs);
+inline bool operator==(const FamilyEntry& lhs, const FamilyEntry& rhs);
+inline bool operator==(const PropFamily& lhs, const PropFamily& rhs);
+
 // Helper function to compare Icon structs
 inline bool operator==(const Icon& lhs, const Icon& rhs) {
     return lhs.data == rhs.data && lhs.width == rhs.width && lhs.height == rhs.height;
@@ -22,7 +26,8 @@ inline bool operator==(const Building& lhs, const Building& rhs) {
            lhs.name == rhs.name &&
            lhs.description == rhs.description &&
            lhs.occupantGroups == rhs.occupantGroups &&
-           lhs.thumbnail == rhs.thumbnail;
+           lhs.thumbnail == rhs.thumbnail &&
+           lhs.lots == rhs.lots;
 }
 
 // Helper function to compare Lot structs
@@ -35,7 +40,22 @@ inline bool operator==(const Lot& lhs, const Lot& rhs) {
            lhs.minCapacity == rhs.minCapacity &&
            lhs.maxCapacity == rhs.maxCapacity &&
            lhs.growthStage == rhs.growthStage &&
-           lhs.building == rhs.building;
+           lhs.zoneType == rhs.zoneType &&
+           lhs.wealthType == rhs.wealthType &&
+           lhs.purposeType == rhs.purposeType;
+}
+
+// Helper function to compare FamilyEntry structs
+inline bool operator==(const FamilyEntry& lhs, const FamilyEntry& rhs) {
+    return lhs.propID.value() == rhs.propID.value() &&
+           lhs.weight == rhs.weight;
+}
+
+// Helper function to compare PropFamily structs
+inline bool operator==(const PropFamily& lhs, const PropFamily& rhs) {
+    return lhs.name == rhs.name &&
+           lhs.entries == rhs.entries &&
+           lhs.densityVariation == rhs.densityVariation;
 }
 
 // Helper function to compare TabFavorites structs
@@ -53,6 +73,7 @@ inline bool operator==(const AllFavorites& lhs, const AllFavorites& rhs) {
            lhs.lots == rhs.lots &&
            lhs.props == rhs.props &&
            lhs.flora == rhs.flora &&
+           lhs.families == rhs.families &&
            lhs.lastModified.str() == rhs.lastModified.str();
 }
 
@@ -125,10 +146,25 @@ TEST_CASE("Building CBOR serialization and deserialization", "[cbor][building]")
         .name = "Test Building",
         .description = "A test building for CBOR serialization",
         .occupantGroups = {0xDEADBEEF, 0xCAFEBABE},
-        .thumbnail = Icon{
+        .thumbnail = Thumbnail{Icon{
             .data = rfl::Bytestring(std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}}),
             .width = 256,
             .height = 128
+        }},
+        .lots = {
+            Lot{
+                .instanceId = rfl::Hex<uint32_t>(0x01020304),
+                .groupId = rfl::Hex<uint32_t>(0x11111111),
+                .name = "Stage 1 Lot",
+                .sizeX = 2,
+                .sizeZ = 3,
+                .minCapacity = 50,
+                .maxCapacity = 120,
+                .growthStage = 1,
+                .zoneType = 2,
+                .wealthType = 1,
+                .purposeType = 4
+            }
         }
     };
 
@@ -150,18 +186,9 @@ TEST_CASE("Lot CBOR serialization and deserialization", "[cbor][lot]") {
         .minCapacity = 100,
         .maxCapacity = 500,
         .growthStage = 3,
-        .building = Building{
-            .instanceId = rfl::Hex<uint32_t>(0x11223344),
-            .groupId = rfl::Hex<uint32_t>(0x44332211),
-            .name = "Lot Building",
-            .description = "Building on a lot",
-            .occupantGroups = {0xBEEFCAFE},
-            .thumbnail = PreRendered{
-                .data = rfl::Bytestring(std::vector<std::byte>{std::byte{0xFF}, std::byte{0xEE}}),
-                .width = 512,
-                .height = 512
-            }
-        }
+        .zoneType = 7,
+        .wealthType = 2,
+        .purposeType = 5
     };
 
     auto cbor_bytes = rfl::cbor::write(original);
@@ -179,11 +206,8 @@ TEST_CASE("Empty occupant groups CBOR serialization", "[cbor][edge-case]") {
         .name = "Empty Groups",
         .description = "No occupant groups",
         .occupantGroups = {},
-        .thumbnail = Icon{
-            .data = rfl::Bytestring(std::vector<std::byte>{}),
-            .width = 0,
-            .height = 0
-        }
+        .thumbnail = std::nullopt,
+        .lots = {}
     };
 
     auto cbor_bytes = rfl::cbor::write(original);
@@ -204,11 +228,12 @@ TEST_CASE("Large occupant groups CBOR serialization", "[cbor][edge-case]") {
         .name = "Large Building",
         .description = "Building with many occupant groups",
         .occupantGroups = large_groups,
-        .thumbnail = Icon{
+        .thumbnail = Thumbnail{Icon{
             .data = rfl::Bytestring(std::vector<std::byte>{std::byte{0x99}}),
             .width = 128,
             .height = 128
-        }
+        }},
+        .lots = {}
     };
 
     auto cbor_bytes = rfl::cbor::write(original);
@@ -241,7 +266,7 @@ TEST_CASE("Large binary data CBOR serialization", "[cbor][edge-case]") {
 
 TEST_CASE("TabFavorites CBOR serialization and deserialization", "[cbor][favorites]") {
     TabFavorites original{
-        .items = {rfl::Hex<uint32_t>(0xAABBCCDD), rfl::Hex<uint32_t>(0x12345678)}
+        .items = {rfl::Hex<uint64_t>(0xAABBCCDDULL), rfl::Hex<uint64_t>(0x123456789ABCDEF0ULL)}
     };
 
     auto cbor_bytes = rfl::cbor::write(original);
@@ -250,17 +275,18 @@ TEST_CASE("TabFavorites CBOR serialization and deserialization", "[cbor][favorit
     auto deserialized = rfl::cbor::read<TabFavorites>(cbor_bytes);
     REQUIRE(deserialized);
     REQUIRE(deserialized->items.size() == 2);
-    REQUIRE(deserialized->items[0].value() == 0xAABBCCDD);
-    REQUIRE(deserialized->items[1].value() == 0x12345678);
+    REQUIRE(deserialized->items[0].value() == 0xAABBCCDDULL);
+    REQUIRE(deserialized->items[1].value() == 0x123456789ABCDEF0ULL);
 }
 
 TEST_CASE("AllFavorites CBOR serialization with lots only", "[cbor][favorites]") {
     AllFavorites original{
-        .version = 1,
-        .lots = {.items = {rfl::Hex<uint32_t>(0xAABBCCDD), rfl::Hex<uint32_t>(0x12345678)}},
+        .version = 2,
+        .lots = {.items = {rfl::Hex<uint64_t>(0xAABBCCDDULL), rfl::Hex<uint64_t>(0x123456789ABCDEF0ULL)}},
         .props = std::nullopt,
         .flora = std::nullopt,
-        .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">::from_string("2026-01-20T10:30:00")
+        .families = std::nullopt,
+        .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">("2026-01-20T10:30:00")
     };
 
     auto cbor_bytes = rfl::cbor::write(original);
@@ -268,22 +294,33 @@ TEST_CASE("AllFavorites CBOR serialization with lots only", "[cbor][favorites]")
 
     auto deserialized = rfl::cbor::read<AllFavorites>(cbor_bytes);
     REQUIRE(deserialized);
-    REQUIRE(deserialized->version == 1);
+    REQUIRE(deserialized->version == 2);
     REQUIRE(deserialized->lots.items.size() == 2);
-    REQUIRE(deserialized->lots.items[0].value() == 0xAABBCCDD);
-    REQUIRE(deserialized->lots.items[1].value() == 0x12345678);
+    REQUIRE(deserialized->lots.items[0].value() == 0xAABBCCDDULL);
+    REQUIRE(deserialized->lots.items[1].value() == 0x123456789ABCDEF0ULL);
     REQUIRE(!deserialized->props.has_value());
     REQUIRE(!deserialized->flora.has_value());
+    REQUIRE(!deserialized->families.has_value());
     REQUIRE(deserialized->lastModified.str() == "2026-01-20T10:30:00");
 }
 
 TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites]") {
     AllFavorites original{
-        .version = 1,
-        .lots = {.items = {rfl::Hex<uint32_t>(0x11111111)}},
-        .props = TabFavorites{.items = {rfl::Hex<uint32_t>(0x22222222)}},
-        .flora = TabFavorites{.items = {rfl::Hex<uint32_t>(0x33333333)}},
-        .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">::from_string("2026-01-20T15:45:30")
+        .version = 2,
+        .lots = {.items = {rfl::Hex<uint64_t>(0x11111111ULL)}},
+        .props = TabFavorites{.items = {rfl::Hex<uint64_t>(0x22222222ULL)}},
+        .flora = TabFavorites{.items = {rfl::Hex<uint64_t>(0x33333333ULL)}},
+        .families = std::vector<PropFamily>{
+            PropFamily{
+                .name = "Street Furniture",
+                .entries = {
+                    FamilyEntry{.propID = rfl::Hex<uint32_t>(0x01020304), .weight = 1.0f},
+                    FamilyEntry{.propID = rfl::Hex<uint32_t>(0x05060708), .weight = 2.5f}
+                },
+                .densityVariation = 0.35f
+            }
+        },
+        .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">("2026-01-20T15:45:30")
     };
 
     auto cbor_bytes = rfl::cbor::write(original);
@@ -291,23 +328,28 @@ TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites
 
     auto deserialized = rfl::cbor::read<AllFavorites>(cbor_bytes);
     REQUIRE(deserialized);
-    REQUIRE(deserialized->version == 1);
+    REQUIRE(deserialized->version == 2);
     REQUIRE(deserialized->lots.items.size() == 1);
     REQUIRE(deserialized->props.has_value());
     REQUIRE(deserialized->props->items.size() == 1);
-    REQUIRE(deserialized->props->items[0].value() == 0x22222222);
+    REQUIRE(deserialized->props->items[0].value() == 0x22222222ULL);
     REQUIRE(deserialized->flora.has_value());
     REQUIRE(deserialized->flora->items.size() == 1);
-    REQUIRE(deserialized->flora->items[0].value() == 0x33333333);
+    REQUIRE(deserialized->flora->items[0].value() == 0x33333333ULL);
+    REQUIRE(deserialized->families.has_value());
+    REQUIRE(deserialized->families->size() == 1);
+    REQUIRE((*deserialized->families)[0].name == "Street Furniture");
+    REQUIRE((*deserialized->families)[0].entries.size() == 2);
 }
 
 TEST_CASE("AllFavorites CBOR empty favorites", "[cbor][favorites][edge-case]") {
     AllFavorites original{
-        .version = 1,
+        .version = 2,
         .lots = {.items = {}},
         .props = std::nullopt,
         .flora = std::nullopt,
-        .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">::from_string("2026-01-20T00:00:00")
+        .families = std::nullopt,
+        .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">("2026-01-20T00:00:00")
     };
 
     auto cbor_bytes = rfl::cbor::write(original);
@@ -318,4 +360,5 @@ TEST_CASE("AllFavorites CBOR empty favorites", "[cbor][favorites][edge-case]") {
     REQUIRE(deserialized->lots.items.empty());
     REQUIRE(!deserialized->props.has_value());
     REQUIRE(!deserialized->flora.has_value());
+    REQUIRE(!deserialized->families.has_value());
 }
