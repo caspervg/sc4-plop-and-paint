@@ -42,7 +42,7 @@ public:
     SC4PlopAndPaintDirector();
     ~SC4PlopAndPaintDirector() override;
 
-    uint32_t GetDirectorID() const override;
+    [[nodiscard]] uint32_t GetDirectorID() const override;
     bool OnStart(cIGZCOM* pCOM) override;
 
     bool PreFrameWorkInit() override;

@@ -150,6 +150,18 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
 bool SC4PlopAndPaintDirector::PreAppShutdown() { return true; }
 
 bool SC4PlopAndPaintDirector::PostAppShutdown() {
+    UnregisterLotPlopShortcut_();
+
+    if (pMS2_) {
+        pMS2_->RemoveNotification(this, kSC4MessagePostCityInit);
+        pMS2_->RemoveNotification(this, kSC4MessagePreCityShutdown);
+        pMS2_.Reset();
+    }
+
+    if (auto* framework = RZGetFrameWork()) {
+        framework->RemoveHook(this);
+    }
+
     // Destroy objects that may call ImGuiService first.
     if (propPainterControl_) {
         StopPropPainting();
