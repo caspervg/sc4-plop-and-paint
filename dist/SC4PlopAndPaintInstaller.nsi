@@ -3,6 +3,7 @@
 !include "nsDialogs.nsh"
 !include "x64.nsh"
 !include "FileFunc.nsh"
+!cd "${__FILEDIR__}"
 
 !define APP_NAME "SC4 Plop and Paint"
 !ifndef APP_VERSION
@@ -42,7 +43,7 @@ Var HSummaryText
 !define MUI_FINISHPAGE_RUN_CHECKED
 
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "ThirdPartyNotices.txt"
+!insertmacro MUI_PAGE_LICENSE "THIRD_PARTY_NOTICES.txt"
 Page Custom ConfigurePathsPage ConfigurePathsPageLeave
 Page Custom ConfigureCachePage ConfigureCachePageLeave
 Page Custom ConfigureSummaryPage
@@ -274,7 +275,8 @@ Section "Install"
   SetOutPath "$SC4ToolsDir"
   File "PropertyMapper.xml"
   File "_SC4PlopAndPaintCacheBuilder.exe"
-  File "ThirdPartyNotices.txt"
+  File "..\LICENSE.txt"
+  File "THIRD_PARTY_NOTICES.txt"
 
   WriteUninstaller "$SC4ToolsDir\Uninstall-SC4PlopAndPaint.exe"
 
@@ -378,7 +380,8 @@ Section "Uninstall"
 
   Delete "$SC4ToolsDir\PropertyMapper.xml"
   Delete "$SC4ToolsDir\_SC4PlopAndPaintCacheBuilder.exe"
-  Delete "$SC4ToolsDir\ThirdPartyNotices.txt"
+  Delete "$SC4ToolsDir\LICENSE.txt"
+  Delete "$SC4ToolsDir\THIRD_PARTY_NOTICES.txt"
   Delete "$SC4ToolsDir\Rebuild-Cache.ps1"
   Delete "$SC4ToolsDir\cache_build.log"
   Delete "$SC4ToolsDir\Uninstall-SC4PlopAndPaint.exe"
