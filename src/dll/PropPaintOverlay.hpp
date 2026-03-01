@@ -90,7 +90,7 @@ private:
     void EmitQuad_(const cS3DVector3& a, const cS3DVector3& b, const cS3DVector3& c, const cS3DVector3& d,
                    DWORD color, uint32_t layer);
     void EmitMarker_(const cS3DVector3& center, float size, DWORD color, uint32_t layer);
-    void EmitPreviewPlacement_(const PreviewPlacement& placement, uint32_t layer);
+    void EmitPreviewPlacement_(const PreviewPlacement& placement, cISTETerrain* terrain, uint32_t layer);
     void EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices, DWORD color, uint32_t layer);
     void EmitGrid_(const cS3DVector3& center, cISTETerrain* terrain, const PropPaintSettings& settings);
 
@@ -103,11 +103,13 @@ private:
     static constexpr DWORD kPlannedMarkerColor = 0xF0FF8C00;
     static constexpr DWORD kPlannedBoxTopColor = 0x70FFB347;
     static constexpr DWORD kPlannedBoxSideColor = 0x50FF8C00;
+    static constexpr DWORD kPlannedStiltColor = 0xA0FF9A33;
     static constexpr DWORD kCursorColor = 0xE0FF4444;
     static constexpr float kLineThickness = 0.6f;
     static constexpr float kMarkerSize = 1.0f;
     static constexpr float kGridHeightExtraOffset = 0.05f;
     static constexpr float kHeightOffset = 0.15f;
+    static constexpr float kStiltGapThreshold = 0.35f;
 
     std::array<Layer, 3> layers_{};
     SavedRenderState savedState_{};

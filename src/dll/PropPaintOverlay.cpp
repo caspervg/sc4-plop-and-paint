@@ -104,7 +104,7 @@ void PropPaintOverlay::BuildDirectPreview(const bool cursorValid,
         return;
     }
     EmitGrid_(cursorPos, terrain, settings);
-    EmitPreviewPlacement_(plannedPlacement, kLayerMarkers);
+    EmitPreviewPlacement_(plannedPlacement, terrain, kLayerMarkers);
 }
 
 void PropPaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
@@ -132,7 +132,7 @@ void PropPaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
     }
 
     for (const auto& placement : plannedPlacements) {
-        EmitPreviewPlacement_(placement, kLayerMarkers);
+        EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
     }
 }
 
@@ -170,7 +170,7 @@ void PropPaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& verti
     }
 
     for (const auto& placement : plannedPlacements) {
-        EmitPreviewPlacement_(placement, kLayerMarkers);
+        EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
     }
 }
 
@@ -393,7 +393,7 @@ void PropPaintOverlay::EmitMarker_(const cS3DVector3& center, const float size, 
     EmitQuad_(a, b, c, d, color, layer);
 }
 
-void PropPaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, const uint32_t layer) {
+void PropPaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, cISTETerrain* terrain, const uint32_t layer) {
     const bool hasBounds = preview.maxX > preview.minX && preview.maxZ > preview.minZ;
     if (!hasBounds && (preview.width <= 0.0f || preview.depth <= 0.0f)) {
         EmitMarker_(preview.placement.position, kMarkerSize * 0.9f, kPlannedMarkerColor, layer);
@@ -427,6 +427,25 @@ void PropPaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, co
     const cS3DVector3 topB = makeWorldPoint(maxX, maxY, minZ);
     const cS3DVector3 topC = makeWorldPoint(maxX, maxY, maxZ);
     const cS3DVector3 topD = makeWorldPoint(minX, maxY, maxZ);
+
+    if (terrain) {
+        const auto emitStilt = [&](const cS3DVector3& baseCorner) {
+            const float groundY = SampleStableTerrainHeight(terrain, baseCorner.fX, baseCorner.fZ) + kHeightOffset;
+            if (baseCorner.fY - groundY > kStiltGapThreshold) {
+                EmitLine_(
+                    cS3DVector3(baseCorner.fX, groundY, baseCorner.fZ),
+                    baseCorner,
+                    kLineThickness * 0.4f,
+                    kPlannedStiltColor,
+                    layer);
+            }
+        };
+
+        emitStilt(baseA);
+        emitStilt(baseB);
+        emitStilt(baseC);
+        emitStilt(baseD);
+    }
 
     EmitQuad_(topA, topB, topC, topD, kPlannedBoxTopColor, layer);
     EmitQuad_(baseA, baseB, topB, topA, kPlannedBoxSideColor, layer);
