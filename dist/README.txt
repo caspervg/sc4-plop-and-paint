@@ -1,11 +1,20 @@
 # SC4 Plop and Paint
 
+This release zip includes:
+- the Windows installer
+- LICENSE.txt
+- THIRD_PARTY_NOTICES.txt
+
 Installation instructions:
-- Move the files in PLACE_IN_YOUR_PLUGINS_FOLDER to your <My Documents>/SimCity 4/Plugins directory
-- Generate the cache files by right clicking on RUN_CACHE_BUILDER.ps1 and selecting "Run with PowerShell". This index your SC4 files and plugins and generate the thumbnail icons for lots/buildings and props.
-- The cache building script will guide you where necessary. It may take a while for large Plugins folders
-- At the end, two new files will appear in your Plugins directory, "lot_configs.cbor" and "props.cbor". These are the serialized caches that the plop and paint DLL will use to quickly load the list of lots/buildings and props.
+- Install SC4 Render Services first so SC4RenderServices.dll is already present in your Plugins folder.
+- Install the Microsoft Visual C++ 2015-2022 Redistributables:
+- x86 (required for SimCity 4 / 32-bit): https://aka.ms/vs/17/release/vc_redist.x86.exe
+- x64 (also installed): https://aka.ms/vs/17/release/vc_redist.x64.exe
+- Run the included SC4 Plop and Paint installer.
+- The installer will ask for your SimCity 4 game root and Plugins folder, verify the SC4 Render Services dependency, and install the plugin files.
+- The installer can also run the cache builder for you. If you skip that step, run Rebuild-Cache.ps1 later from Documents\SimCity 4\SC4PlopAndPaint\.
+- The cache builder scans your game and Plugins folders and writes lot_configs.cbor and props.cbor into your Plugins folder.
 
 Usage instructions:
-- After the installation, press O in game to open the lot plop and prop paint dialog.
-- If something looks off, check <My Documents>/SimCity 4/ for the separate services plugin log output
+- After installation, press O in game to open the lot plop and prop paint dialog.
+- If something looks off, check <My Documents>/SimCity 4/ for the separate services plugin log output.

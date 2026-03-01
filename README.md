@@ -13,12 +13,18 @@ A SimCity 4 plugin that adds an advanced lot and prop placement panel to the gam
 
 ## Installation
 
-Download `SC4PlopAndPaint-{version}-Setup.exe` from the releases page and run it. The installer will:
+Install SC4 Render Services first, then download `SC4PlopAndPaint-{version}-Setup.exe` from the releases page and run it. The installer will:
 
 1. Ask for your game root and Plugins directory
-2. Place `SC4PlopAndPaint.dll` and `SC4PlopAndPaint.dat` in your Plugins folder
-3. Place `_SC4PlopAndPaintCacheBuilder.exe` and a generated `Rebuild-Cache.ps1` in `Documents\SimCity 4\SC4PlopAndPaint\`
-4. Optionally run the cache builder immediately
+2. Verify that `SC4RenderServices.dll` is already present in your Plugins folder
+3. Place `SC4PlopAndPaint.dll` and `SC4PlopAndPaint.dat` in your Plugins folder
+4. Place `_SC4PlopAndPaintCacheBuilder.exe` and a generated `Rebuild-Cache.ps1` in `Documents\SimCity 4\SC4PlopAndPaint\`
+5. Optionally run the cache builder immediately
+
+Required runtimes:
+
+- Visual C++ 2015-2022 Redistributable (x86, required for SimCity 4 / 32-bit): `https://aka.ms/vs/17/release/vc_redist.x86.exe`
+- Visual C++ 2015-2022 Redistributable (x64): `https://aka.ms/vs/17/release/vc_redist.x64.exe`
 
 To rebuild the cache later (e.g. after adding new plugins), run `Rebuild-Cache.ps1`.
 

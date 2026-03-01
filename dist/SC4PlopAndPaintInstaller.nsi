@@ -10,6 +10,16 @@
   !define APP_VERSION "dev"
 !endif
 !define APP_TOOLS_SUBDIR "SC4PlopAndPaint"
+!define RENDER_SERVICES_DLL_NAME "SC4RenderServices.dll"
+!ifndef MIN_RENDER_SERVICES_VERSION_MAJOR
+  !define MIN_RENDER_SERVICES_VERSION_MAJOR 0
+!endif
+!ifndef MIN_RENDER_SERVICES_VERSION_MINOR
+  !define MIN_RENDER_SERVICES_VERSION_MINOR 0
+!endif
+!ifndef MIN_RENDER_SERVICES_VERSION_BUILD
+  !define MIN_RENDER_SERVICES_VERSION_BUILD 1
+!endif
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SC4PlopAndPaint"
 !define APP_REG_KEY "Software\SC4PlopAndPaint"
 
@@ -36,6 +46,7 @@ Var HCacheRenderThumbs
 Var HCacheBuildNow
 Var HSummaryText
 Var GameExePath
+Var RenderServicesDllPath
 
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN
@@ -151,6 +162,47 @@ Function WarnIfNo4GBPatch
   ${EndIf}
 FunctionEnd
 
+Function ValidateRenderServicesDependency
+  StrCpy $RenderServicesDllPath "$SC4PluginsDir\${RENDER_SERVICES_DLL_NAME}"
+
+  ${IfNot} ${FileExists} "$RenderServicesDllPath"
+    MessageBox MB_OK|MB_ICONSTOP "${APP_NAME} requires SC4 Render Services to be installed first.$\r$\n$\r$\nCould not find '$RenderServicesDllPath'.$\r$\n$\r$\nPlease run the SC4 Render Services installer before continuing."
+    Abort
+  ${EndIf}
+
+  ClearErrors
+  GetDLLVersion "$RenderServicesDllPath" $0 $1
+  ${If} ${Errors}
+    MessageBox MB_OK|MB_ICONSTOP "Could not read the version information from '$RenderServicesDllPath'.$\r$\n$\r$\nPlease reinstall SC4 Render Services before continuing."
+    Abort
+  ${EndIf}
+
+  IntOp $2 $0 >> 16
+  IntOp $2 $2 & 0xFFFF
+  IntOp $3 $0 & 0xFFFF
+  IntOp $4 $1 >> 16
+  IntOp $4 $4 & 0xFFFF
+  IntOp $5 $1 & 0xFFFF
+
+  StrCpy $6 "0"
+  ${If} $2 > ${MIN_RENDER_SERVICES_VERSION_MAJOR}
+    StrCpy $6 "1"
+  ${ElseIf} $2 == ${MIN_RENDER_SERVICES_VERSION_MAJOR}
+    ${If} $3 > ${MIN_RENDER_SERVICES_VERSION_MINOR}
+      StrCpy $6 "1"
+    ${ElseIf} $3 == ${MIN_RENDER_SERVICES_VERSION_MINOR}
+      ${If} $4 >= ${MIN_RENDER_SERVICES_VERSION_BUILD}
+        StrCpy $6 "1"
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+
+  ${If} $6 != "1"
+    MessageBox MB_OK|MB_ICONSTOP "Unsupported SC4 Render Services version detected in '$RenderServicesDllPath'.$\r$\n$\r$\nFound: $2.$3.$4.$5$\r$\nRequired: ${MIN_RENDER_SERVICES_VERSION_MAJOR}.${MIN_RENDER_SERVICES_VERSION_MINOR}.${MIN_RENDER_SERVICES_VERSION_BUILD}.x or newer$\r$\n$\r$\nPlease update SC4 Render Services before continuing."
+    Abort
+  ${EndIf}
+FunctionEnd
+
 Function ConfigurePathsPage
   nsDialogs::Create 1018
   Pop $Dialog
@@ -224,6 +276,7 @@ Function ConfigurePathsPageLeave
 
   Call ValidateGameExecutable
   Call WarnIfNo4GBPatch
+  Call ValidateRenderServicesDependency
 FunctionEnd
 
 Function ConfigureCachePage

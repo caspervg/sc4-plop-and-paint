@@ -78,11 +78,26 @@ jobs:
       - name: Build installer
         shell: powershell
         run: |
+          $rootDir = "${{ github.workspace }}"
           $refName = "${{ github.ref_name }}"
           $version = if ($refName -match '^v(.+)') { $Matches[1] } else { "${{ github.sha }}".Substring(0, 7) }
+          $minRenderServicesVersionPath = Join-Path $rootDir "dist\MIN_SC4_RENDER_SERVICES.txt"
+          $minRenderServicesVersion = (Get-Content -Path $minRenderServicesVersionPath -Raw).Trim()
+          if ($minRenderServicesVersion -notmatch '^v?(\d+)\.(\d+)\.(\d+)$') {
+            throw "Invalid SC4 Render Services minimum version in $minRenderServicesVersionPath: '$minRenderServicesVersion'"
+          }
+          $minRenderServicesMajor = $Matches[1]
+          $minRenderServicesMinor = $Matches[2]
+          $minRenderServicesBuild = $Matches[3]
           Write-Host "Building installer for version: $version"
+          Write-Host "Minimum SC4 Render Services version: $minRenderServicesMajor.$minRenderServicesMinor.$minRenderServicesBuild"
           Set-Location dist-package
-          & "C:\Program Files (x86)\NSIS\makensis.exe" /DAPP_VERSION=$version SC4PlopAndPaintInstaller.nsi
+          & "C:\Program Files (x86)\NSIS\makensis.exe" `
+            /DAPP_VERSION=$version `
+            /DMIN_RENDER_SERVICES_VERSION_MAJOR=$minRenderServicesMajor `
+            /DMIN_RENDER_SERVICES_VERSION_MINOR=$minRenderServicesMinor `
+            /DMIN_RENDER_SERVICES_VERSION_BUILD=$minRenderServicesBuild `
+            SC4PlopAndPaintInstaller.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE" }
           Write-Host "Installer contents:"
           Get-ChildItem -Filter "*.exe" | Select-Object Name, Length
