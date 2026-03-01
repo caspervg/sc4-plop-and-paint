@@ -396,10 +396,10 @@ Section "Install"
 
   CreateDirectory "$SC4PluginsDir"
   SetOutPath "$SC4PluginsDir"
-  File "PLACE_IN_YOUR_PLUGINS_FOLDER\SC4PlopAndPaint.dll"
-  File "PLACE_IN_YOUR_PLUGINS_FOLDER\SC4PlopAndPaint.dat"
+  File "SC4PlopAndPaint.dll"
+  File "SC4PlopAndPaint.dat"
   SetOverwrite off
-  File "PLACE_IN_YOUR_PLUGINS_FOLDER\SC4PlopAndPaint.ini"
+  File "SC4PlopAndPaint.ini"
   SetOverwrite on
 
   CreateDirectory "$SC4ToolsDir"
