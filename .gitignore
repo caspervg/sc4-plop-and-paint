@@ -373,3 +373,4 @@ plans/
 *.zip
 cmake-build-*/
 .ai-extra-info/
+imgui.lib
