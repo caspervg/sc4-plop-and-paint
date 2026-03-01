@@ -266,6 +266,7 @@ bool SC4AdvancedLotPlopDirector::StartPropPainting(uint32_t propId, const PropPa
     propPainterControl_->SetCity(pCity_);
     propPainterControl_->SetWindow(pView3D_->AsIGZWin());
     propPainterControl_->SetCameraService(cameraService_);
+    propPainterControl_->SetPropRepository(propRepository_.get());
     propPainterControl_->SetOnCancel([this]() {
         if (pView3D_ && propPainterControl_ &&
             pView3D_->GetCurrentViewInputControl() == propPainterControl_) {

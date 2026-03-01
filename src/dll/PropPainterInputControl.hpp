@@ -41,6 +41,8 @@ struct PropPaintSettings {
     float densityVariation = 0.0f;
 };
 
+class PropRepository;
+
 class PropPainterInputControl : public cSC4BaseViewInputControl {
 public:
     PropPainterInputControl();
@@ -59,6 +61,7 @@ public:
     void SetPropToPaint(uint32_t propID, const PropPaintSettings& settings, const std::string& name);
     void SetCity(cISC4City* pCity);
     void SetCameraService(cIGZS3DCameraService* cameraService);
+    void SetPropRepository(const PropRepository* propRepository);
     void SetOnCancel(std::function<void()> onCancel);
 
     [[nodiscard]] const PropPaintSettings& GetSettings() const { return settings_; }
@@ -99,10 +102,6 @@ private:
     bool PlacePropAt_(int32_t screenX, int32_t screenZ);
     bool PlacePropAtWorld_(const cS3DVector3& position, int32_t rotation, uint32_t propID);
     [[nodiscard]] cISTETerrain* GetTerrain_() const;
-    void CreatePreviewProp_();
-    void DestroyPreviewProp_();
-    void UpdatePreviewPropRotation_();
-    void UpdatePreviewProp_(int32_t screenX, int32_t screenZ);
 
     cRZAutoRefCount<cISC4City> city_;
     cRZAutoRefCount<cISC4PropManager> propManager_;
@@ -111,15 +110,10 @@ private:
     uint32_t propIDToPaint_;
     PropPaintSettings settings_{};
     cIGZS3DCameraService* cameraService_ = nullptr;
+    const PropRepository* propRepository_ = nullptr;
     std::function<void()> onCancel_{};
 
     std::vector<cRZAutoRefCount<cISC4Occupant>> placedProps_;
-
-    cRZAutoRefCount<cISC4PropOccupant> previewProp_;
-    cRZAutoRefCount<cISC4Occupant> previewOccupant_;
-    bool previewActive_ = false;
-    cS3DVector3 lastPreviewPosition_;
-    int32_t lastPreviewRotation_{0};
     struct CollectedPoint {
         cS3DVector3 worldPos;
     };
@@ -127,8 +121,11 @@ private:
     cS3DVector3 currentCursorWorld_{};
     bool cursorValid_ = false;
     PropPaintOverlay overlay_{};
+    std::vector<PropPaintOverlay::PreviewPlacement> cachedPolygonPlacements_{};
+    bool polygonPreviewDirty_ = true;
 
     struct PreviewSettings {
         bool showPreview = true;
     } previewSettings_;
+    bool cancelPending_ = false;
 };

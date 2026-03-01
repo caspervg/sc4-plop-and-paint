@@ -54,10 +54,18 @@ bool PropPaintOverlay::Empty() const {
     return true;
 }
 
+void PropPaintOverlay::BuildDirectPreview(const bool cursorValid, const PreviewPlacement& plannedPlacement) {
+    Clear();
+    if (!cursorValid) {
+        return;
+    }
+    EmitPreviewPlacement_(plannedPlacement, kLayerMarkers);
+}
+
 void PropPaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
                                         const cS3DVector3& cursorPos,
                                         const bool cursorValid,
-                                        const std::vector<cS3DVector3>& plannedPositions) {
+                                        const std::vector<PreviewPlacement>& plannedPlacements) {
     Clear();
 
     for (size_t i = 1; i < points.size(); ++i) {
@@ -72,23 +80,26 @@ void PropPaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
         EmitMarker_(pt, kMarkerSize, kMarkerColor, kLayerShape);
     }
 
-    for (const auto& pos : plannedPositions) {
-        EmitMarker_(pos, kMarkerSize * 0.9f, kPlannedMarkerColor, kLayerMarkers);
+    for (const auto& placement : plannedPlacements) {
+        EmitPreviewPlacement_(placement, kLayerMarkers);
     }
 }
 
 void PropPaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
                                            const cS3DVector3& cursorPos,
                                            const bool cursorValid,
-                                           const std::vector<cS3DVector3>& plannedPositions) {
+                                           const std::vector<PreviewPlacement>& plannedPlacements) {
     Clear();
 
     for (size_t i = 1; i < vertices.size(); ++i) {
         EmitLine_(vertices[i - 1], vertices[i], kLineThickness, kLineColor, kLayerShape);
     }
 
-    if (vertices.size() >= 2 && cursorValid) {
+    if (!vertices.empty() && cursorValid) {
         EmitLine_(vertices.back(), cursorPos, kLineThickness, kCursorColor, kLayerShape);
+    }
+
+    if (vertices.size() >= 2 && cursorValid) {
         EmitLine_(cursorPos, vertices.front(), kLineThickness * 0.5f, kCursorColor, kLayerShape);
     }
 
@@ -101,8 +112,8 @@ void PropPaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& verti
         EmitMarker_(vertex, kMarkerSize, kMarkerColor, kLayerShape);
     }
 
-    for (const auto& pos : plannedPositions) {
-        EmitMarker_(pos, kMarkerSize * 0.9f, kPlannedMarkerColor, kLayerMarkers);
+    for (const auto& placement : plannedPlacements) {
+        EmitPreviewPlacement_(placement, kLayerMarkers);
     }
 }
 
@@ -193,9 +204,34 @@ void PropPaintOverlay::EmitLine_(const cS3DVector3& a, const cS3DVector3& b,
     }
 
     const float dx = b.fX - a.fX;
+    const float dy = b.fY - a.fY;
     const float dz = b.fZ - a.fZ;
     const float len = std::sqrt(dx * dx + dz * dz);
     if (len <= kEpsilon) {
+        if (std::abs(dy) <= kEpsilon) {
+            return;
+        }
+
+        const float half = thickness * 0.5f;
+        const float ax = a.fX;
+        const float az = a.fZ;
+        const float bx = b.fX;
+        const float bz = b.fZ;
+        const float ay = a.fY + kHeightOffset;
+        const float by = b.fY + kHeightOffset;
+
+        // Crossed quads keep pure vertical edges visible from more than one angle.
+        const cS3DVector3 x0(ax - half, ay, az);
+        const cS3DVector3 x1(ax + half, ay, az);
+        const cS3DVector3 x2(bx + half, by, bz);
+        const cS3DVector3 x3(bx - half, by, bz);
+        EmitQuad_(x0, x1, x2, x3, color, layer);
+
+        const cS3DVector3 z0(ax, ay, az - half);
+        const cS3DVector3 z1(ax, ay, az + half);
+        const cS3DVector3 z2(bx, by, bz + half);
+        const cS3DVector3 z3(bx, by, bz - half);
+        EmitQuad_(z0, z1, z2, z3, color, layer);
         return;
     }
 
@@ -240,6 +276,50 @@ void PropPaintOverlay::EmitMarker_(const cS3DVector3& center, const float size, 
     const cS3DVector3 c(center.fX + half, y, center.fZ + half);
     const cS3DVector3 d(center.fX - half, y, center.fZ + half);
     EmitQuad_(a, b, c, d, color, layer);
+}
+
+void PropPaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, const uint32_t layer) {
+    if (preview.width <= 0.0f || preview.depth <= 0.0f) {
+        EmitMarker_(preview.placement.position, kMarkerSize * 0.9f, kPlannedMarkerColor, layer);
+        return;
+    }
+
+    const bool swapAxes = (preview.placement.rotation & 1) != 0;
+    const float halfX = (swapAxes ? preview.depth : preview.width) * 0.5f;
+    const float halfZ = (swapAxes ? preview.width : preview.depth) * 0.5f;
+    const float baseY = preview.placement.position.fY + kHeightOffset;
+    const float topY = baseY + std::max(preview.height, 0.2f);
+
+    const cS3DVector3 baseA(preview.placement.position.fX - halfX, baseY, preview.placement.position.fZ - halfZ);
+    const cS3DVector3 baseB(preview.placement.position.fX + halfX, baseY, preview.placement.position.fZ - halfZ);
+    const cS3DVector3 baseC(preview.placement.position.fX + halfX, baseY, preview.placement.position.fZ + halfZ);
+    const cS3DVector3 baseD(preview.placement.position.fX - halfX, baseY, preview.placement.position.fZ + halfZ);
+
+    const cS3DVector3 topA(baseA.fX, topY, baseA.fZ);
+    const cS3DVector3 topB(baseB.fX, topY, baseB.fZ);
+    const cS3DVector3 topC(baseC.fX, topY, baseC.fZ);
+    const cS3DVector3 topD(baseD.fX, topY, baseD.fZ);
+
+    EmitQuad_(topA, topB, topC, topD, kPlannedBoxTopColor, layer);
+    EmitQuad_(baseA, baseB, topB, topA, kPlannedBoxSideColor, layer);
+    EmitQuad_(baseB, baseC, topC, topB, kPlannedBoxSideColor, layer);
+    EmitQuad_(baseC, baseD, topD, topC, kPlannedBoxSideColor, layer);
+    EmitQuad_(baseD, baseA, topA, topD, kPlannedBoxSideColor, layer);
+
+    EmitLine_(baseA, baseB, kLineThickness * 0.7f, kPlannedMarkerColor, layer);
+    EmitLine_(baseB, baseC, kLineThickness * 0.7f, kPlannedMarkerColor, layer);
+    EmitLine_(baseC, baseD, kLineThickness * 0.7f, kPlannedMarkerColor, layer);
+    EmitLine_(baseD, baseA, kLineThickness * 0.7f, kPlannedMarkerColor, layer);
+
+    EmitLine_(topA, topB, kLineThickness * 0.55f, kPlannedMarkerColor, layer);
+    EmitLine_(topB, topC, kLineThickness * 0.55f, kPlannedMarkerColor, layer);
+    EmitLine_(topC, topD, kLineThickness * 0.55f, kPlannedMarkerColor, layer);
+    EmitLine_(topD, topA, kLineThickness * 0.55f, kPlannedMarkerColor, layer);
+
+    EmitLine_(baseA, topA, kLineThickness * 0.45f, kPlannedMarkerColor, layer);
+    EmitLine_(baseB, topB, kLineThickness * 0.45f, kPlannedMarkerColor, layer);
+    EmitLine_(baseC, topC, kLineThickness * 0.45f, kPlannedMarkerColor, layer);
+    EmitLine_(baseD, topD, kLineThickness * 0.45f, kPlannedMarkerColor, layer);
 }
 
 void PropPaintOverlay::EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices,

@@ -7,6 +7,7 @@
 
 #include <d3d.h>
 
+#include "PropPaintPlacement.hpp"
 #include "cS3DVector3.h"
 
 class PropPaintOverlay {
@@ -14,18 +15,27 @@ public:
     static constexpr uint32_t kLayerShape = 0;
     static constexpr uint32_t kLayerMarkers = 1;
 
+    struct PreviewPlacement {
+        PlannedProp placement{};
+        float width = 0.0f;
+        float height = 0.0f;
+        float depth = 0.0f;
+    };
+
     void Clear();
     [[nodiscard]] bool Empty() const;
+
+    void BuildDirectPreview(bool cursorValid, const PreviewPlacement& plannedPlacement);
 
     void BuildLinePreview(const std::vector<cS3DVector3>& points,
                           const cS3DVector3& cursorPos,
                           bool cursorValid,
-                          const std::vector<cS3DVector3>& plannedPositions);
+                          const std::vector<PreviewPlacement>& plannedPlacements);
 
     void BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
                              const cS3DVector3& cursorPos,
                              bool cursorValid,
-                             const std::vector<cS3DVector3>& plannedPositions);
+                             const std::vector<PreviewPlacement>& plannedPlacements);
 
     void Draw(IDirect3DDevice7* device);
 
@@ -62,6 +72,7 @@ private:
     void EmitQuad_(const cS3DVector3& a, const cS3DVector3& b, const cS3DVector3& c, const cS3DVector3& d,
                    DWORD color, uint32_t layer);
     void EmitMarker_(const cS3DVector3& center, float size, DWORD color, uint32_t layer);
+    void EmitPreviewPlacement_(const PreviewPlacement& placement, uint32_t layer);
     void EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices, DWORD color, uint32_t layer);
 
 private:
@@ -69,6 +80,8 @@ private:
     static constexpr DWORD kPolygonFillColor = 0x4000FF00;
     static constexpr DWORD kMarkerColor = 0xF0FFD700;
     static constexpr DWORD kPlannedMarkerColor = 0xF0FF8C00;
+    static constexpr DWORD kPlannedBoxTopColor = 0x70FFB347;
+    static constexpr DWORD kPlannedBoxSideColor = 0x50FF8C00;
     static constexpr DWORD kCursorColor = 0xE0FF4444;
     static constexpr float kLineThickness = 0.6f;
     static constexpr float kMarkerSize = 1.0f;
