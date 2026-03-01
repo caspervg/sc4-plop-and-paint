@@ -66,6 +66,12 @@ struct Prop {
     float width;
     float height;
     float depth;
+    float minX = 0.0f;
+    float maxX = 0.0f;
+    float minY = 0.0f;
+    float maxY = 0.0f;
+    float minZ = 0.0f;
+    float maxZ = 0.0f;
     std::vector<rfl::Hex<uint32_t>> familyIds;
 
     std::optional<Thumbnail> thumbnail;
@@ -77,7 +83,7 @@ struct PropFamilyInfo {
 };
 
 struct PropsCache {
-    uint32_t version = 1;
+    uint32_t version = 2;
     std::vector<Prop> props;
     std::vector<PropFamilyInfo> propFamilies;
 };

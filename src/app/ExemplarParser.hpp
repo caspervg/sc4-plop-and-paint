@@ -5,6 +5,7 @@
 #include "PropertyMapper.hpp"
 #include "DbpfIndexService.hpp"
 #include "../shared/entities.hpp"
+#include <array>
 #include <memory>
 #include <filesystem>
 #include <optional>
@@ -94,6 +95,13 @@ struct ParsedPropExemplar {
     float width{-1.0};
     float height{-1.0};
     float depth{-1.0};
+    float minX{0.0f};
+    float maxX{0.0f};
+    float minY{0.0f};
+    float maxY{0.0f};
+    float minZ{0.0f};
+    float maxZ{0.0f};
+    bool hasModelBounds{false};
     std::vector<uint32_t> familyIds;
     std::optional<DBPF::Tgi> modelTgi;
 };
@@ -139,6 +147,7 @@ private:
                                                 const Exemplar::Record& exemplar) const;
     [[nodiscard]] std::optional<DBPF::Tgi> resolveModelTgi_(const Exemplar::Record& exemplar,
                                                             const DBPF::Tgi& exemplarTgi) const;
+    [[nodiscard]] std::optional<std::array<float, 6>> loadModelBounds_(const DBPF::Tgi& modelTgi) const;
     static std::vector<std::byte> convertBgraToRgba_(const std::vector<std::byte>& pixels);
 
     const PropertyMapper& propertyMapper_;

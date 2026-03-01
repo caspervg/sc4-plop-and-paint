@@ -3,10 +3,12 @@
 #include "ThumbnailRenderer.hpp"
 
 #include <charconv>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <unordered_set>
 
@@ -15,6 +17,7 @@
 #include <stb_image.h>
 
 #include "BuiltinPropFamilyNames.hpp"
+#include "S3DStructures.h"
 #include "Utils.hpp"
 
 namespace {
@@ -458,6 +461,30 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
 
     parsedPropExemplar.modelTgi = resolveModelTgi_(exemplar, tgi);
 
+    if (parsedPropExemplar.modelTgi.has_value()) {
+        if (const auto bounds = loadModelBounds_(*parsedPropExemplar.modelTgi)) {
+            parsedPropExemplar.minX = (*bounds)[0];
+            parsedPropExemplar.maxX = (*bounds)[1];
+            parsedPropExemplar.minY = (*bounds)[2];
+            parsedPropExemplar.maxY = (*bounds)[3];
+            parsedPropExemplar.minZ = (*bounds)[4];
+            parsedPropExemplar.maxZ = (*bounds)[5];
+            parsedPropExemplar.hasModelBounds = true;
+        }
+    }
+
+    if (!parsedPropExemplar.hasModelBounds &&
+        parsedPropExemplar.width > 0.0f &&
+        parsedPropExemplar.height > 0.0f &&
+        parsedPropExemplar.depth > 0.0f) {
+        parsedPropExemplar.minX = -parsedPropExemplar.width * 0.5f;
+        parsedPropExemplar.maxX = parsedPropExemplar.width * 0.5f;
+        parsedPropExemplar.minY = 0.0f;
+        parsedPropExemplar.maxY = parsedPropExemplar.height;
+        parsedPropExemplar.minZ = -parsedPropExemplar.depth * 0.5f;
+        parsedPropExemplar.maxZ = parsedPropExemplar.depth * 0.5f;
+    }
+
     return parsedPropExemplar;
 }
 
@@ -592,6 +619,12 @@ Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
     prop.width = parsed.width;
     prop.height = parsed.height;
     prop.depth = parsed.depth;
+    prop.minX = parsed.minX;
+    prop.maxX = parsed.maxX;
+    prop.minY = parsed.minY;
+    prop.maxY = parsed.maxY;
+    prop.minZ = parsed.minZ;
+    prop.maxZ = parsed.maxZ;
     prop.familyIds.reserve(parsed.familyIds.size());
     for (const auto familyId : parsed.familyIds) {
         prop.familyIds.emplace_back(familyId);
@@ -874,6 +907,41 @@ std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record
                 return DBPF::Tgi{type, group, instance};
             }
         }
+    }
+
+    return std::nullopt;
+}
+
+std::optional<std::array<float, 6>> ExemplarParser::loadModelBounds_(const DBPF::Tgi& modelTgi) const {
+    if (!indexService_) {
+        return std::nullopt;
+    }
+
+    const auto& tgiIndex = indexService_->tgiIndex();
+    const auto tgiIt = tgiIndex.find(modelTgi);
+    if (tgiIt == tgiIndex.end() || tgiIt->second.empty()) {
+        return std::nullopt;
+    }
+
+    for (const auto& filePath : std::ranges::reverse_view(tgiIt->second)) {
+        auto* reader = indexService_->getReader(filePath);
+        if (!reader) {
+            continue;
+        }
+
+        auto record = reader->LoadS3D(modelTgi);
+        if (!record.has_value()) {
+            continue;
+        }
+
+        return std::array<float, 6>{
+            record->bbMin.x,
+            record->bbMax.x,
+            record->bbMin.y,
+            record->bbMax.y,
+            record->bbMin.z,
+            record->bbMax.z
+        };
     }
 
     return std::nullopt;

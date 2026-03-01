@@ -20,6 +20,12 @@ public:
         float width = 0.0f;
         float height = 0.0f;
         float depth = 0.0f;
+        float minX = 0.0f;
+        float maxX = 0.0f;
+        float minY = 0.0f;
+        float maxY = 0.0f;
+        float minZ = 0.0f;
+        float maxZ = 0.0f;
     };
 
     void Clear();

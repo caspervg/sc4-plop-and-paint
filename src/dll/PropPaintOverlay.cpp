@@ -37,6 +37,19 @@ namespace {
         const bool hasPos = (c1 > kEpsilon) || (c2 > kEpsilon) || (c3 > kEpsilon);
         return !(hasNeg && hasPos);
     }
+
+    cS3DVector3 RotateLocalPoint(const cS3DVector3& local, const int32_t rotation) {
+        switch (rotation & 3) {
+        case 1:
+            return cS3DVector3(-local.fZ, local.fY, local.fX);
+        case 2:
+            return cS3DVector3(-local.fX, local.fY, -local.fZ);
+        case 3:
+            return cS3DVector3(local.fZ, local.fY, -local.fX);
+        default:
+            return local;
+        }
+    }
 }
 
 void PropPaintOverlay::Clear() {
@@ -279,26 +292,39 @@ void PropPaintOverlay::EmitMarker_(const cS3DVector3& center, const float size, 
 }
 
 void PropPaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, const uint32_t layer) {
-    if (preview.width <= 0.0f || preview.depth <= 0.0f) {
+    const bool hasBounds = preview.maxX > preview.minX && preview.maxZ > preview.minZ;
+    if (!hasBounds && (preview.width <= 0.0f || preview.depth <= 0.0f)) {
         EmitMarker_(preview.placement.position, kMarkerSize * 0.9f, kPlannedMarkerColor, layer);
         return;
     }
 
-    const bool swapAxes = (preview.placement.rotation & 1) != 0;
-    const float halfX = (swapAxes ? preview.depth : preview.width) * 0.5f;
-    const float halfZ = (swapAxes ? preview.width : preview.depth) * 0.5f;
-    const float baseY = preview.placement.position.fY + kHeightOffset;
-    const float topY = baseY + std::max(preview.height, 0.2f);
+    const float minX = hasBounds ? preview.minX : -preview.width * 0.5f;
+    const float maxX = hasBounds ? preview.maxX : preview.width * 0.5f;
+    const float minY = hasBounds ? preview.minY : 0.0f;
+    const float maxY = hasBounds
+        ? std::max(preview.maxY, preview.minY + 0.2f)
+        : std::max(preview.height, 0.2f);
+    const float minZ = hasBounds ? preview.minZ : -preview.depth * 0.5f;
+    const float maxZ = hasBounds ? preview.maxZ : preview.depth * 0.5f;
 
-    const cS3DVector3 baseA(preview.placement.position.fX - halfX, baseY, preview.placement.position.fZ - halfZ);
-    const cS3DVector3 baseB(preview.placement.position.fX + halfX, baseY, preview.placement.position.fZ - halfZ);
-    const cS3DVector3 baseC(preview.placement.position.fX + halfX, baseY, preview.placement.position.fZ + halfZ);
-    const cS3DVector3 baseD(preview.placement.position.fX - halfX, baseY, preview.placement.position.fZ + halfZ);
+    const auto makeWorldPoint = [&](const float localX, const float localY, const float localZ) {
+        cS3DVector3 rotated = RotateLocalPoint(cS3DVector3(localX, localY, localZ), preview.placement.rotation);
+        return cS3DVector3(
+            preview.placement.position.fX + rotated.fX,
+            preview.placement.position.fY + rotated.fY + kHeightOffset,
+            preview.placement.position.fZ + rotated.fZ
+        );
+    };
 
-    const cS3DVector3 topA(baseA.fX, topY, baseA.fZ);
-    const cS3DVector3 topB(baseB.fX, topY, baseB.fZ);
-    const cS3DVector3 topC(baseC.fX, topY, baseC.fZ);
-    const cS3DVector3 topD(baseD.fX, topY, baseD.fZ);
+    const cS3DVector3 baseA = makeWorldPoint(minX, minY, minZ);
+    const cS3DVector3 baseB = makeWorldPoint(maxX, minY, minZ);
+    const cS3DVector3 baseC = makeWorldPoint(maxX, minY, maxZ);
+    const cS3DVector3 baseD = makeWorldPoint(minX, minY, maxZ);
+
+    const cS3DVector3 topA = makeWorldPoint(minX, maxY, minZ);
+    const cS3DVector3 topB = makeWorldPoint(maxX, maxY, minZ);
+    const cS3DVector3 topC = makeWorldPoint(maxX, maxY, maxZ);
+    const cS3DVector3 topD = makeWorldPoint(minX, maxY, maxZ);
 
     EmitQuad_(topA, topB, topC, topD, kPlannedBoxTopColor, layer);
     EmitQuad_(baseA, baseB, topB, topA, kPlannedBoxSideColor, layer);

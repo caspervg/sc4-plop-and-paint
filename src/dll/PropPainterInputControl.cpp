@@ -16,6 +16,18 @@
 namespace {
     constexpr auto kPropPainterControlID = 0x8A3F9D2B;
     constexpr size_t kMaxPreviewPlacements = 5000;
+
+    void PopulatePreviewBounds(PropPaintOverlay::PreviewPlacement& previewPlacement, const Prop& prop) {
+        previewPlacement.width = prop.width;
+        previewPlacement.height = prop.height;
+        previewPlacement.depth = prop.depth;
+        previewPlacement.minX = prop.minX;
+        previewPlacement.maxX = prop.maxX;
+        previewPlacement.minY = prop.minY;
+        previewPlacement.maxY = prop.maxY;
+        previewPlacement.minZ = prop.minZ;
+        previewPlacement.maxZ = prop.maxZ;
+    }
 }
 
 PropPainterInputControl::PropPainterInputControl()
@@ -383,9 +395,7 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
 
         if (cursorValid_ && propRepository_) {
             if (const Prop* prop = propRepository_->FindPropByInstanceId(propIDToPaint_)) {
-                previewPlacement.width = prop->width;
-                previewPlacement.height = prop->height;
-                previewPlacement.depth = prop->depth;
+                PopulatePreviewBounds(previewPlacement, *prop);
             }
         }
 
@@ -434,9 +444,7 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
 
                 if (propRepository_) {
                     if (const Prop* prop = propRepository_->FindPropByInstanceId(placement.propID)) {
-                        previewPlacement.width = prop->width;
-                        previewPlacement.height = prop->height;
-                        previewPlacement.depth = prop->depth;
+                        PopulatePreviewBounds(previewPlacement, *prop);
                     }
                 }
 
@@ -469,9 +477,7 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
 
             if (propRepository_) {
                 if (const Prop* prop = propRepository_->FindPropByInstanceId(placement.propID)) {
-                    previewPlacement.width = prop->width;
-                    previewPlacement.height = prop->height;
-                    previewPlacement.depth = prop->depth;
+                    PopulatePreviewBounds(previewPlacement, *prop);
                 }
             }
 
