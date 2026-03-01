@@ -267,7 +267,6 @@ Section "Install"
 
   CreateDirectory "$SC4PluginsDir"
   SetOutPath "$SC4PluginsDir"
-  File "PLACE_IN_YOUR_PLUGINS_FOLDER\SC4CustomServices.dll"
   File "PLACE_IN_YOUR_PLUGINS_FOLDER\SC4PlopAndPaint.dll"
   File "PLACE_IN_YOUR_PLUGINS_FOLDER\SC4PlopAndPaint.dat"
 
@@ -374,7 +373,6 @@ Section "Uninstall"
 
   Delete "$GameRoot\Apps\imgui.dll"
 
-  Delete "$SC4PluginsDir\SC4CustomServices.dll"
   Delete "$SC4PluginsDir\SC4PlopAndPaint.dll"
   Delete "$SC4PluginsDir\SC4PlopAndPaint.dat"
 

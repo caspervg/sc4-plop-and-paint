@@ -9,4 +9,4 @@ Installation instructions:
 
 Usage instructions:
 - After the installation, press O in game to open the lot plop and prop paint dialog.
-- If something looks off, check <My Documents>/SimCity 4/ for SC4CustomServices.txt for potential log output
+- If something looks off, check <My Documents>/SimCity 4/ for the separate services plugin log output
