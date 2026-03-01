@@ -5,6 +5,8 @@
 #include "LotRepository.hpp"
 #include "PropRepository.hpp"
 #include "SC4PlopAndPaintDirector.hpp"
+#include "imgui.h"
+#include "imgui_internal.h"
 
 
 class cIGZImGuiService;
@@ -39,6 +41,13 @@ public:
     virtual void Abandon() {}
 
 protected:
+    static void ReleaseImGuiInputCapture_() {
+        if (ImGui::GetCurrentContext()) {
+            ImGui::ClearActiveID();
+            ImGui::SetWindowFocus(nullptr);
+        }
+    }
+
     SC4PlopAndPaintDirector* director_;  // game actions only
     LotRepository*       lots_;
     PropRepository*      props_;

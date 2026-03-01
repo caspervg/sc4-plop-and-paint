@@ -591,6 +591,8 @@ bool FamiliesPanelTab::StartPaintingWithSelectedFamily_() {
         return false;
     }
 
+    ReleaseImGuiInputCapture_();
+
     if (director_->IsPropPainting()) {
         director_->StopPropPainting();
     }

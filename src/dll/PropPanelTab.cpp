@@ -283,8 +283,13 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 // Actions
                 ImGui::TableNextColumn();
                 if (ImGui::Button("Paint")) {
-                    if (director_->IsPropPainting() &&
-                        director_->SwitchPropPaintingTarget(prop.instanceId.value(), prop.visibleName)) {
+                    bool switchedTarget = false;
+                    if (director_->IsPropPainting()) {
+                        ReleaseImGuiInputCapture_();
+                        switchedTarget = director_->SwitchPropPaintingTarget(prop.instanceId.value(), prop.visibleName);
+                    }
+
+                    if (switchedTarget) {
                         // Reuse current paint mode and rotation; no modal.
                         }
                     else {
@@ -411,6 +416,7 @@ void PropPanelTab::RenderRotationModal_() {
         const bool canStart = true;
 
         if (ImGui::Button("Start") && canStart) {
+            ReleaseImGuiInputCapture_();
             director_->StartPropPainting(pendingPaint_.propId, pendingPaint_.settings, pendingPaint_.propName);
             ImGui::CloseCurrentPopup();
         }

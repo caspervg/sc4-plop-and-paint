@@ -322,6 +322,7 @@ void BuildingsPanelTab::RenderBuildingRow_(const Building& building, const bool 
                           ImVec2(0, rowHeight))) {
         selectedBuilding_ = &building;
         if (ImGui::IsMouseDoubleClicked(0) && building.lots.size() == 1) {
+            ReleaseImGuiInputCapture_();
             director_->TriggerLotPlop(building.lots[0].instanceId.value());
         }
     }
@@ -361,6 +362,7 @@ void BuildingsPanelTab::RenderLotRow_(const Lot& lot) {
     if (ImGui::Selectable(lot.name.c_str(), false,
                           ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap |
                           ImGuiSelectableFlags_AllowDoubleClick) && ImGui::IsMouseDoubleClicked(0)) {
+        ReleaseImGuiInputCapture_();
         director_->TriggerLotPlop(lot.instanceId.value());
     }
 
@@ -379,6 +381,7 @@ void BuildingsPanelTab::RenderLotRow_(const Lot& lot) {
     // Actions
     ImGui::TableNextColumn();
     if (ImGui::SmallButton("Plop")) {
+        ReleaseImGuiInputCapture_();
         director_->TriggerLotPlop(lot.instanceId.value());
     }
     ImGui::SameLine();
