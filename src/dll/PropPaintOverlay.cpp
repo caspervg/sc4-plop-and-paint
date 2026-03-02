@@ -480,6 +480,31 @@ void PropPaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, cI
     EmitLine_(baseB, topB, kLineThickness * 0.45f, kPlannedMarkerColor, layer);
     EmitLine_(baseC, topC, kLineThickness * 0.45f, kPlannedMarkerColor, layer);
     EmitLine_(baseD, topD, kLineThickness * 0.45f, kPlannedMarkerColor, layer);
+
+    // Direction arrow on the top face: shaft from mid(A,B) toward mid(C,D), with barbs at the tip.
+    const auto midAB = cS3DVector3((topA.fX + topB.fX) * 0.5f, (topA.fY + topB.fY) * 0.5f, (topA.fZ + topB.fZ) * 0.5f);
+    const auto midCD = cS3DVector3((topC.fX + topD.fX) * 0.5f, (topC.fY + topD.fY) * 0.5f, (topC.fZ + topD.fZ) * 0.5f);
+    const float arrowInset = 0.25f;
+    const auto tail = cS3DVector3(
+        midAB.fX + (midCD.fX - midAB.fX) * arrowInset, midAB.fY + (midCD.fY - midAB.fY) * arrowInset,
+        midAB.fZ + (midCD.fZ - midAB.fZ) * arrowInset);
+    const auto tip = cS3DVector3(
+        midAB.fX + (midCD.fX - midAB.fX) * (1.0f - arrowInset), midAB.fY + (midCD.fY - midAB.fY) * (1.0f - arrowInset),
+        midAB.fZ + (midCD.fZ - midAB.fZ) * (1.0f - arrowInset));
+
+    // Barbs: two lines from the tip angled back toward the left/right top edges.
+    const float barbT = 0.3f;
+    const auto barbLeft = cS3DVector3(
+        tip.fX + (topA.fX - tip.fX) * barbT, tip.fY + (topA.fY - tip.fY) * barbT,
+        tip.fZ + (topA.fZ - tip.fZ) * barbT);
+    const auto barbRight = cS3DVector3(
+        tip.fX + (topB.fX - tip.fX) * barbT, tip.fY + (topB.fY - tip.fY) * barbT,
+        tip.fZ + (topB.fZ - tip.fZ) * barbT);
+
+    constexpr DWORD kArrowColor = 0xD0FFFFFF;
+    EmitLine_(tail, tip, kLineThickness * 0.5f, kArrowColor, layer);
+    EmitLine_(tip, barbLeft, kLineThickness * 0.5f, kArrowColor, layer);
+    EmitLine_(tip, barbRight, kLineThickness * 0.5f, kArrowColor, layer);
 }
 
 void PropPaintOverlay::EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices,
