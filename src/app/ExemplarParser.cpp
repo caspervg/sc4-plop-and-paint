@@ -116,24 +116,22 @@ namespace {
         constexpr auto cropWidth = kIconCropWidth;
         const auto cropHeight = static_cast<uint32_t>(height);
 
-        // Copy the second 44-pixel region (starting at pixel 44) to std::byte vector (row by row)
+        // Copy the second 44-pixel region and swap R/B channels in a single pass
         const size_t croppedDataSize = static_cast<size_t>(cropWidth) * cropHeight * 4;
         result.pixels.resize(croppedDataSize);
 
         for (uint32_t y = 0; y < cropHeight; ++y) {
-            // Source offset: skip to row y, then skip first kIconSkipWidth pixels
             const size_t srcOffset = (static_cast<size_t>(y) * width + kIconSkipWidth) * 4;
             const size_t dstOffset = static_cast<size_t>(y) * cropWidth * 4;
-            std::memcpy(
-                result.pixels.data() + dstOffset,
-                pixels + srcOffset,
-                cropWidth * 4
-            );
-        }
-
-        // Swap R and B channels (RGBA -> BGRA) for DirectX7 compatibility
-        for (size_t i = 0; i < croppedDataSize; i += 4) {
-            std::swap(result.pixels[i], result.pixels[i + 2]); // Swap R and B
+            const auto* src = pixels + srcOffset;
+            auto* dst = result.pixels.data() + dstOffset;
+            for (uint32_t x = 0; x < cropWidth; ++x) {
+                const size_t px = x * 4;
+                dst[px + 0] = static_cast<std::byte>(src[px + 2]); // B <- R
+                dst[px + 1] = static_cast<std::byte>(src[px + 1]); // G
+                dst[px + 2] = static_cast<std::byte>(src[px + 0]); // R <- B
+                dst[px + 3] = static_cast<std::byte>(src[px + 3]); // A
+            }
         }
 
         result.width = cropWidth;
