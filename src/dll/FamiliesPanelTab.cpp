@@ -560,6 +560,7 @@ void FamiliesPanelTab::RenderPaintOptionsPopup_() {
             ImGui::Separator();
             ImGui::SliderFloat("Spacing (m)", &pendingPaint_.settings.spacingMeters, 0.5f, 50.0f, "%.1f");
             ImGui::Checkbox("Align to path direction", &pendingPaint_.settings.alignToPath);
+            ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
             ImGui::SliderFloat("Lateral jitter (m)", &pendingPaint_.settings.randomOffset, 0.0f, 5.0f, "%.1f");
             ImGui::TextWrapped("Click to add line points. Enter places props. Backspace removes the last point.");
         }

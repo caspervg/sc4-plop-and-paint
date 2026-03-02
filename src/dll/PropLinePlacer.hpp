@@ -15,6 +15,7 @@ public:
         float spacingMeters,
         int32_t baseRotation,
         bool alignToPath,
+        bool randomRotation,
         float randomOffset,
         cISTETerrain* terrain,
         uint32_t seed,

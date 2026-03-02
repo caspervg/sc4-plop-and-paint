@@ -27,6 +27,7 @@ std::vector<PlannedProp> PropLinePlacer::ComputePlacements(
     const float spacingMeters,
     const int32_t baseRotation,
     const bool alignToPath,
+    const bool randomRotation,
     const float randomOffset,
     cISTETerrain* terrain,
     const uint32_t seed,
@@ -41,6 +42,7 @@ std::vector<PlannedProp> PropLinePlacer::ComputePlacements(
     const float jitterAmount = std::max(0.0f, randomOffset);
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> jitterDist(-jitterAmount, jitterAmount);
+    std::uniform_int_distribution<int32_t> rotDist(0, 3);
 
     float carry = 0.0f;
 
@@ -59,9 +61,9 @@ std::vector<PlannedProp> PropLinePlacer::ComputePlacements(
         const float dirX = dx / segLen;
         const float dirZ = dz / segLen;
 
-        int32_t rotation = baseRotation & 3;
+        int32_t segRotation = baseRotation & 3;
         if (alignToPath) {
-            rotation = (rotation + QuantizeRotationStep(dirX, dirZ)) & 3;
+            segRotation = (segRotation + QuantizeRotationStep(dirX, dirZ)) & 3;
         }
 
         float pos = -carry;
@@ -84,6 +86,7 @@ std::vector<PlannedProp> PropLinePlacer::ComputePlacements(
                     worldY = terrain->GetAltitude(worldX, worldZ);
                 }
 
+                const int32_t rotation = randomRotation ? rotDist(rng) : segRotation;
                 result.push_back({
                     cS3DVector3(worldX, worldY, worldZ),
                     rotation,
