@@ -160,6 +160,12 @@ namespace thumb {
 
         UnloadImage(image);
         UnloadRenderTexture(target);
+
+        // Evict the model from cache to free GPU resources (textures, meshes).
+        // In the cache builder each model is only rendered once, so keeping them
+        // around just accumulates VRAM until the process runs out of memory.
+        modelCache_.erase(tgi);
+
         return rendered;
     }
 
