@@ -194,15 +194,15 @@ void DbpfIndexService::worker_() {
             }
 
             try {
-                DBPF::Reader reader;
-                if (!reader.LoadFile(filePath.string())) {
+                auto reader = std::make_unique<DBPF::Reader>();
+                if (!reader->LoadFile(filePath.string())) {
                     spdlog::warn("Failed to load {}, not a DBPF file?", filePath.string());
                     ++errorCount_;
                     ++processedFiles_;
                     continue;
                 }
 
-                const auto& index = reader.GetIndex();
+                const auto& index = reader->GetIndex();
 
                 // Accumulate entries locally, then merge under a single lock
                 std::unordered_map<uint32_t, std::vector<DBPF::Tgi>> localTypeToTgis;
@@ -224,6 +224,7 @@ void DbpfIndexService::worker_() {
                     for (const auto& tgi : localTgis) {
                         tgiToFiles_[tgi].push_back(filePath);
                     }
+                    readerCache_[filePath] = std::move(reader);
                     entriesIndexed_ += localTgis.size();
                     ++processedFiles_;
                 }
