@@ -153,4 +153,26 @@ private:
     const PropertyMapper& propertyMapper_;
     const DbpfIndexService* indexService_;
     std::unique_ptr<thumb::ThumbnailRenderer> thumbnailRenderer_;
+
+    // Cached property IDs (resolved once at construction)
+    std::optional<uint32_t> pidExemplarType_;
+    std::optional<uint32_t> pidItemName_;
+    std::optional<uint32_t> pidUserVisibleNameKey_;
+    std::optional<uint32_t> pidExemplarName_;
+    std::optional<uint32_t> pidItemDescriptionKey_;
+    std::optional<uint32_t> pidItemDescription_;
+    std::optional<uint32_t> pidOccupantGroups_;
+    std::optional<uint32_t> pidBuildingPropFamily_;
+    std::optional<uint32_t> pidItemIcon_;
+    std::optional<uint32_t> pidLotConfigSize_;
+    std::optional<uint32_t> pidGrowthStage_;
+    std::optional<uint32_t> pidLotConfigZoneType_;
+    std::optional<uint32_t> pidLotConfigWealthType_;
+    std::optional<uint32_t> pidLotConfigPurposeType_;
+    std::optional<uint32_t> pidOccupantSize_;
+
+    // Cached exemplar type option IDs
+    std::optional<uint32_t> optBuilding_;
+    std::optional<uint32_t> optLotConfig_;
+    std::optional<uint32_t> optProp_;
 };

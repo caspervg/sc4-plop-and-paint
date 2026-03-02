@@ -150,7 +150,25 @@ ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
                                const DbpfIndexService* indexService,
                                const bool renderThumbnails)
     : propertyMapper_(mapper)
-      , indexService_(indexService) {
+      , indexService_(indexService)
+      , pidExemplarType_(mapper.propertyId(kExemplarType))
+      , pidItemName_(mapper.propertyId(kItemName))
+      , pidUserVisibleNameKey_(mapper.propertyId(kUserVisibleNameKey))
+      , pidExemplarName_(mapper.propertyId(kExemplarName))
+      , pidItemDescriptionKey_(mapper.propertyId(kItemDescriptionKey))
+      , pidItemDescription_(mapper.propertyId(kItemDescription))
+      , pidOccupantGroups_(mapper.propertyId(kOccupantGroups))
+      , pidBuildingPropFamily_(mapper.propertyId(kBuildingPropFamily))
+      , pidItemIcon_(mapper.propertyId(kItemIcon))
+      , pidLotConfigSize_(mapper.propertyId(kLotConfigSize))
+      , pidGrowthStage_(mapper.propertyId(kGrowthStage))
+      , pidLotConfigZoneType_(mapper.propertyId(kLotConfigZoneType))
+      , pidLotConfigWealthType_(mapper.propertyId(kLotConfigWealthType))
+      , pidLotConfigPurposeType_(mapper.propertyId(kLotConfigPurposeType))
+      , pidOccupantSize_(mapper.propertyId(kOccupantSize))
+      , optBuilding_(mapper.propertyOptionId(kExemplarType, kExemplarTypeBuilding))
+      , optLotConfig_(mapper.propertyOptionId(kExemplarType, kExemplarTypeLotConfig))
+      , optProp_(mapper.propertyOptionId(kExemplarType, kExemplarTypeProp)) {
     if (renderThumbnails && indexService_) {
         thumbnailRenderer_ = std::make_unique<thumb::ThumbnailRenderer>(*indexService_);
     }
@@ -159,12 +177,11 @@ ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
 ExemplarParser::~ExemplarParser() = default;
 
 std::optional<ExemplarType> ExemplarParser::getExemplarType(const Exemplar::Record& exemplar) const {
-    const auto propIdOpt = propertyMapper_.propertyId(kExemplarType);
-    if (!propIdOpt) {
+    if (!pidExemplarType_) {
         return std::nullopt;
     }
 
-    const auto* prop = findProperty(exemplar, *propIdOpt);
+    const auto* prop = findProperty(exemplar, *pidExemplarType_);
     if (!prop || prop->values.empty()) {
         return std::nullopt;
     }
@@ -174,13 +191,9 @@ std::optional<ExemplarType> ExemplarParser::getExemplarType(const Exemplar::Reco
         return std::nullopt;
     }
 
-    const auto buildingTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeBuilding);
-    const auto lotConfigTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeLotConfig);
-    const auto propTypeOpt = propertyMapper_.propertyOptionId(kExemplarType, kExemplarTypeProp);
-
-    if (buildingTypeOpt && *exemplarTypeOpt == *buildingTypeOpt) return ExemplarType::Building;
-    if (lotConfigTypeOpt && *exemplarTypeOpt == *lotConfigTypeOpt) return ExemplarType::LotConfig;
-    if (propTypeOpt && *exemplarTypeOpt == *propTypeOpt) return ExemplarType::Prop;
+    if (optBuilding_ && *exemplarTypeOpt == *optBuilding_) return ExemplarType::Building;
+    if (optLotConfig_ && *exemplarTypeOpt == *optLotConfig_) return ExemplarType::LotConfig;
+    if (optProp_ && *exemplarTypeOpt == *optProp_) return ExemplarType::Prop;
     return std::nullopt;
 }
 
@@ -192,38 +205,34 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
     parsedBuildingExemplar.name = "";
     parsedBuildingExemplar.description = "";
 
-    if (auto propId = propertyMapper_.propertyId(kItemName)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidItemName_) {
+        if (auto* prop = findProperty(exemplar, *pidItemName_)) {
             if (auto name = prop->GetScalarAs<std::string>()) {
                 parsedBuildingExemplar.name = *name;
             }
         }
     }
 
-    if (parsedBuildingExemplar.name.empty()) {
-        if (auto propId = propertyMapper_.propertyId(kUserVisibleNameKey)) {
-            if (auto* prop = findProperty(exemplar, *propId)) {
-                if (auto tgiKey = tgiFromProperty(prop, kTypeIdLText)) {
-                    if (auto localized = loadLocalizedText(indexService_, *tgiKey)) {
-                        parsedBuildingExemplar.name = resolveLTextTags_(*localized, exemplar);
-                    }
+    if (parsedBuildingExemplar.name.empty() && pidUserVisibleNameKey_) {
+        if (auto* prop = findProperty(exemplar, *pidUserVisibleNameKey_)) {
+            if (auto tgiKey = tgiFromProperty(prop, kTypeIdLText)) {
+                if (auto localized = loadLocalizedText(indexService_, *tgiKey)) {
+                    parsedBuildingExemplar.name = resolveLTextTags_(*localized, exemplar);
                 }
             }
         }
     }
 
-    if (parsedBuildingExemplar.name.empty()) {
-        if (auto propId = propertyMapper_.propertyId(kExemplarName)) {
-            if (auto* prop = findProperty(exemplar, *propId)) {
-                if (auto name = prop->GetScalarAs<std::string>()) {
-                    parsedBuildingExemplar.name = *name;
-                }
+    if (parsedBuildingExemplar.name.empty() && pidExemplarName_) {
+        if (auto* prop = findProperty(exemplar, *pidExemplarName_)) {
+            if (auto name = prop->GetScalarAs<std::string>()) {
+                parsedBuildingExemplar.name = *name;
             }
         }
     }
 
-    if (auto propId = propertyMapper_.propertyId(kItemDescriptionKey)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidItemDescriptionKey_) {
+        if (auto* prop = findProperty(exemplar, *pidItemDescriptionKey_)) {
             if (auto tgiKey = tgiFromProperty(prop, kTypeIdLText)) {
                 if (auto localized = loadLocalizedText(indexService_, *tgiKey)) {
                     parsedBuildingExemplar.description = resolveLTextTags_(*localized, exemplar);
@@ -232,18 +241,16 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
         }
     }
 
-    if (parsedBuildingExemplar.description.empty()) {
-        if (auto propId = propertyMapper_.propertyId(kItemDescription)) {
-            if (auto* prop = findProperty(exemplar, *propId)) {
-                if (auto description = prop->GetScalarAs<std::string>()) {
-                    parsedBuildingExemplar.description = *description;
-                }
+    if (parsedBuildingExemplar.description.empty() && pidItemDescription_) {
+        if (auto* prop = findProperty(exemplar, *pidItemDescription_)) {
+            if (auto description = prop->GetScalarAs<std::string>()) {
+                parsedBuildingExemplar.description = *description;
             }
         }
     }
 
-    if (const auto propId = propertyMapper_.propertyId(kOccupantGroups)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidOccupantGroups_) {
+        if (auto* prop = findProperty(exemplar, *pidOccupantGroups_)) {
             if (prop->IsNumericList()) {
                 for (size_t i = 0; i < prop->values.size(); ++i) {
                     if (auto v = prop->GetScalarAs<uint32_t>(i)) {
@@ -255,8 +262,8 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
     }
 
     // Extract building family IDs
-    if (const auto familyPropId =  propertyMapper_.propertyId(kBuildingPropFamily)) {
-        if (auto* prop = findProperty(exemplar, *familyPropId)) {
+    if (pidBuildingPropFamily_) {
+        if (auto* prop = findProperty(exemplar, *pidBuildingPropFamily_)) {
             for (size_t i = 0; i < prop->values.size(); ++i) {
                 if (auto familyId = prop->GetScalarAs<uint32_t>(i)) {
                     parsedBuildingExemplar.familyIds.push_back(*familyId);
@@ -265,8 +272,8 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
         }
     }
 
-    if (auto propId = propertyMapper_.propertyId(kItemIcon)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidItemIcon_) {
+        if (auto* prop = findProperty(exemplar, *pidItemIcon_)) {
             if (const auto iconInstance = prop->GetScalarAs<uint32_t>()) {
                 parsedBuildingExemplar.iconTgi = DBPF::Tgi{
                     kTypeIdPNG,
@@ -293,16 +300,16 @@ std::optional<ParsedLotConfigExemplar> ExemplarParser::parseLotConfig(
     parsedLotConfigExemplar.buildingFamilyId = 0;
     parsedLotConfigExemplar.isFamilyReference = false;
 
-    if (auto propId = propertyMapper_.propertyId(kExemplarName)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidExemplarName_) {
+        if (auto* prop = findProperty(exemplar, *pidExemplarName_)) {
             if (auto name = prop->GetScalarAs<std::string>()) {
                 parsedLotConfigExemplar.name = *name;
             }
         }
     }
 
-    if (auto propId = propertyMapper_.propertyId(kLotConfigSize)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidLotConfigSize_) {
+        if (auto* prop = findProperty(exemplar, *pidLotConfigSize_)) {
             if (prop->IsNumericList() && prop->values.size() >= 2) {
                 auto width = prop->GetScalarAs<uint8_t>(0);
                 auto height = prop->GetScalarAs<uint8_t>(1);
@@ -362,32 +369,32 @@ std::optional<ParsedLotConfigExemplar> ExemplarParser::parseLotConfig(
         return std::nullopt;
     }
 
-    if (auto propId = propertyMapper_.propertyId(kGrowthStage)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidGrowthStage_) {
+        if (auto* prop = findProperty(exemplar, *pidGrowthStage_)) {
             if (auto v = prop->GetScalarAs<uint8_t>()) {
                 parsedLotConfigExemplar.growthStage = *v;
             }
         }
     }
 
-    if (auto propId = propertyMapper_.propertyId(kLotConfigZoneType)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidLotConfigZoneType_) {
+        if (auto* prop = findProperty(exemplar, *pidLotConfigZoneType_)) {
             if (auto v = prop->GetScalarAs<uint8_t>()) {
                 parsedLotConfigExemplar.zoneType = *v;
             }
         }
     }
 
-    if (auto propId = propertyMapper_.propertyId(kLotConfigWealthType)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidLotConfigWealthType_) {
+        if (auto* prop = findProperty(exemplar, *pidLotConfigWealthType_)) {
             if (auto v = prop->GetScalarAs<uint8_t>()) {
                 parsedLotConfigExemplar.wealthType = *v;
             }
         }
     }
 
-    if (auto propId = propertyMapper_.propertyId(kLotConfigPurposeType)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidLotConfigPurposeType_) {
+        if (auto* prop = findProperty(exemplar, *pidLotConfigPurposeType_)) {
             if (auto v = prop->GetScalarAs<uint8_t>()) {
                 parsedLotConfigExemplar.purposeType = *v;
             }
@@ -405,8 +412,8 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
     parsedPropExemplar.exemplarName = "";
     parsedPropExemplar.modelTgi = std::nullopt;
 
-    if (auto propId = propertyMapper_.propertyId(kUserVisibleNameKey)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidUserVisibleNameKey_) {
+        if (auto* prop = findProperty(exemplar, *pidUserVisibleNameKey_)) {
             if (auto tgiKey = tgiFromProperty(prop, kTypeIdLText)) {
                 if (auto localized = loadLocalizedText(indexService_, *tgiKey)) {
                     auto resolvedUVNK = resolveLTextTags_(*localized, exemplar);
@@ -417,8 +424,8 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
         }
     }
 
-    if (const auto propId = propertyMapper_.propertyId(kExemplarName)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidExemplarName_) {
+        if (auto* prop = findProperty(exemplar, *pidExemplarName_)) {
             if (const auto name = prop->GetScalarAs<std::string>()) {
                 auto exemplarName = std::format("{}", *name);
                 exemplarName = SanitizeString(exemplarName);
@@ -427,8 +434,8 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
         }
     }
 
-    if (const auto propId = propertyMapper_.propertyId(kOccupantSize)) {
-        if (auto* prop = findProperty(exemplar, *propId)) {
+    if (pidOccupantSize_) {
+        if (auto* prop = findProperty(exemplar, *pidOccupantSize_)) {
             if (prop->IsNumericList()) {
                 if (prop->values.size() >= 3) {
                     auto width = prop->GetScalarAs<float>(0);
@@ -449,8 +456,8 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
         }
     }
 
-    if (const auto familyPropId =  propertyMapper_.propertyId(kBuildingPropFamily)) {
-        if (auto* prop = findProperty(exemplar, *familyPropId)) {
+    if (pidBuildingPropFamily_) {
+        if (auto* prop = findProperty(exemplar, *pidBuildingPropFamily_)) {
             for (size_t i = 0; i < prop->values.size(); ++i) {
                 if (auto familyId = prop->GetScalarAs<uint32_t>(i)) {
                     parsedPropExemplar.familyIds.push_back(*familyId);
@@ -489,11 +496,10 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
 }
 
 std::optional<PropFamilyInfo> ExemplarParser::parsePropFamilyFromCohort(const Exemplar::Record& cohort) const {
-    const auto familyPropId = propertyMapper_.propertyId(kBuildingPropFamily);
-    if (!familyPropId) {
+    if (!pidBuildingPropFamily_) {
         return std::nullopt;
     }
-    const auto* familyProp = findProperty(cohort, *familyPropId);
+    const auto* familyProp = findProperty(cohort, *pidBuildingPropFamily_);
     if (!familyProp || familyProp->values.empty()) {
         return std::nullopt;
     }
@@ -504,17 +510,14 @@ std::optional<PropFamilyInfo> ExemplarParser::parsePropFamilyFromCohort(const Ex
     }
 
     std::optional<std::string> name;
-    if (const auto exemplarNamePropId = propertyMapper_.propertyId(kExemplarName)) {
-        if (const auto* nameProp = findProperty(cohort, *exemplarNamePropId)) {
+    if (pidExemplarName_) {
+        if (const auto* nameProp = findProperty(cohort, *pidExemplarName_)) {
             name = nameProp->GetScalarAs<std::string>();
         }
     }
-    if ((!name || name->empty())) {
-        const auto itemNamePropId = propertyMapper_.propertyId(kItemName);
-        if (itemNamePropId) {
-            if (const auto* itemNameProp = findProperty(cohort, *itemNamePropId)) {
-                name = itemNameProp->GetScalarAs<std::string>();
-            }
+    if ((!name || name->empty()) && pidItemName_) {
+        if (const auto* itemNameProp = findProperty(cohort, *pidItemName_)) {
+            name = itemNameProp->GetScalarAs<std::string>();
         }
     }
 
