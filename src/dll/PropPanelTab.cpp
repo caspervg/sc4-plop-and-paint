@@ -119,19 +119,19 @@ void PropPanelTab::RenderFilterUI_() {
 
     ImGui::Text("Width:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSlider2Width);
+    ImGui::SetNextItemWidth(UI::wideInputWidth());
     ImGui::SliderFloat2("##PropWidth", filterHelper_.propWidth, PropSize::kMinSize, PropSize::kMaxSize,
                         UI::kMeterFloatFormat);
     ImGui::SameLine();
     ImGui::Text("Height:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSlider2Width);
+    ImGui::SetNextItemWidth(UI::wideInputWidth());
     ImGui::SliderFloat2("##PropHeight", filterHelper_.propHeight, PropSize::kMinSize, PropSize::kMaxSize,
                         UI::kMeterFloatFormat);
     ImGui::SameLine();
     ImGui::Text("Depth:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSlider2Width);
+    ImGui::SetNextItemWidth(UI::wideInputWidth());
     ImGui::SliderFloat2("##PropDepth", filterHelper_.propDepth, PropSize::kMinSize, PropSize::kMaxSize,
                         UI::kMeterFloatFormat);
 
@@ -166,12 +166,12 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
         ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoBordersInBody |
         ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_ScrollY;
 
-    if (ImGui::BeginTable("PropsTable", 5, tableFlags, ImVec2(0, 0))) {
+    if (ImGui::BeginTable("PropsTable", 4, tableFlags, ImVec2(0, 0))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Thumbnail",
+        ImGui::TableSetupColumn("Thumb",
                                 ImGuiTableColumnFlags_WidthFixed |
                                 ImGuiTableColumnFlags_NoSort,
-                                UI::kIconColumnWidth);
+                                UI::iconColumnWidth());
         ImGui::TableSetupColumn("Name",
                                 ImGuiTableColumnFlags_NoHide |
                                 ImGuiTableColumnFlags_DefaultSort |
@@ -179,15 +179,11 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
         ImGui::TableSetupColumn("Size (m)",
                                 ImGuiTableColumnFlags_WidthFixed |
                                 ImGuiTableColumnFlags_PreferSortAscending,
-                                UI::kSizeColumnWidth * 1.5);
+                                UI::propSizeColumnWidth());
         ImGui::TableSetupColumn("Action",
                                 ImGuiTableColumnFlags_WidthFixed |
                                 ImGuiTableColumnFlags_NoSort,
-                                UI::kActionColumnWidth);
-        ImGui::TableSetupColumn("##palette",
-                                ImGuiTableColumnFlags_WidthFixed |
-                                ImGuiTableColumnFlags_NoSort,
-                                26.0f);
+                                UI::actionColumnWidth());
         ImGui::TableHeadersRow();
 
         if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsCount > 0) {
@@ -218,7 +214,7 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
             }
         }
 
-        constexpr float rowHeight = UI::kIconSize;
+        const float rowHeight = UI::iconRowHeight();
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(filteredProps.size()), rowHeight);
 
@@ -306,20 +302,19 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 }
                 ImGui::SameLine();
                 RenderFavButton_(prop);
-
-                ImGui::TableNextColumn();
-                if (ImGui::SmallButton("+")) {
+                ImGui::SameLine();
+                if (ImGui::Button("Fam")) {
                     ImGui::OpenPopup("AddToPalette");
                 }
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Add to palette");
+                    ImGui::SetTooltip("Add to user-defined family");
                 }
 
                 if (ImGui::BeginPopup("AddToPalette")) {
                     const auto& userFamilies = favorites_->GetUserFamilies();
                     if (userFamilies.empty()) {
                         ImGui::TextDisabled("No families yet.");
-                        ImGui::TextDisabled("Create a user family in the Families tab first.");
+                        ImGui::TextDisabled("Create a user-defined family in the Families tab first.");
                     }
                     else {
                         for (size_t familyIndex = 0; familyIndex < userFamilies.size(); ++familyIndex) {

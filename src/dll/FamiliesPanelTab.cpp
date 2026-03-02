@@ -105,7 +105,7 @@ void FamiliesPanelTab::OnRender() {
         nameFilter_ = nameFilterBuf;
     }
 
-    ImGui::SetNextItemWidth(180.0f);
+    ImGui::SetNextItemWidth(UI::iidFilterWidth());
     if (ImGui::InputTextWithHint("##SearchFamiliesByIid", "Filter IID (0x...)", iidFilterBuf, sizeof(iidFilterBuf))) {
         iidFilter_ = iidFilterBuf;
     }
@@ -178,13 +178,13 @@ void FamiliesPanelTab::OnRender() {
         ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoBordersInBody |
         ImGuiTableFlags_ScrollY;
 
-    if (ImGui::BeginChild("FamilyTableRegion", ImVec2(0, 180), false)) {
+    if (ImGui::BeginChild("FamilyTableRegion", ImVec2(0, UI::familyTableHeight()), false)) {
         if (ImGui::BeginTable("FamiliesTable", 5, familyTableFlags, ImVec2(0, 0))) {
-            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, UI::typeColumnWidth());
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("IID", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-            ImGui::TableSetupColumn("Props", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-            ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableSetupColumn("Instance ID", ImGuiTableColumnFlags_WidthFixed, UI::instanceIdColumnWidth());
+            ImGui::TableSetupColumn("Props", ImGuiTableColumnFlags_WidthFixed, UI::propsColumnWidth());
+            ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, UI::familyActionColWidth());
             ImGui::TableHeadersRow();
 
             for (const auto& row : filteredFamilies) {
@@ -269,19 +269,19 @@ void FamiliesPanelTab::OnRender() {
             ImGui::TextDisabled("Empty auto family.");
         }
         else {
-            ImGui::TextDisabled("Empty family. Use '+' in the Props tab to add entries.");
+            ImGui::TextDisabled("Empty family. Use 'Fam' in the Props tab to add entries.");
         }
     }
     else {
         if (ImGui::BeginTable("FamilyEntries", selectedIsAuto ? 3 : 4,
                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
-                              ImVec2(0, 250))) {
-            ImGui::TableSetupColumn("##icon", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+                              ImVec2(0, UI::familyEntriesHeight()))) {
+            ImGui::TableSetupColumn("##icon", ImGuiTableColumnFlags_WidthFixed, UI::iconColumnWidth());
             ImGui::TableSetupColumn("Prop", ImGuiTableColumnFlags_WidthStretch);
             if (!selectedIsAuto) {
-                ImGui::TableSetupColumn("Weight", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                ImGui::TableSetupColumn("Weight", ImGuiTableColumnFlags_WidthFixed, UI::weightColumnWidth());
             }
-            ImGui::TableSetupColumn("##remove", ImGuiTableColumnFlags_WidthFixed, selectedIsAuto ? 0.0f : 24.0f);
+            ImGui::TableSetupColumn("##remove", ImGuiTableColumnFlags_WidthFixed, selectedIsAuto ? 0.0f : UI::removeColumnWidth());
             ImGui::TableHeadersRow();
 
             // We need a mutable reference for weight editing / removal (user families only)
@@ -291,7 +291,7 @@ void FamiliesPanelTab::OnRender() {
                 const Prop* prop = props_->FindPropByInstanceId(constEntry.propID.value());
 
                 ImGui::PushID(static_cast<int>(i));
-                ImGui::TableNextRow();
+                ImGui::TableNextRow(0, UI::iconRowHeight());
 
                 ImGui::TableNextColumn();
                 if (prop && prop->thumbnail) {
@@ -299,14 +299,14 @@ void FamiliesPanelTab::OnRender() {
                     thumbnailCache_.Request(key);
                     auto thumbTextureId = thumbnailCache_.Get(key);
                     if (thumbTextureId.has_value() && *thumbTextureId != nullptr) {
-                        ImGui::Image(*thumbTextureId, ImVec2(20, 20));
+                        ImGui::Image(*thumbTextureId, ImVec2(UI::kIconSize, UI::kIconSize));
                     }
                     else {
-                        ImGui::Dummy(ImVec2(20, 20));
+                        ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
                     }
                 }
                 else {
-                    ImGui::Dummy(ImVec2(20, 20));
+                    ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
                 }
 
                 ImGui::TableNextColumn();
@@ -433,8 +433,8 @@ void FamiliesPanelTab::RenderNewFamilyPopup_() {
         return;
     }
 
-    ImGui::OpenPopup("Create Family");
-    if (ImGui::BeginPopupModal("Create Family", &newFamilyPopupOpen_, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::OpenPopup("Create User-defined family");
+    if (ImGui::BeginPopupModal("Create User-defined Family", &newFamilyPopupOpen_, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::InputText("Name", newFamilyName_, sizeof(newFamilyName_));
 
         const bool canCreate = std::strlen(newFamilyName_) > 0;

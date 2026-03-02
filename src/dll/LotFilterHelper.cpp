@@ -89,10 +89,10 @@ void LotFilterHelper::ResetFilters() {
     searchBuffer.clear();
 
     // Reset sliders to full range
-    minSizeX = LotSize::kMinSize;
-    minSizeZ = LotSize::kMinSize;
-    maxSizeX = LotSize::kMaxSize;
-    maxSizeZ = LotSize::kMaxSize;
+    sizeX[0] = LotSize::kMinSize;
+    sizeX[1] = LotSize::kMaxSize;
+    sizeZ[0] = LotSize::kMinSize;
+    sizeZ[1] = LotSize::kMaxSize;
 
     selectedOccupantGroups.clear();
     selectedZoneType.reset();
@@ -138,10 +138,10 @@ bool LotFilterHelper::PassesTextFilter_(const LotView& view) const {
 
 bool LotFilterHelper::PassesSizeFilter_(const LotView& view) const {
     const Lot& lot = *view.lot;
-    int effectiveMinX = std::min(minSizeX, maxSizeX);
-    int effectiveMaxX = std::max(minSizeX, maxSizeX);
-    int effectiveMinZ = std::min(minSizeZ, maxSizeZ);
-    int effectiveMaxZ = std::max(minSizeZ, maxSizeZ);
+    int effectiveMinX = std::min(sizeX[0], sizeX[1]);
+    int effectiveMaxX = std::max(sizeX[0], sizeX[1]);
+    int effectiveMinZ = std::min(sizeZ[0], sizeZ[1]);
+    int effectiveMaxZ = std::max(sizeZ[0], sizeZ[1]);
 
     return lot.sizeX >= effectiveMinX && lot.sizeX <= effectiveMaxX &&
         lot.sizeZ >= effectiveMinZ && lot.sizeZ <= effectiveMaxZ;

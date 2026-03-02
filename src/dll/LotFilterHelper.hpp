@@ -44,10 +44,8 @@ public:
 
     // Filter state
     std::string searchBuffer;
-    int minSizeX = LotSize::kMinSize;
-    int minSizeZ = LotSize::kMinSize;
-    int maxSizeX = LotSize::kMaxSize;
-    int maxSizeZ = LotSize::kMaxSize;
+    int sizeX[2] = {LotSize::kMinSize, LotSize::kMaxSize};
+    int sizeZ[2] = {LotSize::kMinSize, LotSize::kMaxSize};
     std::unordered_set<uint32_t> selectedOccupantGroups;
     std::optional<uint8_t> selectedZoneType; // None = show all, otherwise filter by zone type
     std::optional<uint8_t> selectedWealthType; // None = show all, otherwise filter by wealth

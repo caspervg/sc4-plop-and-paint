@@ -1,25 +1,46 @@
 #pragma once
+#include "imgui.h"
 
-// UI Constants for consistent sizing across panels
 namespace UI {
-    constexpr auto kSearchBarWidth = 150.0f;
-    constexpr auto kSliderWidth = 75.0f;
-    constexpr auto kSlider2Width = 100.0f;
-    constexpr auto kDropdownWidth = 100.0f;
-    constexpr auto kIconColumnWidth = 45.0f;
-    constexpr auto kIconSize = 44.0f;
-    constexpr auto kNameColumnWidth = 100.0f;
-    constexpr auto kSizeColumnWidth = 15.0f;
-    constexpr auto kStageColumnWidth = 15.0f;
-    constexpr auto kActionColumnWidth = 75.0f;
-    constexpr auto kTableHeight = 400.0f;
+    // Shared
+    inline float wideInputWidth() { return 7.7f * ImGui::GetFontSize(); }
+    inline float dropdownWidth() { return 7.7f * ImGui::GetFontSize(); }
+    constexpr auto kIconSize = 44.0f; // fixed: pre-rendered texture size
+    inline float iconColumnWidth() { return kIconSize + 0.1f * ImGui::GetFontSize(); }
+    inline float actionColumnWidth() { return 8.5f * ImGui::GetFontSize(); }
     constexpr auto kMeterFloatFormat = "%.1f m";
-}
+
+    // Props tab
+    inline float propSizeColumnWidth() { return 6.0f * ImGui::GetFontSize(); }
+
+    // Row heights
+    inline float iconRowHeight() { return kIconSize + 0.6f * ImGui::GetFontSize(); }
+
+    // Buildings tab
+    inline float lotsCountColumnWidth() { return 3.1f * ImGui::GetFontSize(); }
+    inline float lotSizeColumnWidth() { return 3.1f * ImGui::GetFontSize(); }
+    inline float lotStageColumnWidth() { return 2.7f * ImGui::GetFontSize(); }
+
+    // Families tab
+    inline float iidFilterWidth() { return 13.8f * ImGui::GetFontSize(); }
+    inline float familyTableHeight() { return 13.8f * ImGui::GetFontSize(); }
+    inline float typeColumnWidth() { return 7.0f * ImGui::GetFontSize(); }
+    inline float instanceIdColumnWidth() { return 8.5f * ImGui::GetFontSize(); }
+    inline float propsColumnWidth() { return 5.4f * ImGui::GetFontSize(); }
+    inline float familyActionColWidth() { return 6.9f * ImGui::GetFontSize(); }
+    inline float familyEntriesHeight() { return 19.2f * ImGui::GetFontSize(); }
+    inline float weightColumnWidth() { return 9.2f * ImGui::GetFontSize(); }
+    inline float removeColumnWidth() { return 1.85f * ImGui::GetFontSize(); }
+
+    // Occupant groups
+    inline float treeIndentSpacing() { return 0.9f * ImGui::GetFontSize(); }
+    inline float ogTreeHeight() { return 11.5f * ImGui::GetFontSize(); }
+} // namespace UI
 
 namespace Cache {
     constexpr auto kMaxSize = 250uz;
     constexpr auto kMaxLoadPerFrame = 25;
     constexpr auto kPrefetchMargin = 10;
-}
+} // namespace Cache
 
 constexpr auto kMaxIconsToLoadPerFrame = 50;

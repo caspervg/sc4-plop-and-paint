@@ -104,7 +104,7 @@ void BuildingsPanelTab::RenderFilterUI_() {
         "Any zone", "Residential (R)", "Commercial (C)", "Industrial (I)", "Plopped", "None", "Other"
     };
     int currentZone = filter_.selectedZoneType.has_value() ? (filter_.selectedZoneType.value() + 1) : 0;
-    ImGui::SetNextItemWidth(UI::kDropdownWidth);
+    ImGui::SetNextItemWidth(UI::dropdownWidth());
     if (ImGui::Combo("##ZoneType", &currentZone, zoneTypes, 7)) {
         if (currentZone == 0) {
             filter_.selectedZoneType.reset();
@@ -118,7 +118,7 @@ void BuildingsPanelTab::RenderFilterUI_() {
     // Wealth filter
     const char* wealthOptions[] = {"Any wealth", "$", "$$", "$$$"};
     int currentWealth = filter_.selectedWealthType.has_value() ? filter_.selectedWealthType.value() : 0;
-    ImGui::SetNextItemWidth(UI::kDropdownWidth);
+    ImGui::SetNextItemWidth(UI::dropdownWidth());
     if (ImGui::Combo("##Wealth", &currentWealth, wealthOptions, 4)) {
         if (currentWealth == 0) {
             filter_.selectedWealthType.reset();
@@ -142,7 +142,7 @@ void BuildingsPanelTab::RenderFilterUI_() {
             currentGrowthStageIndex = val + 2;
         }
     }
-    ImGui::SetNextItemWidth(UI::kDropdownWidth);
+    ImGui::SetNextItemWidth(UI::dropdownWidth());
     if (ImGui::Combo("##GrowthStage", &currentGrowthStageIndex, growthStages, 18)) {
         if (currentGrowthStageIndex == 0) {
             filter_.selectedGrowthStage.reset();
@@ -159,35 +159,13 @@ void BuildingsPanelTab::RenderFilterUI_() {
     // Size filters
     ImGui::Text("Width:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSlider2Width);
-    if (ImGui::InputInt("##MinSizeX", &filter_.minSizeX, 1, 1)) {
-        filter_.minSizeX = std::clamp(filter_.minSizeX, LotSize::kMinSize, LotSize::kMaxSize);
-    }
+    ImGui::SetNextItemWidth(UI::wideInputWidth());
+    ImGui::SliderInt2("##SizeX", filter_.sizeX, LotSize::kMinSize, LotSize::kMaxSize);
     ImGui::SameLine();
-    ImGui::Text("to");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSliderWidth);
-    if (ImGui::InputInt("##MaxSizeX", &filter_.maxSizeX, 1, 1)) {
-        filter_.maxSizeX = std::clamp(filter_.maxSizeX, LotSize::kMinSize, LotSize::kMaxSize);
-    }
-
-    ImGui::SameLine();
-    ImGui::Spacing();
-    ImGui::SameLine();
-
     ImGui::Text("Depth:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSliderWidth);
-    if (ImGui::InputInt("##MinSizeZ", &filter_.minSizeZ, 1, 1)) {
-        filter_.minSizeZ = std::clamp(filter_.minSizeZ, LotSize::kMinSize, LotSize::kMaxSize);
-    }
-    ImGui::SameLine();
-    ImGui::Text("to");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::kSliderWidth);
-    if (ImGui::InputInt("##MaxSizeZ", &filter_.maxSizeZ, 1, 1)) {
-        filter_.maxSizeZ = std::clamp(filter_.maxSizeZ, LotSize::kMinSize, LotSize::kMaxSize);
-    }
+    ImGui::SetNextItemWidth(UI::wideInputWidth());
+    ImGui::SliderInt2("##SizeZ", filter_.sizeZ, LotSize::kMinSize, LotSize::kMaxSize);
 
     ImGui::SameLine();
     ImGui::Spacing();
@@ -209,9 +187,9 @@ void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
         ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("BuildingsTable", 4, tableFlags, ImVec2(0, tableHeight))) {
-        ImGui::TableSetupColumn("Thumbnail",
+        ImGui::TableSetupColumn("Thumb",
                                 ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort,
-                                UI::kIconColumnWidth);
+                                UI::iconColumnWidth());
         ImGui::TableSetupColumn("Name",
                                 ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_DefaultSort |
                                 ImGuiTableColumnFlags_PreferSortAscending);
@@ -219,7 +197,7 @@ void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
                                 ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Lots",
                                 ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort,
-                                40.0f);
+                                UI::lotsCountColumnWidth());
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
 
@@ -243,7 +221,7 @@ void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
         }
 
         // Use clipper for virtualized scrolling
-        constexpr float rowHeight = UI::kIconSize + 8.0f;
+        const float rowHeight = UI::iconRowHeight();
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(filteredBuildings_.size()), rowHeight);
 
@@ -291,10 +269,10 @@ void BuildingsPanelTab::RenderLotsDetailTable_(const float tableHeight) {
 
     if (ImGui::BeginTable("LotsDetailTable", 4, tableFlags, ImVec2(0, tableHeight))) {
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
-        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, UI::kSizeColumnWidth);
-        ImGui::TableSetupColumn("Stage", ImGuiTableColumnFlags_WidthFixed, UI::kStageColumnWidth);
+        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, UI::lotSizeColumnWidth());
+        ImGui::TableSetupColumn("Stage", ImGuiTableColumnFlags_WidthFixed, UI::lotStageColumnWidth());
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort,
-                                UI::kActionColumnWidth);
+                                UI::actionColumnWidth());
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
 
@@ -310,7 +288,7 @@ void BuildingsPanelTab::RenderBuildingRow_(const Building& building, const bool 
     const uint64_t key = MakeGIKey(building.groupId.value(), building.instanceId.value());
 
     ImGui::PushID(static_cast<int>(key));
-    constexpr float rowHeight = UI::kIconSize + 8.0f;
+    const float rowHeight = UI::iconRowHeight();
     ImGui::TableNextRow(0, rowHeight);
 
     // Thumbnail column — place a full-height Selectable first so the
@@ -421,10 +399,10 @@ void BuildingsPanelTab::RenderOccupantGroupFilter_() {
     };
 
     if (ImGui::CollapsingHeader("Occupant Groups")) {
-        ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 12.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, UI::treeIndentSpacing());
         ImGui::Text("%s", preview.c_str());
 
-        if (ImGui::BeginChild("##OGTree", ImVec2(0, 150), true)) {
+        if (ImGui::BeginChild("##OGTree", ImVec2(0, UI::ogTreeHeight()), true)) {
             for (const auto& og : OCCUPANT_GROUP_TREE) {
                 renderOGNode(og);
             }
