@@ -427,9 +427,7 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
     if (pidExemplarName_) {
         if (auto* prop = findProperty(exemplar, *pidExemplarName_)) {
             if (const auto name = prop->GetScalarAs<std::string>()) {
-                auto exemplarName = std::format("{}", *name);
-                exemplarName = SanitizeString(exemplarName);
-                parsedPropExemplar.exemplarName = std::move(exemplarName);
+                parsedPropExemplar.exemplarName = SanitizeString(*name);
             }
         }
     }
