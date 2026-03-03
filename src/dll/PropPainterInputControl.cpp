@@ -190,15 +190,16 @@ void PropPainterInputControl::SetOnCancel(std::function<void()> onCancel) {
     onCancel_ = std::move(onCancel);
 }
 
-void PropPainterInputControl::DrawOverlay(IDirect3DDevice7* device) {
+void PropPainterInputControl::ProcessPendingActions() {
     if (cancelPending_) {
         cancelPending_ = false;
         if (onCancel_) {
             onCancel_();
         }
-        return;
     }
+}
 
+void PropPainterInputControl::DrawOverlay(IDirect3DDevice7* device) {
     if (!device || settings_.previewMode == PropPreviewMode::Hidden) {
         return;
     }

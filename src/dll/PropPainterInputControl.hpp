@@ -81,6 +81,7 @@ public:
     void SetOnCancel(std::function<void()> onCancel);
 
     [[nodiscard]] const PropPaintSettings& GetSettings() const { return settings_; }
+    void ProcessPendingActions();
     void DrawOverlay(IDirect3DDevice7* device);
 
     void UndoLastPlacement();

@@ -483,6 +483,9 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     if (director->propStripperControl_) {
         director->propStripperControl_->ProcessPendingActions();
     }
+    if (director->propPainterControl_) {
+        director->propPainterControl_->ProcessPendingActions();
+    }
 
     // Capture control pointers to avoid race conditions with flag changes
     PropPainterInputControl* painterControl = director->propPainterControl_;
