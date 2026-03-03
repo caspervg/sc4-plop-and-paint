@@ -1,12 +1,33 @@
 #include "BuildingsPanelTab.hpp"
 
-#include <regex>
-
 #include "OccupantGroups.hpp"
 #include "Utils.hpp"
 #include "utils/Logger.h"
 #include "jsoncons/staj_event.hpp"
 #include "rfl/visit.hpp"
+
+namespace {
+    std::string CollapseConsecutiveNewlines(const std::string& text) {
+        std::string result;
+        result.reserve(text.size());
+
+        bool lastWasNewline = false;
+        for (const char ch : text) {
+            if (ch == '\n') {
+                if (!lastWasNewline) {
+                    result.push_back(ch);
+                }
+                lastWasNewline = true;
+            }
+            else {
+                result.push_back(ch);
+                lastWasNewline = false;
+            }
+        }
+
+        return result;
+    }
+}
 
 const char* BuildingsPanelTab::GetTabName() const {
     return "Buildings & Lots";
@@ -319,8 +340,7 @@ void BuildingsPanelTab::RenderBuildingRow_(const Building& building, const bool 
     // Description column
     ImGui::TableNextColumn();
     if (!building.description.empty()) {
-        const std::regex multiNewLinesRe("\n+");
-        const auto res = std::regex_replace(building.description, multiNewLinesRe, "\n");
+        const auto res = CollapseConsecutiveNewlines(building.description);
         ImGui::TextWrapped("%s", res.c_str());
     }
 
