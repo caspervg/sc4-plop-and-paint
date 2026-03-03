@@ -450,13 +450,15 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     }
 
     // Process deferred cancel for the stripper (before D3D, fires even if acquisition fails)
-    if (director->propStripping_ && director->propStripperControl_) {
+    if (director->propStripperControl_) {
         director->propStripperControl_->ProcessPendingActions();
     }
 
-    const bool needsOverlay =
-        (director->propPainting_ && director->propPainterControl_) ||
-        (director->propStripping_ && director->propStripperControl_);
+    // Capture control pointers to avoid race conditions with flag changes
+    PropPainterInputControl* painterControl = director->propPainterControl_;
+    PropStripperInputControl* stripperControl = director->propStripperControl_;
+
+    const bool needsOverlay = painterControl || stripperControl;
 
     if (!director->imguiService_ || !needsOverlay) {
         return;
@@ -468,11 +470,11 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
         return;
     }
 
-    if (director->propPainting_ && director->propPainterControl_) {
-        director->propPainterControl_->DrawOverlay(device);
+    if (painterControl) {
+        painterControl->DrawOverlay(device);
     }
-    if (director->propStripping_ && director->propStripperControl_) {
-        director->propStripperControl_->DrawOverlay(device);
+    if (stripperControl) {
+        stripperControl->DrawOverlay(device);
     }
     device->Release();
     dd->Release();
