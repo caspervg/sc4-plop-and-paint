@@ -152,6 +152,7 @@ private:
     cRZAutoRefCount<cISC4PropOccupant> previewProp_{};
     cRZAutoRefCount<cISC4Occupant> previewOccupant_{};
     bool previewActive_ = false;
+    bool previewPositionValid_ = false;
     cS3DVector3 lastPreviewPosition_{};
     int32_t lastPreviewRotation_ = 0;
     PropPaintOverlay overlay_{};

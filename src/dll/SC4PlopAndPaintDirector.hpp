@@ -60,6 +60,11 @@ public:
     bool SwitchPropPaintingTarget(uint32_t propId, const std::string& name);
     void StopPropPainting();
     [[nodiscard]] bool IsPropPainting() const;
+    [[nodiscard]] bool GetDefaultShowGridOverlay() const noexcept;
+    [[nodiscard]] bool GetDefaultSnapPointsToGrid() const noexcept;
+    [[nodiscard]] bool GetDefaultSnapPlacementsToGrid() const noexcept;
+    [[nodiscard]] float GetDefaultGridStepMeters() const noexcept;
+    [[nodiscard]] PropPreviewMode GetDefaultPropPreviewMode() const noexcept;
     void SetLotPlopPanelVisible(bool visible);
 
 private:
@@ -90,4 +95,9 @@ private:
     cRZAutoRefCount<PropPainterInputControl> propPainterControl_;
     bool propPainting_{false};
     uint32_t drawCallbackToken_{0};
+    PropPreviewMode defaultPropPreviewMode_ = PropPreviewMode::Outline;
+    bool defaultShowGridOverlay_ = true;
+    bool defaultSnapPointsToGrid_ = false;
+    bool defaultSnapPlacementsToGrid_ = false;
+    float defaultGridStepMeters_ = 16.0f;
 };

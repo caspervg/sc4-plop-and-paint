@@ -39,7 +39,8 @@ public:
                             const cS3DVector3& cursorPos,
                             cISTETerrain* terrain,
                             const PropPaintSettings& settings,
-                            const PreviewPlacement& plannedPlacement);
+                            const PreviewPlacement& plannedPlacement,
+                            bool drawPlacement = true);
 
     void BuildLinePreview(const std::vector<cS3DVector3>& points,
                           const cS3DVector3& cursorPos,

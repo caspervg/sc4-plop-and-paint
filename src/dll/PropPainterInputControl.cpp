@@ -376,13 +376,26 @@ bool PropPainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
 }
 
 bool PropPainterInputControl::UpdateCursorWorldFromScreen_(const int32_t screenX, const int32_t screenZ) {
+    const bool hadValidCursor = cursorValid_;
+    const cS3DVector3 previousCursorWorld = currentCursorWorld_;
     cursorValid_ = false;
     if (!view3D) {
         return false;
     }
 
+    const bool hidePreviewForPick =
+        state_ == ControlState::ActiveDirect && previewActive_ && previewOccupant_;
+    if (hidePreviewForPick) {
+        previewOccupant_->SetVisibility(false, true);
+    }
+
     float worldCoords[3] = {0.0f, 0.0f, 0.0f};
     if (!view3D->PickTerrain(screenX, screenZ, worldCoords, false)) {
+        if (hidePreviewForPick && hadValidCursor) {
+            currentCursorWorld_ = previousCursorWorld;
+            cursorValid_ = true;
+            return true;
+        }
         return false;
     }
 
@@ -429,19 +442,28 @@ void PropPainterInputControl::RebuildPreviewOverlay_() {
     }
 
     if (state_ == ControlState::ActiveDirect) {
+        const bool usePreviewAnchor = ShouldShowModelPreview_() && previewPositionValid_;
+        const bool hasOverlayCursor = cursorValid_ || usePreviewAnchor;
+        cS3DVector3 overlayCursor = currentCursorWorld_;
+        if (!cursorValid_ && usePreviewAnchor) {
+            overlayCursor = cS3DVector3(lastPreviewPosition_.fX, lastPreviewPosition_.fY, lastPreviewPosition_.fZ);
+        }
+
         PropPaintOverlay::PreviewPlacement previewPlacement;
-        previewPlacement.placement.position = currentCursorWorld_;
+        previewPlacement.placement.position = overlayCursor;
         previewPlacement.placement.position.fY += settings_.deltaYMeters;
         previewPlacement.placement.rotation = settings_.rotation;
         previewPlacement.placement.propID = propIDToPaint_;
 
-        if (cursorValid_ && propRepository_) {
+        if (hasOverlayCursor && propRepository_) {
             if (const Prop* prop = propRepository_->FindPropByInstanceId(propIDToPaint_)) {
                 PopulatePreviewBounds(previewPlacement, *prop);
             }
         }
 
-        overlay_.BuildDirectPreview(cursorValid_, currentCursorWorld_, GetTerrain_(), settings_, previewPlacement);
+        const bool drawPlacement = settings_.previewMode != PropPreviewMode::FullModel;
+        overlay_.BuildDirectPreview(hasOverlayCursor, overlayCursor, GetTerrain_(), settings_, previewPlacement,
+                                    drawPlacement);
         return;
     }
 
@@ -847,7 +869,7 @@ bool PropPainterInputControl::ShouldShowOutlinePreview_() const {
     }
 
     if (state_ == ControlState::ActiveDirect) {
-        return settings_.previewMode != PropPreviewMode::FullModel;
+        return settings_.showGrid || settings_.previewMode != PropPreviewMode::FullModel;
     }
 
     return state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon;
@@ -909,6 +931,7 @@ void PropPainterInputControl::CreatePreviewProp_() {
 
     lastPreviewPosition_ = initialPos;
     lastPreviewRotation_ = normalizedRotation;
+    previewPositionValid_ = false;
     previewOccupant->SetHighlight(0x3, true);
     previewOccupant->SetVisibility(false, true);
 
@@ -933,6 +956,7 @@ void PropPainterInputControl::DestroyPreviewProp_() {
     previewOccupant_.Reset();
     previewProp_.Reset();
     previewActive_ = false;
+    previewPositionValid_ = false;
     LOG_INFO("Destroyed preview prop");
 }
 
@@ -976,10 +1000,14 @@ void PropPainterInputControl::UpdatePreviewProp_() {
     if (posChanged) {
         if (previewOccupant_->SetPosition(&worldPos)) {
             lastPreviewPosition_ = worldPos;
+            previewPositionValid_ = true;
         }
         else {
             LOG_WARN("Failed to update preview prop position");
         }
+    }
+    else {
+        previewPositionValid_ = true;
     }
 
     previewOccupant_->SetVisibility(true, true);

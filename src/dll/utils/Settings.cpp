@@ -12,6 +12,11 @@ namespace {
     constexpr spdlog::level::level_enum kDefaultLogLevel = spdlog::level::info;
     constexpr bool kDefaultLogToFile = true;
     constexpr bool kDefaultEnableDrawOverlay = true;
+    constexpr PropPreviewMode kDefaultPropPreviewMode = PropPreviewMode::Outline;
+    constexpr bool kDefaultShowGridOverlay = true;
+    constexpr bool kDefaultSnapPointsToGrid = false;
+    constexpr bool kDefaultSnapPlacementsToGrid = false;
+    constexpr float kDefaultGridStepMeters = 16.0f;
 
     const std::string kSectionName = "SC4PlopAndPaint";
 
@@ -53,12 +58,50 @@ namespace {
         return false;
     }
 
+    PropPreviewMode ParsePropPreviewMode(const std::string& value, bool& valid) {
+        const std::string normalized = ToLower(value);
+
+        if (normalized == "outline" || normalized == "outlineonly") {
+            valid = true;
+            return PropPreviewMode::Outline;
+        }
+        if (normalized == "full" || normalized == "fullprop" || normalized == "fullmodel") {
+            valid = true;
+            return PropPreviewMode::FullModel;
+        }
+        if (normalized == "combined" || normalized == "both" || normalized == "outlineandfull") {
+            valid = true;
+            return PropPreviewMode::Combined;
+        }
+
+        valid = false;
+        return kDefaultPropPreviewMode;
+    }
+
+    float ParseFloat(const std::string& value, bool& valid) {
+        try {
+            size_t parsedChars = 0;
+            const float parsed = std::stof(value, &parsedChars);
+            valid = parsedChars == value.size();
+            return parsed;
+        }
+        catch (...) {
+            valid = false;
+            return 0.0f;
+        }
+    }
+
 } // namespace
 
 Settings::Settings()
     : logLevel_(kDefaultLogLevel)
     , logToFile_(kDefaultLogToFile)
-    , enableDrawOverlay_(kDefaultEnableDrawOverlay) {}
+    , enableDrawOverlay_(kDefaultEnableDrawOverlay)
+    , defaultPropPreviewMode_(kDefaultPropPreviewMode)
+    , defaultShowGridOverlay_(kDefaultShowGridOverlay)
+    , defaultSnapPointsToGrid_(kDefaultSnapPointsToGrid)
+    , defaultSnapPlacementsToGrid_(kDefaultSnapPlacementsToGrid)
+    , defaultGridStepMeters_(kDefaultGridStepMeters) {}
 
 void Settings::Load(const std::filesystem::path& settingsFilePath) {
     // Reset to defaults
@@ -112,6 +155,64 @@ void Settings::Load(const std::filesystem::path& settingsFilePath) {
                           settingsFilePath.string());
             }
         }
+
+        if (section.has("DefaultPropPreviewMode")) {
+            bool valid = false;
+            const std::string text = section.get("DefaultPropPreviewMode");
+            defaultPropPreviewMode_ = ParsePropPreviewMode(text, valid);
+            if (!valid) {
+                defaultPropPreviewMode_ = kDefaultPropPreviewMode;
+                LOG_ERROR("Invalid DefaultPropPreviewMode value '{}' in {}. Using default outline.", text,
+                          settingsFilePath.string());
+            }
+        }
+
+        if (section.has("DefaultShowGridOverlay")) {
+            bool valid = false;
+            const std::string text = section.get("DefaultShowGridOverlay");
+            defaultShowGridOverlay_ = ParseBool(text, valid);
+            if (!valid) {
+                defaultShowGridOverlay_ = kDefaultShowGridOverlay;
+                LOG_ERROR("Invalid DefaultShowGridOverlay value '{}' in {}. Using default true.", text,
+                          settingsFilePath.string());
+            }
+        }
+
+        if (section.has("DefaultSnapPointsToGrid")) {
+            bool valid = false;
+            const std::string text = section.get("DefaultSnapPointsToGrid");
+            defaultSnapPointsToGrid_ = ParseBool(text, valid);
+            if (!valid) {
+                defaultSnapPointsToGrid_ = kDefaultSnapPointsToGrid;
+                LOG_ERROR("Invalid DefaultSnapPointsToGrid value '{}' in {}. Using default false.", text,
+                          settingsFilePath.string());
+            }
+        }
+
+        if (section.has("DefaultSnapPlacementsToGrid")) {
+            bool valid = false;
+            const std::string text = section.get("DefaultSnapPlacementsToGrid");
+            defaultSnapPlacementsToGrid_ = ParseBool(text, valid);
+            if (!valid) {
+                defaultSnapPlacementsToGrid_ = kDefaultSnapPlacementsToGrid;
+                LOG_ERROR("Invalid DefaultSnapPlacementsToGrid value '{}' in {}. Using default false.", text,
+                          settingsFilePath.string());
+            }
+        }
+
+        if (section.has("DefaultGridStepMeters")) {
+            bool valid = false;
+            const std::string text = section.get("DefaultGridStepMeters");
+            const float parsed = ParseFloat(text, valid);
+            if (!valid || parsed < 1.0f) {
+                defaultGridStepMeters_ = kDefaultGridStepMeters;
+                LOG_ERROR("Invalid DefaultGridStepMeters value '{}' in {}. Using default 16.0.", text,
+                          settingsFilePath.string());
+            }
+            else {
+                defaultGridStepMeters_ = parsed;
+            }
+        }
     }
     catch (const std::exception& e) {
         LOG_ERROR("Error reading settings file {}: {}", settingsFilePath.string(), e.what());
@@ -122,3 +223,8 @@ void Settings::Load(const std::filesystem::path& settingsFilePath) {
 spdlog::level::level_enum Settings::GetLogLevel() const noexcept { return logLevel_; }
 bool Settings::GetLogToFile() const noexcept { return logToFile_; }
 bool Settings::GetEnableDrawOverlay() const noexcept { return enableDrawOverlay_; }
+PropPreviewMode Settings::GetDefaultPropPreviewMode() const noexcept { return defaultPropPreviewMode_; }
+bool Settings::GetDefaultShowGridOverlay() const noexcept { return defaultShowGridOverlay_; }
+bool Settings::GetDefaultSnapPointsToGrid() const noexcept { return defaultSnapPointsToGrid_; }
+bool Settings::GetDefaultSnapPlacementsToGrid() const noexcept { return defaultSnapPlacementsToGrid_; }
+float Settings::GetDefaultGridStepMeters() const noexcept { return defaultGridStepMeters_; }

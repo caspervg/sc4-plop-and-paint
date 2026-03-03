@@ -98,13 +98,16 @@ void PropPaintOverlay::BuildDirectPreview(const bool cursorValid,
                                           const cS3DVector3& cursorPos,
                                           cISTETerrain* terrain,
                                           const PropPaintSettings& settings,
-                                          const PreviewPlacement& plannedPlacement) {
+                                          const PreviewPlacement& plannedPlacement,
+                                          const bool drawPlacement) {
     Clear();
     if (!cursorValid) {
         return;
     }
     EmitGrid_(cursorPos, terrain, settings);
-    EmitPreviewPlacement_(plannedPlacement, terrain, kLayerMarkers);
+    if (drawPlacement) {
+        EmitPreviewPlacement_(plannedPlacement, terrain, kLayerMarkers);
+    }
 }
 
 void PropPaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,

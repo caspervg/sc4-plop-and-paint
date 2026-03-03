@@ -13,7 +13,13 @@ public:
     PropPanelTab(SC4PlopAndPaintDirector* director,
                  LotRepository* lots, PropRepository* props, FavoritesRepository* favorites,
                  cIGZImGuiService* imguiService)
-        : PanelTab(director, lots, props, favorites, imguiService) {}
+        : PanelTab(director, lots, props, favorites, imguiService) {
+        pendingPaint_.settings.showGrid = director->GetDefaultShowGridOverlay();
+        pendingPaint_.settings.snapPointsToGrid = director->GetDefaultSnapPointsToGrid();
+        pendingPaint_.settings.snapPlacementsToGrid = director->GetDefaultSnapPlacementsToGrid();
+        pendingPaint_.settings.gridStepMeters = director->GetDefaultGridStepMeters();
+        pendingPaint_.settings.previewMode = director->GetDefaultPropPreviewMode();
+    }
 
     ~PropPanelTab() override = default;
 

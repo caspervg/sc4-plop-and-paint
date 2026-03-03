@@ -68,6 +68,11 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
     Logger::Initialize("SC4PlopAndPaint", logPath.string(), false);
     Settings settings;
     settings.Load(settingsPath);
+    defaultPropPreviewMode_ = settings.GetDefaultPropPreviewMode();
+    defaultShowGridOverlay_ = settings.GetDefaultShowGridOverlay();
+    defaultSnapPointsToGrid_ = settings.GetDefaultSnapPointsToGrid();
+    defaultSnapPlacementsToGrid_ = settings.GetDefaultSnapPlacementsToGrid();
+    defaultGridStepMeters_ = settings.GetDefaultGridStepMeters();
     Logger::Shutdown();
     Logger::Initialize("SC4PlopAndPaint", logPath.string(), settings.GetLogToFile());
     Logger::SetLevel(settings.GetLogLevel());
@@ -345,6 +350,26 @@ void SC4PlopAndPaintDirector::StopPropPainting() {
 
 bool SC4PlopAndPaintDirector::IsPropPainting() const {
     return propPainting_;
+}
+
+bool SC4PlopAndPaintDirector::GetDefaultShowGridOverlay() const noexcept {
+    return defaultShowGridOverlay_;
+}
+
+bool SC4PlopAndPaintDirector::GetDefaultSnapPointsToGrid() const noexcept {
+    return defaultSnapPointsToGrid_;
+}
+
+bool SC4PlopAndPaintDirector::GetDefaultSnapPlacementsToGrid() const noexcept {
+    return defaultSnapPlacementsToGrid_;
+}
+
+float SC4PlopAndPaintDirector::GetDefaultGridStepMeters() const noexcept {
+    return defaultGridStepMeters_;
+}
+
+PropPreviewMode SC4PlopAndPaintDirector::GetDefaultPropPreviewMode() const noexcept {
+    return defaultPropPreviewMode_;
 }
 
 void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, const bool begin, void* pThis) {
