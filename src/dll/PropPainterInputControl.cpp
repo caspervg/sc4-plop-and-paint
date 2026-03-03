@@ -435,11 +435,12 @@ bool PropPainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
     }
 
     if (vkCode == VK_OEM_MINUS || vkCode == VK_OEM_PLUS) {
-        const float delta = (vkCode == VK_OEM_PLUS) ? 0.5f : -0.5f;
+        const float lineDelta = (vkCode == VK_OEM_PLUS) ? 0.5f : -0.5f;
+        const float densityDelta = (vkCode == VK_OEM_PLUS) ? 0.25f : -0.25f;
         const bool controlHeld = (modifiers & MOD_CONTROL) != 0;
 
         if (state_ == ControlState::ActiveLine) {
-            settings_.spacingMeters = std::clamp(settings_.spacingMeters + delta, 0.5f, 50.0f);
+            settings_.spacingMeters = std::clamp(settings_.spacingMeters + lineDelta, 0.5f, 50.0f);
             LOG_INFO("Line spacing: {:.1f}m", settings_.spacingMeters);
         } else if (state_ == ControlState::ActivePolygon) {
             if (controlHeld) {
@@ -448,8 +449,8 @@ bool PropPainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
                 LOG_INFO("Polygon density variation: {:.2f}", settings_.densityVariation);
             }
             else {
-                settings_.densityPer100Sqm = std::clamp(settings_.densityPer100Sqm + delta, 0.1f, 20.0f);
-                LOG_INFO("Polygon density: {:.1f}/100m^2", settings_.densityPer100Sqm);
+                settings_.densityPer100Sqm = std::clamp(settings_.densityPer100Sqm + densityDelta, 0.1f, 10.0f);
+                LOG_INFO("Polygon density: {:.2f}/100m^2", settings_.densityPer100Sqm);
             }
             polygonPreviewDirty_ = true;
         } else {

@@ -547,7 +547,7 @@ void FamiliesPanelTab::RenderPaintOptionsPopup_() {
         }
         else if (pendingPaint_.settings.mode == PropPaintMode::Polygon) {
             ImGui::Separator();
-            ImGui::SliderFloat("Density (/100 m^2)", &pendingPaint_.settings.densityPer100Sqm, 0.1f, 20.0f, "%.1f");
+            ImGui::SliderFloat("Density (/100 m^2)", &pendingPaint_.settings.densityPer100Sqm, 0.1f, 10.0f, "%.2f");
             ImGui::SliderFloat("Density variation", &pendingPaint_.settings.densityVariation, 0.0f, 1.0f, "%.2f");
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("0 = uniform fill, 1 = patchier clusters and gaps.");
