@@ -248,6 +248,53 @@ Function OnBrowsePluginsDir
   ${EndIf}
 FunctionEnd
 
+Function WarnLegacyPlugins
+  ; Build a list of legacy DLLs found in Plugins and Apps folders.
+  ; NTFS is case-insensitive, so FileExists matches regardless of case.
+  StrCpy $0 ""  ; accumulates found file paths
+  StrCpy $1 "0" ; count
+
+  !macro _CheckLegacyIn _dir _file
+    ${If} ${FileExists} "${_dir}\${_file}"
+      StrCpy $0 "$0$\r$\n  - ${_dir}\${_file}"
+      IntOp $1 $1 + 1
+    ${EndIf}
+  !macroend
+
+  !insertmacro _CheckLegacyIn "$SC4PluginsDir" "SC4AdvancedPlop.dll"
+  !insertmacro _CheckLegacyIn "$SC4PluginsDir" "SC4ImGuiService.dll"
+  !insertmacro _CheckLegacyIn "$SC4PluginsDir" "SC4ImguiService.dll"
+  !insertmacro _CheckLegacyIn "$SC4PluginsDir" "SC4CustomServices.dll"
+  !insertmacro _CheckLegacyIn "$GameRoot\Apps" "SC4AdvancedPlop.dll"
+  !insertmacro _CheckLegacyIn "$GameRoot\Apps" "SC4ImGuiService.dll"
+  !insertmacro _CheckLegacyIn "$GameRoot\Apps" "SC4ImguiService.dll"
+  !insertmacro _CheckLegacyIn "$GameRoot\Apps" "SC4CustomServices.dll"
+
+  ${If} $1 == "0"
+    Return
+  ${EndIf}
+
+  MessageBox MB_YESNO|MB_ICONEXCLAMATION "The following legacy DLL mods were found:$\r$\n$0$\r$\n$\r$\nThese are from older versions and may conflict with ${APP_NAME}.$\r$\n$\r$\nDelete them now?" IDNO legacy_skip
+
+  !macro _DeleteLegacyIn _dir _file
+    ${If} ${FileExists} "${_dir}\${_file}"
+      Delete "${_dir}\${_file}"
+      DetailPrint "Deleted legacy ${_dir}\${_file}"
+    ${EndIf}
+  !macroend
+
+  !insertmacro _DeleteLegacyIn "$SC4PluginsDir" "SC4AdvancedPlop.dll"
+  !insertmacro _DeleteLegacyIn "$SC4PluginsDir" "SC4ImGuiService.dll"
+  !insertmacro _DeleteLegacyIn "$SC4PluginsDir" "SC4ImguiService.dll"
+  !insertmacro _DeleteLegacyIn "$SC4PluginsDir" "SC4CustomServices.dll"
+  !insertmacro _DeleteLegacyIn "$GameRoot\Apps" "SC4AdvancedPlop.dll"
+  !insertmacro _DeleteLegacyIn "$GameRoot\Apps" "SC4ImGuiService.dll"
+  !insertmacro _DeleteLegacyIn "$GameRoot\Apps" "SC4ImguiService.dll"
+  !insertmacro _DeleteLegacyIn "$GameRoot\Apps" "SC4CustomServices.dll"
+
+  legacy_skip:
+FunctionEnd
+
 Function ConfigurePathsPageLeave
   ${NSD_GetText} $HGameRoot $GameRoot
   ${NSD_GetText} $HPluginsDir $SC4PluginsDir
@@ -277,6 +324,7 @@ Function ConfigurePathsPageLeave
   Call ValidateGameExecutable
   Call WarnIfNo4GBPatch
   Call ValidateRenderServicesDependency
+  Call WarnLegacyPlugins
 FunctionEnd
 
 Function ConfigureCachePage
