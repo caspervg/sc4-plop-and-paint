@@ -35,6 +35,9 @@ public:
     void Clear();
     [[nodiscard]] bool Empty() const;
 
+    void BuildStripperPreview(bool cursorValid, const cS3DVector3& cursorPos,
+                              float pickRadius, cISTETerrain* terrain);
+
     void BuildDirectPreview(bool cursorValid,
                             const cS3DVector3& cursorPos,
                             cISTETerrain* terrain,

@@ -39,6 +39,22 @@ void PropPanelTab::OnRender() {
             director_->StopPropPainting();
         }
     }
+    if (director_->IsPropStripping()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop stripping")) {
+            director_->StopPropStripping();
+        }
+    }
+    else {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Strip props")) {
+            ReleaseImGuiInputCapture_();
+            director_->StartPropStripping();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click props in the city to remove them one by one.\nCtrl+Z to undo, ESC to stop.");
+        }
+    }
 
     // Table in scrollable child region so filters stay visible
     if (ImGui::BeginChild("PropTableRegion", ImVec2(0, 0), false)) {

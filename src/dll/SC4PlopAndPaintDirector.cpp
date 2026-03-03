@@ -16,6 +16,7 @@
 #include "LotPlopPanel.hpp"
 #include "LotRepository.hpp"
 #include "PropPainterInputControl.hpp"
+#include "PropStripperInputControl.hpp"
 #include "PropRepository.hpp"
 #include "Utils.hpp"
 #include "utils/Logger.h"
@@ -170,6 +171,13 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     }
 
     // Destroy objects that may call ImGuiService first.
+    if (propStripperControl_) {
+        StopPropStripping();
+        propStripperControl_->SetCity(nullptr);
+        propStripperControl_->Shutdown();
+        propStripperControl_.Reset();
+    }
+
     if (propPainterControl_) {
         StopPropPainting();
         propPainterControl_->SetCity(nullptr);
@@ -354,6 +362,63 @@ bool SC4PlopAndPaintDirector::IsPropPainting() const {
     return propPainting_;
 }
 
+bool SC4PlopAndPaintDirector::StartPropStripping() {
+    if (!pCity_ || !pView3D_) {
+        LOG_WARN("Cannot start prop stripping: city or view not available");
+        return false;
+    }
+
+    if (propPainting_) {
+        StopPropPainting();
+    }
+
+    if (!propStripperControl_) {
+        auto* control = new PropStripperInputControl();
+        propStripperControl_ = control;
+        if (!propStripperControl_->Init()) {
+            LOG_ERROR("Failed to initialize PropStripperInputControl");
+            propStripperControl_.Reset();
+            return false;
+        }
+    }
+
+    propStripperControl_->SetCity(pCity_);
+    propStripperControl_->SetWindow(pView3D_->AsIGZWin());
+    propStripperControl_->SetOnCancel([this]() {
+        if (pView3D_ && propStripperControl_ &&
+            pView3D_->GetCurrentViewInputControl() == propStripperControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+        propStripping_ = false;
+        LOG_INFO("Stopped prop stripping");
+    });
+
+    if (!pView3D_->SetCurrentViewInputControl(
+        propStripperControl_,
+        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        LOG_WARN("Failed to set prop stripper as current view input control");
+        return false;
+    }
+
+    propStripping_ = true;
+    LOG_INFO("Started prop stripping");
+    return true;
+}
+
+void SC4PlopAndPaintDirector::StopPropStripping() {
+    if (pView3D_ && propStripperControl_) {
+        if (pView3D_->GetCurrentViewInputControl() == propStripperControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+    }
+    propStripping_ = false;
+    LOG_INFO("Stopped prop stripping");
+}
+
+bool SC4PlopAndPaintDirector::IsPropStripping() const {
+    return propStripping_;
+}
+
 bool SC4PlopAndPaintDirector::GetDefaultShowGridOverlay() const noexcept {
     return defaultShowGridOverlay_;
 }
@@ -380,7 +445,20 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     }
 
     auto* director = static_cast<SC4PlopAndPaintDirector*>(pThis);
-    if (!director || !director->imguiService_ || !director->propPainting_ || !director->propPainterControl_) {
+    if (!director) {
+        return;
+    }
+
+    // Process deferred cancel for the stripper (before D3D, fires even if acquisition fails)
+    if (director->propStripping_ && director->propStripperControl_) {
+        director->propStripperControl_->ProcessPendingActions();
+    }
+
+    const bool needsOverlay =
+        (director->propPainting_ && director->propPainterControl_) ||
+        (director->propStripping_ && director->propStripperControl_);
+
+    if (!director->imguiService_ || !needsOverlay) {
         return;
     }
 
@@ -390,7 +468,12 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
         return;
     }
 
-    director->propPainterControl_->DrawOverlay(device);
+    if (director->propPainting_ && director->propPainterControl_) {
+        director->propPainterControl_->DrawOverlay(device);
+    }
+    if (director->propStripping_ && director->propStripperControl_) {
+        director->propStripperControl_->DrawOverlay(device);
+    }
     device->Release();
     dd->Release();
 }
@@ -425,7 +508,11 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
 
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
     SetLotPlopPanelVisible(false);
+    StopPropStripping();
     StopPropPainting();
+    if (propStripperControl_) {
+        propStripperControl_->SetCity(nullptr);
+    }
     if (propPainterControl_) {
         propPainterControl_->SetCity(nullptr);
     }

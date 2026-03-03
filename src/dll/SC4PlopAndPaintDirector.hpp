@@ -19,6 +19,7 @@
 #include "GZServPtrs.h"
 #include "imgui.h"
 #include "PropPainterInputControl.hpp"
+#include "PropStripperInputControl.hpp"
 #include "../shared/entities.hpp"
 #include "public/cIGZImGuiService.h"
 #include "public/cIGZDrawService.h"
@@ -60,6 +61,9 @@ public:
     bool SwitchPropPaintingTarget(uint32_t propId, const std::string& name);
     void StopPropPainting();
     [[nodiscard]] bool IsPropPainting() const;
+    bool StartPropStripping();
+    void StopPropStripping();
+    [[nodiscard]] bool IsPropStripping() const;
     [[nodiscard]] bool GetDefaultShowGridOverlay() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPointsToGrid() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPlacementsToGrid() const noexcept;
@@ -94,6 +98,8 @@ private:
     std::unique_ptr<LotPlopPanel> panel_;
     cRZAutoRefCount<PropPainterInputControl> propPainterControl_;
     bool propPainting_{false};
+    cRZAutoRefCount<PropStripperInputControl> propStripperControl_;
+    bool propStripping_{false};
     uint32_t drawCallbackToken_{0};
     PropPreviewMode defaultPropPreviewMode_ = PropPreviewMode::Outline;
     bool defaultShowGridOverlay_ = true;
