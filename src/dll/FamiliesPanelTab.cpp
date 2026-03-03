@@ -433,8 +433,8 @@ void FamiliesPanelTab::RenderNewFamilyPopup_() {
         return;
     }
 
-    ImGui::OpenPopup("Create User-defined family");
-    if (ImGui::BeginPopupModal("Create User-defined Family", &newFamilyPopupOpen_, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::OpenPopup("Create Custom Family");
+    if (ImGui::BeginPopupModal("Create Custom Family", &newFamilyPopupOpen_, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::InputText("Name", newFamilyName_, sizeof(newFamilyName_));
 
         const bool canCreate = std::strlen(newFamilyName_) > 0;
