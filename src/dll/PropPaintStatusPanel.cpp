@@ -54,6 +54,7 @@ void PropPaintStatusPanel::OnRender() {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
     ImGui::TextUnformatted("R rotation  G grid  S snap");
     ImGui::TextUnformatted("[ ] grid size  P preview");
+    ImGui::TextUnformatted("Ctrl+Z undo group  Ctrl+Backspace undo prop");
     if (settings.mode == PropPaintMode::Line || settings.mode == PropPaintMode::Polygon) {
         ImGui::TextUnformatted("-/+ spacing/density");
     }
