@@ -555,6 +555,17 @@ void FamiliesPanelTab::RenderPaintOptionsPopup_() {
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Raises placed props above the terrain and preview grid.");
         }
+        static constexpr const char* kPreviewModeLabels[] = {
+            "Outline only",
+            "Full prop only",
+            "Outline + full prop"
+        };
+        int previewMode = static_cast<int>(pendingPaint_.settings.previewMode);
+        ImGui::Combo("Direct preview", &previewMode, kPreviewModeLabels, IM_ARRAYSIZE(kPreviewModeLabels));
+        pendingPaint_.settings.previewMode = static_cast<PropPreviewMode>(previewMode);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Used only for direct paint mode. Line and polygon previews always use the outline overlay.");
+        }
 
         if (pendingPaint_.settings.mode == PropPaintMode::Line) {
             ImGui::Separator();

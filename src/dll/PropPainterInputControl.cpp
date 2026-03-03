@@ -135,6 +135,7 @@ void PropPainterInputControl::SetPropToPaint(const uint32_t propID, const PropPa
 
     if (targetChanged) {
         ClearCollectedPoints_();
+        DestroyPreviewProp_();
     }
     cachedPolygonPlacements_.clear();
     polygonPreviewDirty_ = true;
@@ -159,6 +160,7 @@ void PropPainterInputControl::SetCity(cISC4City* pCity) {
         propManager_ = pCity->GetPropManager();
     }
     else {
+        DestroyPreviewProp_();
         propManager_.Reset();
         ClearCollectedPoints_();
     }
@@ -257,10 +259,18 @@ void PropPainterInputControl::TransitionTo_(const ControlState newState, const c
 }
 
 void PropPainterInputControl::SyncPreviewForState_() {
-    if (!previewSettings_.showPreview ||
-        (state_ != ControlState::ActiveDirect &&
-         state_ != ControlState::ActiveLine &&
-         state_ != ControlState::ActivePolygon)) {
+    if (ShouldShowModelPreview_()) {
+        if (!previewProp_) {
+            CreatePreviewProp_();
+        }
+        UpdatePreviewPropRotation_();
+        UpdatePreviewProp_();
+    }
+    else {
+        DestroyPreviewProp_();
+    }
+
+    if (!ShouldShowOutlinePreview_()) {
         overlay_.Clear();
     }
     else {
@@ -295,13 +305,7 @@ bool PropPainterInputControl::HandleActiveMouseMove_(const int32_t x, const int3
     }
 
     UpdateCursorWorldFromScreen_(x, z);
-
-    if (state_ == ControlState::ActiveDirect) {
-        RebuildPreviewOverlay_();
-    }
-    else if (previewSettings_.showPreview) {
-        RebuildPreviewOverlay_();
-    }
+    SyncPreviewForState_();
 
     return true;
 }
@@ -323,7 +327,7 @@ bool PropPainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         if (state_ == ControlState::ActivePolygon) {
             polygonPreviewDirty_ = true;
         }
-        RebuildPreviewOverlay_();
+        SyncPreviewForState_();
         return true;
     }
 
@@ -419,10 +423,7 @@ void PropPainterInputControl::ClearCollectedPoints_() {
 }
 
 void PropPainterInputControl::RebuildPreviewOverlay_() {
-    if (!previewSettings_.showPreview ||
-        (state_ != ControlState::ActiveDirect &&
-         state_ != ControlState::ActiveLine &&
-         state_ != ControlState::ActivePolygon)) {
+    if (!ShouldShowOutlinePreview_()) {
         overlay_.Clear();
         return;
     }
@@ -838,4 +839,148 @@ cISTETerrain* PropPainterInputControl::GetTerrain_() const {
         return nullptr;
     }
     return city_->GetTerrain();
+}
+
+bool PropPainterInputControl::ShouldShowOutlinePreview_() const {
+    if (!previewSettings_.showPreview) {
+        return false;
+    }
+
+    if (state_ == ControlState::ActiveDirect) {
+        return settings_.previewMode != PropPreviewMode::FullModel;
+    }
+
+    return state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon;
+}
+
+bool PropPainterInputControl::ShouldShowModelPreview_() const {
+    return previewSettings_.showPreview &&
+        state_ == ControlState::ActiveDirect &&
+        (settings_.previewMode == PropPreviewMode::FullModel || settings_.previewMode == PropPreviewMode::Combined);
+}
+
+void PropPainterInputControl::CreatePreviewProp_() {
+    if (!propManager_) {
+        LOG_WARN("Cannot create preview prop: prop manager not available");
+        return;
+    }
+
+    if (propIDToPaint_ == 0) {
+        LOG_WARN("Cannot create preview prop: no target prop selected");
+        return;
+    }
+
+    if (previewProp_) {
+        return;
+    }
+
+    cISC4PropOccupant* prop = nullptr;
+    if (!propManager_->CreateProp(propIDToPaint_, prop)) {
+        LOG_WARN("Failed to create prop for preview");
+        return;
+    }
+
+    cISC4Occupant* occupant = prop->AsOccupant();
+    if (!occupant) {
+        LOG_WARN("Failed to get occupant interface for preview prop");
+        prop->Release();
+        return;
+    }
+
+    cRZAutoRefCount<cISC4PropOccupant> previewProp(prop);
+    cRZAutoRefCount<cISC4Occupant> previewOccupant(occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
+
+    cS3DVector3 initialPos(0.0f, 1000.0f, 0.0f);
+    if (!previewOccupant->SetPosition(&initialPos)) {
+        LOG_WARN("Failed to initialize preview prop position");
+        return;
+    }
+
+    const int32_t normalizedRotation = settings_.rotation & 3;
+    if (!previewProp->SetOrientation(normalizedRotation)) {
+        LOG_WARN("Failed to initialize preview prop orientation");
+        return;
+    }
+
+    if (!propManager_->AddCityProp(previewOccupant)) {
+        LOG_WARN("Failed to add preview prop to city");
+        return;
+    }
+
+    lastPreviewPosition_ = initialPos;
+    lastPreviewRotation_ = normalizedRotation;
+    previewOccupant->SetHighlight(0x3, true);
+    previewOccupant->SetVisibility(false, true);
+
+    previewProp_ = std::move(previewProp);
+    previewOccupant_ = std::move(previewOccupant);
+    previewActive_ = true;
+    LOG_INFO("Created preview prop");
+}
+
+void PropPainterInputControl::DestroyPreviewProp_() {
+    if (!previewOccupant_) {
+        previewProp_.Reset();
+        previewActive_ = false;
+        return;
+    }
+
+    previewOccupant_->SetVisibility(false, true);
+    if (propManager_) {
+        propManager_->RemovePropA(previewOccupant_);
+    }
+
+    previewOccupant_.Reset();
+    previewProp_.Reset();
+    previewActive_ = false;
+    LOG_INFO("Destroyed preview prop");
+}
+
+void PropPainterInputControl::UpdatePreviewPropRotation_() {
+    if (!previewActive_ || !previewProp_ || !previewOccupant_) {
+        return;
+    }
+
+    const int32_t normalizedRotation = settings_.rotation & 3;
+    if (normalizedRotation != lastPreviewRotation_) {
+        if (previewProp_->SetOrientation(normalizedRotation)) {
+            lastPreviewRotation_ = normalizedRotation;
+        }
+        else {
+            LOG_WARN("Failed to update preview prop orientation");
+        }
+    }
+
+    previewOccupant_->SetHighlight(0x2, false);
+    previewOccupant_->SetHighlight(0x3, true);
+}
+
+void PropPainterInputControl::UpdatePreviewProp_() {
+    if (!previewActive_ || !previewOccupant_) {
+        return;
+    }
+
+    if (!cursorValid_) {
+        previewOccupant_->SetVisibility(false, true);
+        return;
+    }
+
+    cS3DVector3 worldPos = currentCursorWorld_;
+    worldPos.fY += settings_.deltaYMeters;
+
+    const bool posChanged =
+        std::abs(worldPos.fX - lastPreviewPosition_.fX) > 0.05f ||
+        std::abs(worldPos.fY - lastPreviewPosition_.fY) > 0.05f ||
+        std::abs(worldPos.fZ - lastPreviewPosition_.fZ) > 0.05f;
+
+    if (posChanged) {
+        if (previewOccupant_->SetPosition(&worldPos)) {
+            lastPreviewPosition_ = worldPos;
+        }
+        else {
+            LOG_WARN("Failed to update preview prop position");
+        }
+    }
+
+    previewOccupant_->SetVisibility(true, true);
 }

@@ -28,8 +28,15 @@ enum class PropPaintMode {
     Polygon = 2
 };
 
+enum class PropPreviewMode {
+    Outline = 0,
+    FullModel = 1,
+    Combined = 2
+};
+
 struct PropPaintSettings {
     PropPaintMode mode = PropPaintMode::Direct;
+    PropPreviewMode previewMode = PropPreviewMode::Outline;
     int32_t rotation = 0;
     float deltaYMeters = 0.0f;
     float spacingMeters = 5.0f;
@@ -112,6 +119,12 @@ private:
     bool PlacePropAtWorld_(const cS3DVector3& position, int32_t rotation, uint32_t propID);
     [[nodiscard]] size_t PendingPlacementCount_() const;
     [[nodiscard]] cISTETerrain* GetTerrain_() const;
+    [[nodiscard]] bool ShouldShowOutlinePreview_() const;
+    [[nodiscard]] bool ShouldShowModelPreview_() const;
+    void CreatePreviewProp_();
+    void DestroyPreviewProp_();
+    void UpdatePreviewProp_();
+    void UpdatePreviewPropRotation_();
 
     cRZAutoRefCount<cISC4City> city_;
     cRZAutoRefCount<cISC4PropManager> propManager_;
@@ -136,6 +149,11 @@ private:
     std::vector<CollectedPoint> collectedPoints_{};
     cS3DVector3 currentCursorWorld_{};
     bool cursorValid_ = false;
+    cRZAutoRefCount<cISC4PropOccupant> previewProp_{};
+    cRZAutoRefCount<cISC4Occupant> previewOccupant_{};
+    bool previewActive_ = false;
+    cS3DVector3 lastPreviewPosition_{};
+    int32_t lastPreviewRotation_ = 0;
     PropPaintOverlay overlay_{};
     std::vector<PropPaintOverlay::PreviewPlacement> cachedPolygonPlacements_{};
     bool polygonPreviewDirty_ = true;
