@@ -18,7 +18,7 @@ public:
                  cIGZImGuiService* imguiService);
     void OnInit() override {}
     void OnRender() override;
-    void OnShutdown() override { delete this; }
+    void OnShutdown() override { Shutdown(); }
     void SetOpen(bool open);
     [[nodiscard]] bool IsOpen() const;
     void Shutdown() const;

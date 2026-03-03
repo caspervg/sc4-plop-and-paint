@@ -5,7 +5,10 @@
 class PropPaintStatusPanel final : public ImGuiPanel {
 public:
     void OnRender() override;
-    void OnShutdown() override { delete this; }
+    void OnShutdown() override {
+        activeControl_ = nullptr;
+        visible_ = false;
+    }
 
     void SetActiveControl(PropPainterInputControl* control);
     void SetVisible(bool visible);
