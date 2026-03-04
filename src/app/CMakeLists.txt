@@ -10,7 +10,7 @@ add_executable(${APP_NAME} ${APP_SOURCES})
 target_compile_definitions(${APP_NAME} PRIVATE NOMINMAX)
 target_compile_definitions(${APP_NAME}
     PRIVATE
-        SC4_PLOP_AND_PAINT_VERSION="${PROJECT_VERSION}"
+        SC4_PLOP_AND_PAINT_VERSION="${SC4_PLOP_AND_PAINT_APP_VERSION}"
 )
 
 target_include_directories(${APP_NAME} PRIVATE
