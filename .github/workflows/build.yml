@@ -29,7 +29,12 @@ jobs:
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Fetch full vcpkg history
-        run: git -C vendor/vcpkg fetch --unshallow
+        shell: powershell
+        run: |
+          $isShallow = (git -C vendor/vcpkg rev-parse --is-shallow-repository).Trim()
+          if ($isShallow -eq "true") {
+            git -C vendor/vcpkg fetch --unshallow
+          }
 
       - name: Bootstrap vcpkg
         run: |
