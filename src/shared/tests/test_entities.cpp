@@ -91,6 +91,7 @@ inline bool operator==(const Prop& lhs, const Prop& rhs) {
            lhs.simulatorDateStart == rhs.simulatorDateStart &&
            lhs.simulatorDateDuration == rhs.simulatorDateDuration &&
            lhs.simulatorDateInterval == rhs.simulatorDateInterval &&
+           lhs.randomChance == rhs.randomChance &&
            lhs.thumbnail == rhs.thumbnail;
 }
 
@@ -256,6 +257,7 @@ TEST_CASE("Prop CBOR serialization and deserialization with timed metadata", "[c
         .simulatorDateStart = SimulatorDateStart{4, 15},
         .simulatorDateDuration = 120,
         .simulatorDateInterval = 365,
+        .randomChance = 40,
         .thumbnail = std::nullopt
     };
 

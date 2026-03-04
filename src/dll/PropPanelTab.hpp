@@ -37,10 +37,13 @@ private:
                               const std::unordered_set<uint64_t>& favorites);
 
     [[nodiscard]] bool HasPropTooltipContent_(const Prop& prop) const;
+    [[nodiscard]] std::string BuildBehaviorSummary_(const Prop& prop) const;
+    [[nodiscard]] bool RenderPropPills_(const Prop& prop, bool startOnNewLine) const;
     void RenderPropTooltip_(const Prop& prop) const;
     void RenderFavButton_(const Prop& prop) const;
     void RenderRotationModal_();
 
+    static void RenderPill_(const char* label, ImU32 baseColor, ImU32 hoverColor);
     static uint64_t MakePropKey_(const Prop& prop);
 
 private:

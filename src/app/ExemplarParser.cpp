@@ -169,6 +169,7 @@ ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
       , pidSimulatorDateStart_(mapper.propertyId(kSimulatorDateStart))
       , pidSimulatorDateDuration_(mapper.propertyId(kSimulatorDateDuration))
       , pidSimulatorDateInterval_(mapper.propertyId(kSimulatorDateInterval))
+      , pidPropRandomChance_(mapper.propertyId(kPropRandomChance))
       , optBuilding_(mapper.propertyOptionId(kExemplarType, kExemplarTypeBuilding))
       , optLotConfig_(mapper.propertyOptionId(kExemplarType, kExemplarTypeLotConfig))
       , optProp_(mapper.propertyOptionId(kExemplarType, kExemplarTypeProp)) {
@@ -515,6 +516,14 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
         }
     }
 
+    if (pidPropRandomChance_) {
+        if (auto* prop = findProperty(exemplar, *pidPropRandomChance_)) {
+            if (const auto value = prop->GetScalarAs<uint8_t>()) {
+                parsedPropExemplar.randomChance = *value;
+            }
+        }
+    }
+
     parsedPropExemplar.modelTgi = resolveModelTgi_(exemplar, tgi);
 
     if (parsedPropExemplar.modelTgi.has_value()) {
@@ -686,6 +695,7 @@ Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
     prop.simulatorDateStart = parsed.simulatorDateStart;
     prop.simulatorDateDuration = parsed.simulatorDateDuration;
     prop.simulatorDateInterval = parsed.simulatorDateInterval;
+    prop.randomChance = parsed.randomChance;
 
     if (parsed.modelTgi.has_value() && thumbnailRenderer_) {
         auto rendered = thumbnailRenderer_->renderModel(*parsed.modelTgi, kRenderedThumbnailSize);

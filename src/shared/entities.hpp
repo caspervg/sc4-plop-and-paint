@@ -88,6 +88,7 @@ struct Prop {
     std::optional<SimulatorDateStart> simulatorDateStart;
     std::optional<uint32_t> simulatorDateDuration;
     std::optional<uint32_t> simulatorDateInterval;
+    std::optional<uint8_t> randomChance;
 
     std::optional<Thumbnail> thumbnail;
 };
@@ -98,7 +99,7 @@ struct PropFamilyInfo {
 };
 
 struct PropsCache {
-    uint32_t version = 3;
+    uint32_t version = 4;
     std::vector<Prop> props;
     std::vector<PropFamilyInfo> propFamilies;
 };

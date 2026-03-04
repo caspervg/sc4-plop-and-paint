@@ -56,6 +56,7 @@ constexpr auto kPropTimeOfDay = "Prop Time of Day";
 constexpr auto kSimulatorDateStart = "Simulator Date Start";
 constexpr auto kSimulatorDateDuration = "Simulator Date Duration";
 constexpr auto kSimulatorDateInterval = "Simulator Date Interval";
+constexpr auto kPropRandomChance = "Prop Random Chance";
 
 // Lot object array indices (0-based, spec uses 1-based rep numbers)
 constexpr auto kLotObjectIndexType = 0; // Rep 1: Object type (0 = building, 1 = prop, etc.)
@@ -113,6 +114,7 @@ struct ParsedPropExemplar {
     std::optional<SimulatorDateStart> simulatorDateStart;
     std::optional<uint32_t> simulatorDateDuration;
     std::optional<uint32_t> simulatorDateInterval;
+    std::optional<uint8_t> randomChance;
     std::optional<DBPF::Tgi> modelTgi;
 };
 
@@ -185,6 +187,7 @@ private:
     std::optional<uint32_t> pidSimulatorDateStart_;
     std::optional<uint32_t> pidSimulatorDateDuration_;
     std::optional<uint32_t> pidSimulatorDateInterval_;
+    std::optional<uint32_t> pidPropRandomChance_;
 
     // Cached exemplar type option IDs
     std::optional<uint32_t> optBuilding_;
