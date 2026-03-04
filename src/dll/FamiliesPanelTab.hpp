@@ -36,7 +36,6 @@ private:
     void QueuePaintForSelectedFamily_();
     void RenderPaintOptionsPopup_();
     bool StartPaintingWithSelectedFamily_();
-    static std::string PropDisplayName_(const Prop& prop);
 
     // Returns the active PropFamily* given the combined index (auto first, then user).
     [[nodiscard]] const PropFamily* GetSelectedFamily_() const;

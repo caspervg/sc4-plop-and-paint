@@ -31,6 +31,11 @@ public:
     float propHeight[2] = {PropSize::kMinSize, PropSize::kMaxSize};
     float propDepth[2] = {PropSize::kMinSize, PropSize::kMaxSize};
     bool favoritesOnly = false;
+    bool requireFamily = false;
+    bool requireDayNight = false;
+    bool requireTimed = false;
+    bool requireSeasonal = false;
+    bool requireReducedChance = false;
 
     [[nodiscard]] bool PassesFilters(const PropView& view) const;
     [[nodiscard]] std::vector<PropView> ApplyFiltersAndSort(
@@ -44,6 +49,7 @@ public:
 private:
     [[nodiscard]] bool PassesTextFilter_(const PropView& view) const;
     [[nodiscard]] bool PassesSizeFilter_(const PropView& view) const;
+    [[nodiscard]] bool PassesCategoryFilter_(const PropView& view) const;
     [[nodiscard]] bool PassesFavoritesOnlyFilter_(const PropView& view,
                                                   const std::unordered_set<uint64_t>& favorites) const;
     [[nodiscard]] static uint64_t MakePropKey_(const Prop& prop);

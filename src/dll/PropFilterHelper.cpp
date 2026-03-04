@@ -5,7 +5,9 @@
 #include "Utils.hpp"
 
 bool PropFilterHelper::PassesFilters(const PropView& view) const {
-    return PassesTextFilter_(view) && PassesSizeFilter_(view);
+    return PassesTextFilter_(view) &&
+           PassesSizeFilter_(view) &&
+           PassesCategoryFilter_(view);
 }
 
 std::vector<PropView> PropFilterHelper::ApplyFiltersAndSort(
@@ -82,6 +84,11 @@ void PropFilterHelper::ResetFilters() {
     propDepth[0] = PropSize::kMinSize;
     propDepth[1] = PropSize::kMaxSize;
     favoritesOnly = false;
+    requireFamily = false;
+    requireDayNight = false;
+    requireTimed = false;
+    requireSeasonal = false;
+    requireReducedChance = false;
 }
 
 bool PropFilterHelper::PassesTextFilter_(const PropView& view) const {
@@ -100,6 +107,32 @@ bool PropFilterHelper::PassesSizeFilter_(const PropView& view) const {
     return view.prop->width >= minW && view.prop->width <= maxW &&
            view.prop->height >= minH && view.prop->height <= maxH &&
            view.prop->depth >= minD && view.prop->depth <= maxD;
+}
+
+bool PropFilterHelper::PassesCategoryFilter_(const PropView& view) const {
+    const Prop& prop = *view.prop;
+
+    if (requireFamily && prop.familyIds.empty()) {
+        return false;
+    }
+    if (requireDayNight && !prop.nighttimeStateChange.value_or(false)) {
+        return false;
+    }
+    if (requireTimed && !prop.timeOfDay.has_value()) {
+        return false;
+    }
+    if (requireSeasonal &&
+        !prop.simulatorDateStart.has_value() &&
+        !prop.simulatorDateDuration.has_value() &&
+        !prop.simulatorDateInterval.has_value()) {
+        return false;
+    }
+    if (requireReducedChance &&
+        (!prop.randomChance.has_value() || *prop.randomChance >= 100)) {
+        return false;
+    }
+
+    return true;
 }
 
 bool PropFilterHelper::PassesFavoritesOnlyFilter_(const PropView& view,

@@ -6,6 +6,7 @@
 #include <cstring>
 #include <optional>
 
+#include "PropBadgeUtils.hpp"
 #include "Utils.hpp"
 #include "rfl/visit.hpp"
 
@@ -267,6 +268,7 @@ void FamiliesPanelTab::OnRender() {
             }
             ImGui::TableSetupColumn("##remove", ImGuiTableColumnFlags_WidthFixed, selectedIsAuto ? 0.0f : UI::removeColumnWidth());
             ImGui::TableHeadersRow();
+            ImGui::TableSetupScrollFreeze(0, 1);
 
             // We need a mutable reference for weight editing / removal (user families only)
             int removeIndex = -1;
@@ -295,7 +297,32 @@ void FamiliesPanelTab::OnRender() {
 
                 ImGui::TableNextColumn();
                 if (prop) {
-                    ImGui::TextUnformatted(PropDisplayName_(*prop).c_str());
+                    const auto renderBadges = [&]() {
+                        bool renderedAnyBadge = false;
+                        PropBadges::ForEachBadge(*prop, [&](const char* label, const ImU32 baseColor, const ImU32 hoverColor) {
+                            if (renderedAnyBadge) {
+                                ImGui::SameLine(0.0f, 4.0f);
+                            }
+                            PropBadges::RenderPill(label, baseColor, hoverColor);
+                            renderedAnyBadge = true;
+                        });
+                        return renderedAnyBadge;
+                    };
+
+                    if (!prop->visibleName.empty()) {
+                        ImGui::TextUnformatted(prop->visibleName.c_str());
+                        if (renderBadges()) {
+                            ImGui::SameLine(0.0f, 4.0f);
+                        }
+                        ImGui::TextDisabled("%s", prop->exemplarName.c_str());
+                    }
+                    else if (!prop->exemplarName.empty()) {
+                        ImGui::TextUnformatted(prop->exemplarName.c_str());
+                        renderBadges();
+                    }
+                    else {
+                        ImGui::TextUnformatted("<unnamed prop>");
+                    }
                 }
                 else {
                     ImGui::Text("Missing 0x%08X", constEntry.propID.value());
@@ -597,16 +624,6 @@ bool FamiliesPanelTab::StartPaintingWithSelectedFamily_() {
     familyPaintDefaults_.randomSeed = 0;
 
     return director_->StartPropPainting(pendingPaint_.fallbackPropId, settings, pendingPaint_.familyName);
-}
-
-std::string FamiliesPanelTab::PropDisplayName_(const Prop& prop) {
-    if (!prop.visibleName.empty()) {
-        return prop.visibleName;
-    }
-    if (!prop.exemplarName.empty()) {
-        return prop.exemplarName;
-    }
-    return "<unnamed prop>";
 }
 
 const PropFamily* FamiliesPanelTab::GetSelectedFamily_() const {

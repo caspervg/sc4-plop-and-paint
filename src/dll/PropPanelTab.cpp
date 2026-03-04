@@ -3,22 +3,12 @@
 #include <cstdio>
 #include <cstring>
 #include "Constants.hpp"
+#include "PropBadgeUtils.hpp"
 #include "Utils.hpp"
 #include "rfl/visit.hpp"
 #include "utils/Logger.h"
 
 namespace {
-    constexpr ImU32 kFamilyPillColor = IM_COL32(48, 102, 96, 255);
-    constexpr ImU32 kFamilyPillHoverColor = IM_COL32(60, 124, 118, 255);
-    constexpr ImU32 kDayNightPillColor = IM_COL32(66, 88, 140, 255);
-    constexpr ImU32 kDayNightPillHoverColor = IM_COL32(80, 104, 162, 255);
-    constexpr ImU32 kTimedPillColor = IM_COL32(138, 98, 36, 255);
-    constexpr ImU32 kTimedPillHoverColor = IM_COL32(160, 114, 46, 255);
-    constexpr ImU32 kSeasonalPillColor = IM_COL32(70, 120, 62, 255);
-    constexpr ImU32 kSeasonalPillHoverColor = IM_COL32(84, 142, 74, 255);
-    constexpr ImU32 kChancePillColor = IM_COL32(128, 72, 44, 255);
-    constexpr ImU32 kChancePillHoverColor = IM_COL32(150, 86, 54, 255);
-
     const char* MonthName_(uint8_t month) {
         static constexpr const char* kMonths[] = {
             "January", "February", "March", "April", "May", "June",
@@ -44,11 +34,6 @@ namespace {
         std::snprintf(buffer, bufferSize, "%02d:%02d", hours, minutes);
     }
 
-    bool HasSeasonalTiming_(const Prop& prop) {
-        return prop.simulatorDateStart.has_value() ||
-            prop.simulatorDateDuration.has_value() ||
-            prop.simulatorDateInterval.has_value();
-    }
 }
 
 const char* PropPanelTab::GetTabName() const {
@@ -174,8 +159,18 @@ void PropPanelTab::RenderFilterUI_() {
     if (ImGui::InputTextWithHint("##SearchProps", "Search props...", searchBuf, sizeof(searchBuf))) {
         filterHelper_.searchBuffer = searchBuf;
     }
-    ImGui::SameLine();
+
     ImGui::Checkbox("Favorites only", &filterHelper_.favoritesOnly);
+    ImGui::SameLine();
+    ImGui::Checkbox("In a family", &filterHelper_.requireFamily);
+    ImGui::SameLine();
+    ImGui::Checkbox("Day/Night", &filterHelper_.requireDayNight);
+    ImGui::SameLine();
+    ImGui::Checkbox("Timed", &filterHelper_.requireTimed);
+    ImGui::SameLine();
+    ImGui::Checkbox("Seasonal", &filterHelper_.requireSeasonal);
+    ImGui::SameLine();
+    ImGui::Checkbox("<100% Chance", &filterHelper_.requireReducedChance);
 
     ImGui::Text("Width:");
     ImGui::SameLine();
@@ -326,7 +321,7 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                         !prop.familyIds.empty() ||
                         prop.nighttimeStateChange.value_or(false) ||
                         prop.timeOfDay.has_value() ||
-                        HasSeasonalTiming_(prop) ||
+                        PropBadges::HasSeasonalTiming(prop) ||
                         (prop.randomChance.has_value() && *prop.randomChance < 100);
                     const bool hoveredPills = RenderPropPills_(prop, true);
                     if (hasInlinePills) {
@@ -427,36 +422,6 @@ bool PropPanelTab::HasPropTooltipContent_(const Prop& prop) const {
         prop.randomChance.has_value();
 }
 
-std::string PropPanelTab::BuildBehaviorSummary_(const Prop& prop) const {
-    const bool hasDayNight = prop.nighttimeStateChange.value_or(false);
-    const bool hasTimeWindow = prop.timeOfDay.has_value();
-    const bool hasSeasonalTiming = HasSeasonalTiming_(prop);
-
-    if (hasDayNight && hasTimeWindow && hasSeasonalTiming) {
-        return "Day/Night + Timed + Seasonal";
-    }
-    if (hasDayNight && hasTimeWindow) {
-        return "Day/Night + Timed";
-    }
-    if (hasDayNight && hasSeasonalTiming) {
-        return "Day/Night + Seasonal";
-    }
-    if (hasTimeWindow && hasSeasonalTiming) {
-        return "Timed + Seasonal";
-    }
-    if (hasDayNight) {
-        return "Day/Night";
-    }
-    if (hasTimeWindow) {
-        return "Timed";
-    }
-    if (hasSeasonalTiming) {
-        return "Seasonal";
-    }
-
-    return "Static";
-}
-
 bool PropPanelTab::RenderPropPills_(const Prop& prop, const bool startOnNewLine) const {
     bool renderedAny = false;
     bool hoveredAny = false;
@@ -471,28 +436,12 @@ bool PropPanelTab::RenderPropPills_(const Prop& prop, const bool startOnNewLine)
             ImGui::SameLine(0.0f, 4.0f);
         }
 
-        RenderPill_(label, baseColor, hoverColor);
+        PropBadges::RenderPill(label, baseColor, hoverColor);
         renderedAny = true;
         hoveredAny = hoveredAny || ImGui::IsItemHovered();
     };
 
-    if (!prop.familyIds.empty()) {
-        renderInlinePill("Family", kFamilyPillColor, kFamilyPillHoverColor);
-    }
-    if (prop.nighttimeStateChange.value_or(false)) {
-        renderInlinePill("Day/Night", kDayNightPillColor, kDayNightPillHoverColor);
-    }
-    if (prop.timeOfDay.has_value()) {
-        renderInlinePill("Timed", kTimedPillColor, kTimedPillHoverColor);
-    }
-    if (HasSeasonalTiming_(prop)) {
-        renderInlinePill("Seasonal", kSeasonalPillColor, kSeasonalPillHoverColor);
-    }
-    if (prop.randomChance.has_value() && *prop.randomChance < 100) {
-        char buffer[24]{};
-        std::snprintf(buffer, sizeof(buffer), "%u%% Chance", *prop.randomChance);
-        renderInlinePill(buffer, kChancePillColor, kChancePillHoverColor);
-    }
+    PropBadges::ForEachBadge(prop, renderInlinePill);
 
     return hoveredAny;
 }
@@ -528,7 +477,7 @@ void PropPanelTab::RenderPropTooltip_(const Prop& prop) const {
             ImGui::Separator();
         }
 
-        ImGui::Text("Behavior: %s", BuildBehaviorSummary_(prop).c_str());
+        ImGui::Text("Behavior: %s", PropBadges::BuildBehaviorSummary(prop).c_str());
     }
 
     if (hasTimedData) {
@@ -570,24 +519,9 @@ void PropPanelTab::RenderPropTooltip_(const Prop& prop) const {
         }
 
         ImGui::Text("Spawn chance: %u%%", *prop.randomChance);
-        if (*prop.randomChance < 100) {
-            ImGui::TextDisabled("The game may skip this prop on some placements.");
-        }
     }
 
     ImGui::EndTooltip();
-}
-
-void PropPanelTab::RenderPill_(const char* label, const ImU32 baseColor, const ImU32 hoverColor) {
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 999.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_Button, baseColor);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hoverColor);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, hoverColor);
-    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(235, 238, 242, 255));
-    ImGui::SmallButton(label);
-    ImGui::PopStyleColor(4);
-    ImGui::PopStyleVar(2);
 }
 
 void PropPanelTab::RenderRotationModal_() {
