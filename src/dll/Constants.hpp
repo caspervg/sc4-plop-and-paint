@@ -43,4 +43,10 @@ namespace Cache {
     constexpr auto kPrefetchMargin = 10;
 } // namespace Cache
 
+namespace Undo {
+    // Maximum number of undo groups retained in the pending placements stack.
+    // Older groups are automatically committed (de-highlighted) when the limit is exceeded.
+    constexpr size_t kMaxUndoGroups = 50;
+} // namespace Undo
+
 constexpr auto kMaxIconsToLoadPerFrame = 50;

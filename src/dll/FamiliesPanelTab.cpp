@@ -8,7 +8,6 @@
 
 #include "PropBadgeUtils.hpp"
 #include "Utils.hpp"
-#include "rfl/visit.hpp"
 
 namespace {
     std::string FormatFamilyId(const std::optional<uint32_t> familyId) {
@@ -280,9 +279,11 @@ void FamiliesPanelTab::OnRender() {
                 ImGui::TableNextRow(0, UI::iconRowHeight());
 
                 ImGui::TableNextColumn();
-                if (prop && prop->thumbnail) {
+                if (prop) {
                     const uint64_t key = MakeGIKey(prop->groupId.value(), prop->instanceId.value());
-                    thumbnailCache_.Request(key);
+                    if (props_->GetPropThumbnailStore().HasThumbnail(key)) {
+                        thumbnailCache_.Request(key);
+                    }
                     auto thumbTextureId = thumbnailCache_.Get(key);
                     if (thumbTextureId.has_value() && *thumbTextureId != nullptr) {
                         ImGui::Image(*thumbTextureId, ImVec2(UI::kIconSize, UI::kIconSize));
@@ -389,40 +390,19 @@ void FamiliesPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
     }
 }
 
-ImGuiTexture FamiliesPanelTab::LoadPropTexture_(const uint64_t propKey) {
+ImGuiTexture FamiliesPanelTab::LoadPropTexture_(const uint64_t propKey) const {
     ImGuiTexture texture;
 
     if (!imguiService_) {
         return texture;
     }
 
-    const auto& propsById = props_->GetPropsById();
-    if (!propsById.contains(propKey)) {
+    auto data = props_->GetPropThumbnailStore().LoadThumbnail(propKey);
+    if (!data.has_value()) {
         return texture;
     }
 
-    const Prop* prop = propsById.at(propKey);
-    if (!prop || !prop->thumbnail.has_value()) {
-        return texture;
-    }
-
-    rfl::visit([&](const auto& variant) {
-        const auto& data = variant.data;
-        const uint32_t width = variant.width;
-        const uint32_t height = variant.height;
-
-        if (data.empty() || width == 0 || height == 0) {
-            return;
-        }
-
-        const size_t expectedSize = static_cast<size_t>(width) * height * 4;
-        if (data.size() != expectedSize) {
-            return;
-        }
-
-        texture.Create(imguiService_, width, height, data.data());
-    }, prop->thumbnail.value());
-
+    texture.Create(imguiService_, data->width, data->height, data->rgba.data());
     return texture;
 }
 

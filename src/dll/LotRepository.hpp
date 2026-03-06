@@ -4,19 +4,20 @@
 #include <vector>
 
 #include "../shared/entities.hpp"
+#include "ThumbnailStore.hpp"
 
 class LotRepository {
 public:
     void Load();
 
     [[nodiscard]] const std::vector<Building>& GetBuildings() const { return buildings_; }
-    [[nodiscard]] const std::unordered_map<uint64_t, Building>& GetBuildingsById() const { return buildingsById_; }
-    [[nodiscard]] const std::unordered_map<uint64_t, Lot>& GetLotsById() const { return lotsById_; }
+    [[nodiscard]] const std::unordered_map<uint64_t, const Building*>& GetBuildingsById() const { return buildingsById_; }
+    [[nodiscard]] ThumbnailStore& GetBuildingThumbnailStore() { return buildingThumbnails_; }
 
 private:
     static std::filesystem::path GetPluginsPath_();
 
     std::vector<Building> buildings_;
-    std::unordered_map<uint64_t, Building> buildingsById_;
-    std::unordered_map<uint64_t, Lot> lotsById_;
+    std::unordered_map<uint64_t, const Building*> buildingsById_;
+    ThumbnailStore buildingThumbnails_;
 };

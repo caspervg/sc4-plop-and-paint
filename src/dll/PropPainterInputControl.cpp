@@ -1,6 +1,7 @@
 #include "PropPainterInputControl.hpp"
 
 #include <algorithm>
+#include "Constants.hpp"
 #include <cmath>
 #include <memory>
 #include <windows.h>
@@ -723,6 +724,7 @@ void PropPainterInputControl::ExecuteLinePlacement_() {
     batchingPlacements_ = false;
     if (!currentUndoGroup_.props.empty()) {
         undoStack_.push_back(std::move(currentUndoGroup_));
+        TrimUndoStack_();
     }
     currentUndoGroup_.props.clear();
 
@@ -772,6 +774,7 @@ void PropPainterInputControl::ExecutePolygonPlacement_() {
     batchingPlacements_ = false;
     if (!currentUndoGroup_.props.empty()) {
         undoStack_.push_back(std::move(currentUndoGroup_));
+        TrimUndoStack_();
     }
     currentUndoGroup_.props.clear();
 
@@ -807,6 +810,17 @@ void PropPainterInputControl::UndoLastPlacement() {
     }
 
     LOG_INFO("Undid placement group: removed {} prop(s), {} remaining", removedCount, PendingPlacementCount_());
+}
+
+void PropPainterInputControl::TrimUndoStack_() {
+    while (undoStack_.size() > Undo::kMaxUndoGroups) {
+        const auto& group = undoStack_.front();
+        for (const auto& prop : group.props) {
+            prop->SetHighlight(0x0, true);
+        }
+        undoStack_.erase(undoStack_.begin());
+        LOG_DEBUG("Undo stack trimmed: committed oldest group, {} groups remaining", undoStack_.size());
+    }
 }
 
 void PropPainterInputControl::UndoLastPlacementInGroup() {
@@ -968,6 +982,7 @@ bool PropPainterInputControl::PlacePropAtWorld_(const cS3DVector3& position, con
         UndoGroup group;
         group.props.emplace_back(occupant);
         undoStack_.push_back(std::move(group));
+        TrimUndoStack_();
     }
 
     LOG_INFO("Placed prop 0x{:08X} at ({:.2f}, {:.2f}, {:.2f}), rotation: {}",

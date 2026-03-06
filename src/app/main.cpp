@@ -31,6 +31,7 @@
 #include <rfl/cbor.hpp>
 
 #include "dll/Utils.hpp"
+#include "ThumbnailBinWriter.hpp"
 
 #ifndef SC4_PLOP_AND_PAINT_VERSION
 #define SC4_PLOP_AND_PAINT_VERSION "0.0.1"
@@ -396,10 +397,29 @@ namespace {
                 return a.familyId.value() < b.familyId.value();
             });
 
+            // Extract building thumbnails into a sidecar binary file, then strip them
+            // from allBuildings so the CBOR stays lean.
+            {
+                std::vector<std::pair<uint64_t, Thumbnail>> buildingThumbnails;
+                for (auto& b : allBuildings) {
+                    if (b.thumbnail.has_value()) {
+                        const uint64_t key = MakeGIKey(b.groupId.value(), b.instanceId.value());
+                        buildingThumbnails.emplace_back(key, std::move(*b.thumbnail));
+                        b.thumbnail.reset();
+                    }
+                }
+                if (!buildingThumbnails.empty()) {
+                    const auto binPath = config.userPluginsRoot / "lot_thumbnails.bin";
+                    const auto count = buildingThumbnails.size();
+                    ThumbnailBin::Write(binPath, std::move(buildingThumbnails));
+                    logger.info("Exported {} building thumbnails to {}", count, binPath.string());
+                }
+            }
+
             // Export grouped building/lot data to CBOR file in user plugins directory
             if (!allBuildings.empty()) {
                 try {
-                    auto cborPath = config.userPluginsRoot / "lot_configs.cbor";
+                    auto cborPath = config.userPluginsRoot / "lots.cbor";
                     fs::create_directories(config.userPluginsRoot);
 
                     logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound,
@@ -416,6 +436,24 @@ namespace {
                 }
                 catch (const std::exception& error) {
                     logger.error("Error exporting lot configs: {}", error.what());
+                }
+            }
+
+            // Extract prop thumbnails into a sidecar binary file, then strip them.
+            {
+                std::vector<std::pair<uint64_t, Thumbnail>> propThumbnails;
+                for (auto& p : allProps) {
+                    if (p.thumbnail.has_value()) {
+                        const uint64_t key = MakeGIKey(p.groupId.value(), p.instanceId.value());
+                        propThumbnails.emplace_back(key, std::move(*p.thumbnail));
+                        p.thumbnail.reset();
+                    }
+                }
+                if (!propThumbnails.empty()) {
+                    const auto binPath = config.userPluginsRoot / "prop_thumbnails.bin";
+                    const auto count = propThumbnails.size();
+                    ThumbnailBin::Write(binPath, std::move(propThumbnails));
+                    logger.info("Exported {} prop thumbnails to {}", count, binPath.string());
                 }
             }
 

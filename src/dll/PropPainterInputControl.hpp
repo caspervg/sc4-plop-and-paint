@@ -123,6 +123,7 @@ private:
     void ExecutePolygonPlacement_();
 
     void UndoLastPlacementInGroup();
+    void TrimUndoStack_();
     bool PlacePropAt_(int32_t screenX, int32_t screenZ);
     bool PlacePropAtWorld_(const cS3DVector3& position, int32_t rotation, uint32_t propID);
     [[nodiscard]] size_t PendingPlacementCount_() const;

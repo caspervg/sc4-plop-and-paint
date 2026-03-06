@@ -5,7 +5,6 @@
 #include "Constants.hpp"
 #include "PropBadgeUtils.hpp"
 #include "Utils.hpp"
-#include "rfl/visit.hpp"
 #include "utils/Logger.h"
 
 namespace {
@@ -109,42 +108,13 @@ ImGuiTexture PropPanelTab::LoadPropTexture_(uint64_t propKey) {
         return texture;
     }
 
-    const auto& propsById = props_->GetPropsById();
-    if (!propsById.contains(propKey)) {
-        LOG_WARN("Could not find prop with key 0x{:016X} in props map", propKey);
-        return texture;
-    }
-    const Prop* prop = propsById.at(propKey);
-    if (!prop) {
-        LOG_WARN("Prop index entry for key 0x{:016X} is null", propKey);
-        return texture;
-    }
-    if (!prop->thumbnail.has_value()) {
-        LOG_WARN("Prop with key 0x{:016X} has no thumbnail", propKey);
+    auto data = props_->GetPropThumbnailStore().LoadThumbnail(propKey);
+    if (!data.has_value()) {
+        LOG_WARN("Prop thumbnail not found in store for key 0x{:016X}", propKey);
         return texture;
     }
 
-    const auto& thumbnail = prop->thumbnail.value();
-
-    rfl::visit([&](const auto& variant) {
-        const auto& data = variant.data;
-        const uint32_t width = variant.width;
-        const uint32_t height = variant.height;
-
-        if (data.empty() || width == 0 || height == 0) {
-            return;
-        }
-
-        const size_t expectedSize = static_cast<size_t>(width) * height * 4;
-        if (data.size() != expectedSize) {
-            LOG_WARN("Prop icon data size mismatch for key 0x{:016X}: expected {}, got {}",
-                     propKey, expectedSize, data.size());
-            return;
-        }
-
-        texture.Create(imguiService_, width, height, data.data());
-    }, thumbnail);
-
+    texture.Create(imguiService_, data->width, data->height, data->rgba.data());
     return texture;
 }
 
@@ -279,8 +249,9 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
             const int prefetchEnd = std::min(static_cast<int>(filteredProps.size()), clipper.DisplayEnd + Cache::kPrefetchMargin);
             for (int i = prefetchStart; i < prefetchEnd; ++i) {
                 const auto& prop = *filteredProps[i].prop;
-                if (prop.thumbnail.has_value()) {
-                    thumbnailCache_.Request(MakeGIKey(prop.groupId.value(), prop.instanceId.value()));
+                const uint64_t key = MakeGIKey(prop.groupId.value(), prop.instanceId.value());
+                if (props_->GetPropThumbnailStore().HasThumbnail(key)) {
+                    thumbnailCache_.Request(key);
                 }
             }
 

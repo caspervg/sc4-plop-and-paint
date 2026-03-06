@@ -11,23 +11,25 @@
 void LotRepository::Load() {
     try {
         const auto pluginsPath = GetPluginsPath_();
-        const auto cborPath = pluginsPath / "lot_configs.cbor";
+        const auto cborPath = pluginsPath / "lots.cbor";
 
         if (!std::filesystem::exists(cborPath)) {
             LOG_WARN("Lot config CBOR file not found: {}", cborPath.string());
             return;
         }
 
+        buildingThumbnails_.Load(pluginsPath / "lot_thumbnails.bin");
+
         auto result = rfl::cbor::load<std::vector<Building>>(cborPath.string());
         if (result) {
             buildings_ = std::move(*result);
-            buildingsById_ = std::unordered_map<uint64_t, Building>(buildings_.size());
+            buildingsById_ = std::unordered_map<uint64_t, const Building*>(buildings_.size());
 
             size_t lotCount = 0;
             std::unordered_set<uint64_t> lotKeys;
             size_t duplicateLots = 0;
             for (const auto& b : buildings_) {
-                buildingsById_.emplace(MakeGIKey(b.groupId.value(), b.instanceId.value()), b);
+                buildingsById_.emplace(MakeGIKey(b.groupId.value(), b.instanceId.value()), &b);
                 for (const auto& lot : b.lots) {
                     ++lotCount;
                     const uint64_t key = MakeGIKey(lot.groupId.value(), lot.instanceId.value());
@@ -36,7 +38,6 @@ void LotRepository::Load() {
                         LOG_WARN("Duplicate lot in CBOR: group=0x{:08X}, instance=0x{:08X}",
                                  lot.groupId.value(), lot.instanceId.value());
                     }
-                    lotsById_.emplace(key, lot);
                 }
             }
 

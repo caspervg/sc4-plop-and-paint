@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../shared/entities.hpp"
+#include "ThumbnailStore.hpp"
 
 class PropRepository {
 public:
@@ -16,6 +17,7 @@ public:
     [[nodiscard]] const std::vector<PropFamily>& GetAutoFamilies() const { return autoFamilies_; }
     [[nodiscard]] const std::vector<uint32_t>& GetAutoFamilyIds() const { return autoFamilyIds_; }
     [[nodiscard]] const Prop* FindPropByInstanceId(uint32_t instanceId) const;
+    [[nodiscard]] ThumbnailStore& GetPropThumbnailStore() { return propThumbnails_; }
 
 private:
     void RebuildIndexes_();
@@ -29,4 +31,5 @@ private:
     std::vector<PropFamilyInfo> propFamilyInfos_;
     std::vector<PropFamily> autoFamilies_;
     std::vector<uint32_t> autoFamilyIds_;
+    ThumbnailStore propThumbnails_;
 };

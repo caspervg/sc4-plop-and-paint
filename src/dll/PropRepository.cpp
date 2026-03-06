@@ -26,6 +26,8 @@ void PropRepository::Load() {
         autoFamilies_.clear();
         autoFamilyIds_.clear();
 
+        propThumbnails_.Load(pluginsPath / "prop_thumbnails.bin");
+
         if (auto result = rfl::cbor::load<PropsCache>(cborPath.string())) {
             props_ = std::move(result->props);
             propFamilyInfos_ = std::move(result->propFamilies);

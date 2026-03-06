@@ -4,7 +4,6 @@
 #include "Utils.hpp"
 #include "utils/Logger.h"
 #include "jsoncons/staj_event.hpp"
-#include "rfl/visit.hpp"
 
 namespace {
     std::string CollapseConsecutiveNewlines(const std::string& text) {
@@ -74,37 +73,13 @@ ImGuiTexture BuildingsPanelTab::LoadBuildingTexture_(uint64_t buildingKey) {
         return texture;
     }
 
-    const auto& buildingsById = lots_->GetBuildingsById();
-    if (!buildingsById.contains(buildingKey)) {
-        LOG_WARN("Could not find building with key 0x{:016X} in buildings map", buildingKey);
+    auto data = lots_->GetBuildingThumbnailStore().LoadThumbnail(buildingKey);
+    if (!data.has_value()) {
+        LOG_WARN("Building thumbnail not found in store for key 0x{:016X}", buildingKey);
         return texture;
     }
-    const auto& building = buildingsById.at(buildingKey);
-    if (!building.thumbnail.has_value()) {
-        LOG_WARN("Building with key 0x{:016X} has no thumbnail", buildingKey);
-    }
 
-    const auto& thumbnail = building.thumbnail.value();
-
-    rfl::visit([&](const auto& variant) {
-        const auto& data = variant.data;
-        const uint32_t width = variant.width;
-        const uint32_t height = variant.height;
-
-        if (data.empty() || width == 0 || height == 0) {
-            return;
-        }
-
-        const size_t expectedSize = static_cast<size_t>(width) * height * 4;
-        if (data.size() != expectedSize) {
-            LOG_WARN("Building icon data size mismatch for key 0x{:016X}: expected {}, got {}",
-                     buildingKey, expectedSize, data.size());
-            return;
-        }
-
-        texture.Create(imguiService_, width, height, data.data());
-    }, thumbnail);
-
+    texture.Create(imguiService_, data->width, data->height, data->rgba.data());
     return texture;
 }
 
@@ -254,8 +229,9 @@ void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
 
             for (int i = prefetchStart; i < prefetchEnd; ++i) {
                 const auto& building = filteredBuildings_[i];
-                if (building->thumbnail.has_value()) {
-                    thumbnailCache_.Request(MakeGIKey(building->groupId.value(), building->instanceId.value()));
+                const uint64_t key = MakeGIKey(building->groupId.value(), building->instanceId.value());
+                if (lots_->GetBuildingThumbnailStore().HasThumbnail(key)) {
+                    thumbnailCache_.Request(key);
                 }
             }
 

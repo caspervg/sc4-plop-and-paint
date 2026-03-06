@@ -30,7 +30,7 @@ public:
     void OnShutdown() override { thumbnailCache_.Clear(); }
 
 private:
-    ImGuiTexture LoadPropTexture_(uint64_t propKey);
+    ImGuiTexture LoadPropTexture_(uint64_t propKey) const;
     void RenderNewFamilyPopup_();
     void RenderDeleteFamilyPopup_(size_t userFamilyIndex);
     void QueuePaintForSelectedFamily_();
