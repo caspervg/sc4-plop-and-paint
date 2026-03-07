@@ -30,7 +30,7 @@
 
 #include <rfl/cbor.hpp>
 
-#include "dll/Utils.hpp"
+#include "../dll/common/Utils.hpp"
 #include "ThumbnailBinWriter.hpp"
 
 #ifndef SC4_PLOP_AND_PAINT_VERSION

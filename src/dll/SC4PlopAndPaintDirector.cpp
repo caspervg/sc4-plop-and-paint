@@ -6,24 +6,24 @@
 #include <wil/resource.h>
 #include <wil/win32_helpers.h>
 
+#include "PlopAndPaintPanel.hpp"
 #include "cGZPersistResourceKey.h"
 #include "cIGZCommandParameterSet.h"
 #include "cIGZPersistResourceManager.h"
 #include "cIGZWinKeyAccelerator.h"
 #include "cIGZWinKeyAcceleratorRes.h"
 #include "cRZBaseVariant.h"
-#include "FavoritesRepository.hpp"
-#include "FloraRepository.hpp"
-#include "LotPlopPanel.hpp"
-#include "LotRepository.hpp"
-#include "PropPainterInputControl.hpp"
-#include "PropStripperInputControl.hpp"
-#include "PropRepository.hpp"
-#include "Utils.hpp"
+#include "common/Utils.hpp"
+#include "favorites/FavoritesRepository.hpp"
+#include "flora/FloraRepository.hpp"
+#include "lots/LotRepository.hpp"
+#include "props/PropPainterInputControl.hpp"
+#include "props/PropRepository.hpp"
+#include "props/PropStripperInputControl.hpp"
+#include "public/S3DCameraServiceIds.h"
+#include "public/cIGZS3DCameraService.h"
 #include "utils/Logger.h"
 #include "utils/Settings.h"
-#include "public/cIGZS3DCameraService.h"
-#include "public/S3DCameraServiceIds.h"
 
 namespace {
     constexpr auto kSC4AdvancedLotPlopDirectorID = 0xE5C2B9A7u;
@@ -134,7 +134,7 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         floraRepository_->Load();
         favoritesRepository_->Load();
 
-        panel_ = std::make_unique<LotPlopPanel>(
+        panel_ = std::make_unique<PlopAndPaintPanel>(
             this,
             lotRepository_.get(),
             propRepository_.get(),
@@ -142,7 +142,7 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
             favoritesRepository_.get(),
             imguiService_);
 
-        const ImGuiPanelDesc desc = ImGuiPanelAdapter<LotPlopPanel>::MakeDesc(
+        const ImGuiPanelDesc desc = ImGuiPanelAdapter<PlopAndPaintPanel>::MakeDesc(
             panel_.get(), kLotPlopPanelId, 100, true
         );
 
@@ -153,8 +153,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
             LOG_INFO("Registered ImGui panel");
         }
 
-        statusPanel_ = std::make_unique<PropPaintStatusPanel>();
-        const ImGuiPanelDesc statusDesc = ImGuiPanelAdapter<PropPaintStatusPanel>::MakeDesc(
+        statusPanel_ = std::make_unique<PaintStatusPanel>();
+        const ImGuiPanelDesc statusDesc = ImGuiPanelAdapter<PaintStatusPanel>::MakeDesc(
             statusPanel_.get(), kStatusPanelId, 101, true
         );
         if (imguiService_->RegisterPanel(statusDesc)) {
@@ -550,7 +550,7 @@ float SC4PlopAndPaintDirector::GetDefaultGridStepMeters() const noexcept {
     return defaultGridStepMeters_;
 }
 
-PropPreviewMode SC4PlopAndPaintDirector::GetDefaultPropPreviewMode() const noexcept {
+PreviewMode SC4PlopAndPaintDirector::GetDefaultPropPreviewMode() const noexcept {
     return defaultPropPreviewMode_;
 }
 

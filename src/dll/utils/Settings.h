@@ -4,8 +4,9 @@
 #include <filesystem>
 #include <string>
 
-#include "../PropPainterInputControl.hpp"
 #include <spdlog/common.h>
+
+#include "paint/PaintSettings.hpp"
 
 class Settings {
 public:
@@ -17,7 +18,7 @@ public:
     [[nodiscard]] spdlog::level::level_enum GetLogLevel() const noexcept;
     [[nodiscard]] bool GetLogToFile() const noexcept;
     [[nodiscard]] bool GetEnableDrawOverlay() const noexcept;
-    [[nodiscard]] PropPreviewMode GetDefaultPropPreviewMode() const noexcept;
+    [[nodiscard]] PreviewMode GetDefaultPropPreviewMode() const noexcept;
     [[nodiscard]] bool GetDefaultShowGridOverlay() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPointsToGrid() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPlacementsToGrid() const noexcept;
@@ -27,7 +28,7 @@ private:
     spdlog::level::level_enum logLevel_;
     bool logToFile_;
     bool enableDrawOverlay_;
-    PropPreviewMode defaultPropPreviewMode_;
+    PreviewMode defaultPropPreviewMode_;
     bool defaultShowGridOverlay_;
     bool defaultSnapPointsToGrid_;
     bool defaultSnapPlacementsToGrid_;

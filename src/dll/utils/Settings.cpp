@@ -12,7 +12,7 @@ namespace {
     constexpr spdlog::level::level_enum kDefaultLogLevel = spdlog::level::info;
     constexpr bool kDefaultLogToFile = true;
     constexpr bool kDefaultEnableDrawOverlay = true;
-    constexpr PropPreviewMode kDefaultPropPreviewMode = PropPreviewMode::Outline;
+    constexpr PreviewMode kDefaultPropPreviewMode = PreviewMode::Outline;
     constexpr bool kDefaultShowGridOverlay = true;
     constexpr bool kDefaultSnapPointsToGrid = false;
     constexpr bool kDefaultSnapPlacementsToGrid = false;
@@ -58,20 +58,20 @@ namespace {
         return false;
     }
 
-    PropPreviewMode ParsePropPreviewMode(const std::string& value, bool& valid) {
+    PreviewMode ParsePropPreviewMode(const std::string& value, bool& valid) {
         const std::string normalized = ToLower(value);
 
         if (normalized == "outline" || normalized == "outlineonly") {
             valid = true;
-            return PropPreviewMode::Outline;
+            return PreviewMode::Outline;
         }
         if (normalized == "full" || normalized == "fullprop" || normalized == "fullmodel") {
             valid = true;
-            return PropPreviewMode::FullModel;
+            return PreviewMode::FullModel;
         }
         if (normalized == "combined" || normalized == "both" || normalized == "outlineandfull") {
             valid = true;
-            return PropPreviewMode::Combined;
+            return PreviewMode::Combined;
         }
 
         valid = false;
@@ -223,7 +223,7 @@ void Settings::Load(const std::filesystem::path& settingsFilePath) {
 spdlog::level::level_enum Settings::GetLogLevel() const noexcept { return logLevel_; }
 bool Settings::GetLogToFile() const noexcept { return logToFile_; }
 bool Settings::GetEnableDrawOverlay() const noexcept { return enableDrawOverlay_; }
-PropPreviewMode Settings::GetDefaultPropPreviewMode() const noexcept { return defaultPropPreviewMode_; }
+PreviewMode Settings::GetDefaultPropPreviewMode() const noexcept { return defaultPropPreviewMode_; }
 bool Settings::GetDefaultShowGridOverlay() const noexcept { return defaultShowGridOverlay_; }
 bool Settings::GetDefaultSnapPointsToGrid() const noexcept { return defaultSnapPointsToGrid_; }
 bool Settings::GetDefaultSnapPlacementsToGrid() const noexcept { return defaultSnapPlacementsToGrid_; }

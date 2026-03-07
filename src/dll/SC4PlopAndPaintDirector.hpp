@@ -7,11 +7,7 @@
 #include <memory>
 #include <string>
 #include "../shared/entities.hpp"
-#include "FloraPainterInputControl.hpp"
 #include "GZServPtrs.h"
-#include "PropPaintStatusPanel.hpp"
-#include "PropPainterInputControl.hpp"
-#include "PropStripperInputControl.hpp"
 #include "cIGZCommandServer.h"
 #include "cIGZMessage2Standard.h"
 #include "cIGZMessageServer2.h"
@@ -21,14 +17,18 @@
 #include "cISC4View3DWin.h"
 #include "cRZAutoRefCount.h"
 #include "cRZMessage2COMDirector.h"
+#include "flora/FloraPainterInputControl.hpp"
 #include "imgui.h"
+#include "paint/PaintStatusPanel.hpp"
+#include "props/PropPainterInputControl.hpp"
+#include "props/PropStripperInputControl.hpp"
 #include "public/ImGuiPanel.h"
 #include "public/ImGuiPanelAdapter.h"
 #include "public/ImGuiServiceIds.h"
 #include "public/cIGZDrawService.h"
 #include "public/cIGZImGuiService.h"
 
-class LotPlopPanel;
+class PlopAndPaintPanel;
 class FloraRepository;
 class LotRepository;
 class PropRepository;
@@ -72,7 +72,7 @@ public:
     [[nodiscard]] bool GetDefaultSnapPointsToGrid() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPlacementsToGrid() const noexcept;
     [[nodiscard]] float GetDefaultGridStepMeters() const noexcept;
-    [[nodiscard]] PropPreviewMode GetDefaultPropPreviewMode() const noexcept;
+    [[nodiscard]] PreviewMode GetDefaultPropPreviewMode() const noexcept;
     void SetLotPlopPanelVisible(bool visible);
 
 private:
@@ -100,17 +100,17 @@ private:
     bool panelRegistered_{false};
     bool panelVisible_{false};
     bool shortcutRegistered_{false};
-    std::unique_ptr<LotPlopPanel> panel_;
+    std::unique_ptr<PlopAndPaintPanel> panel_;
     cRZAutoRefCount<PropPainterInputControl>  propPainterControl_;
     bool propPainting_{false};
     cRZAutoRefCount<FloraPainterInputControl>  floraPlacerControl_;
     bool floraPainting_{false};
     cRZAutoRefCount<PropStripperInputControl> propStripperControl_;
     bool propStripping_{false};
-    std::unique_ptr<PropPaintStatusPanel> statusPanel_;
+    std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};
     uint32_t drawCallbackToken_{0};
-    PropPreviewMode defaultPropPreviewMode_ = PropPreviewMode::Outline;
+    PreviewMode defaultPropPreviewMode_ = PreviewMode::Outline;
     bool defaultShowGridOverlay_ = true;
     bool defaultSnapPointsToGrid_ = false;
     bool defaultSnapPlacementsToGrid_ = false;
