@@ -25,6 +25,11 @@ public:
     [[nodiscard]] const std::unordered_set<uint64_t>& GetFavoritePropIds() const;
     void TogglePropFavorite(uint32_t groupId, uint32_t instanceId);
 
+    // Flora favorites
+    [[nodiscard]] bool IsFloraFavorite(uint32_t groupId, uint32_t instanceId) const;
+    [[nodiscard]] const std::unordered_set<uint64_t>& GetFavoriteFloraIds() const;
+    void ToggleFloraFavorite(uint32_t groupId, uint32_t instanceId);
+
     // User-created families (formerly "palettes")
     [[nodiscard]] const std::vector<PropFamily>& GetUserFamilies() const;
     std::vector<PropFamily>& GetUserFamilies();
@@ -46,6 +51,7 @@ private:
     const PropRepository& props_;
     std::unordered_set<uint32_t> favoriteLotIds_;
     std::unordered_set<uint64_t> favoritePropIds_;
+    std::unordered_set<uint64_t> favoriteFloraIds_;
     std::vector<PropFamily> userFamilies_;
     size_t activeUserFamilyIndex_{0};
 };

@@ -32,6 +32,13 @@ namespace UI {
     inline float weightColumnWidth() { return 9.2f * ImGui::GetFontSize(); }
     inline float removeColumnWidth() { return 1.85f * ImGui::GetFontSize(); }
 
+    // Flora tab
+    inline float floraTableHeight() { return 13.8f * ImGui::GetFontSize(); }
+    inline float floraGroupsTableHeight() { return 10.5f * ImGui::GetFontSize(); }
+    inline float floraStagesHeight() { return 10.8f * ImGui::GetFontSize(); }
+    inline float favoriteColumnWidth() { return 4.6f * ImGui::GetFontSize(); }
+    inline float floraStageColumnWidth() { return 4.0f * ImGui::GetFontSize(); }
+
     // Occupant groups
     inline float treeIndentSpacing() { return 0.9f * ImGui::GetFontSize(); }
     inline float ogTreeHeight() { return 11.5f * ImGui::GetFontSize(); }

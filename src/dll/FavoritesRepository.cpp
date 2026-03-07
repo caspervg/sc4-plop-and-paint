@@ -18,6 +18,7 @@ FavoritesRepository::FavoritesRepository(const PropRepository& props)
 void FavoritesRepository::Load() {
     favoriteLotIds_.clear();
     favoritePropIds_.clear();
+    favoriteFloraIds_.clear();
     userFamilies_.clear();
     activeUserFamilyIndex_ = 0;
 
@@ -37,6 +38,11 @@ void FavoritesRepository::Load() {
             if (result->props) {
                 for (const auto& hexId : result->props->items) {
                     favoritePropIds_.insert(hexId.value());
+                }
+            }
+            if (result->flora) {
+                for (const auto& hexId : result->flora->items) {
+                    favoriteFloraIds_.insert(hexId.value());
                 }
             }
 
@@ -71,7 +77,7 @@ void FavoritesRepository::Save() const {
         const auto cborPath = pluginsPath / "favorites.cbor";
 
         AllFavorites allFavorites;
-        allFavorites.version = 2;
+        allFavorites.version = 3;
 
         for (const uint32_t id : favoriteLotIds_) {
             allFavorites.lots.items.emplace_back(id);
@@ -91,7 +97,17 @@ void FavoritesRepository::Save() const {
             }
             allFavorites.props = std::move(propFavorites);
         }
-        allFavorites.flora = std::nullopt;
+        if (!favoriteFloraIds_.empty()) {
+            TabFavorites floraFavorites;
+            floraFavorites.items.reserve(favoriteFloraIds_.size());
+            for (const uint64_t id : favoriteFloraIds_) {
+                floraFavorites.items.emplace_back(id);
+            }
+            allFavorites.flora = std::move(floraFavorites);
+        }
+        else {
+            allFavorites.flora = std::nullopt;
+        }
         allFavorites.families = userFamilies_.empty() ? std::nullopt : std::make_optional(userFamilies_);
 
         if (const auto saveResult = rfl::cbor::save(cborPath.string(), allFavorites)) {
@@ -144,6 +160,27 @@ void FavoritesRepository::TogglePropFavorite(const uint32_t groupId, const uint3
     else {
         favoritePropIds_.insert(key);
         LOG_INFO("Added prop favorite: 0x{:08X}/0x{:08X}", groupId, instanceId);
+    }
+    Save();
+}
+
+bool FavoritesRepository::IsFloraFavorite(const uint32_t groupId, const uint32_t instanceId) const {
+    return favoriteFloraIds_.contains(MakeGIKey(groupId, instanceId));
+}
+
+const std::unordered_set<uint64_t>& FavoritesRepository::GetFavoriteFloraIds() const {
+    return favoriteFloraIds_;
+}
+
+void FavoritesRepository::ToggleFloraFavorite(const uint32_t groupId, const uint32_t instanceId) {
+    const uint64_t key = MakeGIKey(groupId, instanceId);
+    if (favoriteFloraIds_.contains(key)) {
+        favoriteFloraIds_.erase(key);
+        LOG_INFO("Removed flora favorite: 0x{:08X}/0x{:08X}", groupId, instanceId);
+    }
+    else {
+        favoriteFloraIds_.insert(key);
+        LOG_INFO("Added flora favorite: 0x{:08X}/0x{:08X}", groupId, instanceId);
     }
     Save();
 }
