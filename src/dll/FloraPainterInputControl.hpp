@@ -10,10 +10,10 @@
 
 class FloraRepository;
 
-class FloraPlacerInputControl : public BasePainterInputControl {
+class FloraPainterInputControl : public BasePainterInputControl {
 public:
-    FloraPlacerInputControl();
-    ~FloraPlacerInputControl() override;
+    FloraPainterInputControl();
+    ~FloraPainterInputControl() override;
 
     void SetFloraToPaint(uint32_t floraTypeID, const PropPaintSettings& settings, const std::string& name);
     void SetFloraRepository(const FloraRepository* floraRepository);

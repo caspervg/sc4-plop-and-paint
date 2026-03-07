@@ -6,6 +6,12 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include "../shared/entities.hpp"
+#include "FloraPainterInputControl.hpp"
+#include "GZServPtrs.h"
+#include "PropPaintStatusPanel.hpp"
+#include "PropPainterInputControl.hpp"
+#include "PropStripperInputControl.hpp"
 #include "cIGZCommandServer.h"
 #include "cIGZMessage2Standard.h"
 #include "cIGZMessageServer2.h"
@@ -15,19 +21,12 @@
 #include "cISC4View3DWin.h"
 #include "cRZAutoRefCount.h"
 #include "cRZMessage2COMDirector.h"
-#include "cRZMessage2COMDirector.h"
-#include "GZServPtrs.h"
 #include "imgui.h"
-#include "FloraPlacerInputControl.hpp"
-#include "PropPainterInputControl.hpp"
-#include "PropPaintStatusPanel.hpp"
-#include "PropStripperInputControl.hpp"
-#include "../shared/entities.hpp"
-#include "public/cIGZImGuiService.h"
-#include "public/cIGZDrawService.h"
 #include "public/ImGuiPanel.h"
 #include "public/ImGuiPanelAdapter.h"
 #include "public/ImGuiServiceIds.h"
+#include "public/cIGZDrawService.h"
+#include "public/cIGZImGuiService.h"
 
 class LotPlopPanel;
 class FloraRepository;
@@ -104,7 +103,7 @@ private:
     std::unique_ptr<LotPlopPanel> panel_;
     cRZAutoRefCount<PropPainterInputControl>  propPainterControl_;
     bool propPainting_{false};
-    cRZAutoRefCount<FloraPlacerInputControl>  floraPlacerControl_;
+    cRZAutoRefCount<FloraPainterInputControl>  floraPlacerControl_;
     bool floraPainting_{false};
     cRZAutoRefCount<PropStripperInputControl> propStripperControl_;
     bool propStripping_{false};

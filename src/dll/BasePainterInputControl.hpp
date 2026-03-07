@@ -46,13 +46,12 @@ public:
     void CommitPlacements();
 
 protected:
-    // ── Pure virtual: subclass places one item in the world ──────────────────
+    // Places one item in the world
     virtual bool PlaceAtWorld_(const cS3DVector3& pos, int32_t rotation, uint32_t typeID) = 0;
 
-    // ── Pure virtual: subclass removes an occupant (undo) ────────────────────
+    // Removes an occupant (undo)
     virtual void RemoveOccupant_(cISC4Occupant* occupant) = 0;
 
-    // ── Optional overrides ───────────────────────────────────────────────────
     // Called from SetCity() after city_ is updated; subclass acquires its manager here.
     virtual void OnCityChanged_(cISC4City* pCity) {}
 
@@ -83,7 +82,6 @@ protected:
     virtual void PopulatePreviewBounds_(PropPaintOverlay::PreviewPlacement& placement,
                                         uint32_t typeID) const {}
 
-    // ── Protected helpers used by subclasses ─────────────────────────────────
 
     // Called by PlaceAtWorld_() implementations to register the occupant in the undo stack.
     // When batchingPlacements_ is true, adds to the current group (for line/polygon).

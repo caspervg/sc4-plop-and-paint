@@ -233,7 +233,6 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     }
 
     if (imguiService_) {
-        ImGuiTexture::SetServiceAlive(false);
         imguiService_->Release();
         imguiService_ = nullptr;
     }
@@ -414,7 +413,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
     }
 
     if (!floraPlacerControl_) {
-        auto* control = new FloraPlacerInputControl();
+        auto* control = new FloraPainterInputControl();
         floraPlacerControl_ = control;
         if (!floraPlacerControl_->Init()) {
             LOG_ERROR("Failed to initialize FloraPlacerInputControl");
@@ -579,7 +578,7 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     // Capture control pointers to avoid race conditions with flag changes
     PropPainterInputControl* painterControl = director->propPainterControl_;
     PropStripperInputControl* stripperControl = director->propStripperControl_;
-    FloraPlacerInputControl* floraControl = director->floraPlacerControl_;
+    FloraPainterInputControl* floraControl = director->floraPlacerControl_;
 
     const bool needsOverlay = painterControl || stripperControl || floraControl;
 

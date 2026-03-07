@@ -1,4 +1,4 @@
-#include "FloraPlacerInputControl.hpp"
+#include "FloraPainterInputControl.hpp"
 
 #include "FloraRepository.hpp"
 #include "PropPainterInputControl.hpp"  // for PropPaintSettings
@@ -25,22 +25,22 @@ namespace {
     }
 }
 
-FloraPlacerInputControl::FloraPlacerInputControl()
+FloraPainterInputControl::FloraPainterInputControl()
     : BasePainterInputControl(kFloraPlacerControlID) {}
 
-FloraPlacerInputControl::~FloraPlacerInputControl() = default;
+FloraPainterInputControl::~FloraPainterInputControl() = default;
 
-void FloraPlacerInputControl::SetFloraToPaint(const uint32_t floraTypeID, const PropPaintSettings& settings,
+void FloraPainterInputControl::SetFloraToPaint(const uint32_t floraTypeID, const PropPaintSettings& settings,
                                                const std::string& name) {
     SetTypeToPaint(floraTypeID, settings, name);
     LOG_INFO("Setting flora to paint: {} (0x{:08X})", name, floraTypeID);
 }
 
-void FloraPlacerInputControl::SetFloraRepository(const FloraRepository* floraRepository) {
+void FloraPainterInputControl::SetFloraRepository(const FloraRepository* floraRepository) {
     floraRepository_ = floraRepository;
 }
 
-void FloraPlacerInputControl::OnCityChanged_(cISC4City* pCity) {
+void FloraPainterInputControl::OnCityChanged_(cISC4City* pCity) {
     if (pCity) {
         floraSimulator_ = pCity->GetFloraSimulator();
     }
@@ -49,7 +49,7 @@ void FloraPlacerInputControl::OnCityChanged_(cISC4City* pCity) {
     }
 }
 
-bool FloraPlacerInputControl::PlaceAtWorld_(const cS3DVector3& pos, const int32_t rotation,
+bool FloraPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos, const int32_t rotation,
                                              const uint32_t typeID) {
     if (!floraSimulator_) {
         LOG_WARN("FloraPlacerInputControl: FloraSimulator not available");
@@ -108,7 +108,7 @@ bool FloraPlacerInputControl::PlaceAtWorld_(const cS3DVector3& pos, const int32_
     return true;
 }
 
-void FloraPlacerInputControl::RemoveOccupant_(cISC4Occupant* occupant) {
+void FloraPainterInputControl::RemoveOccupant_(cISC4Occupant* occupant) {
     if (!floraSimulator_) {
         LOG_WARN("No flora simulator available during undo/cancel");
         return;
@@ -118,18 +118,18 @@ void FloraPlacerInputControl::RemoveOccupant_(cISC4Occupant* occupant) {
     }
 }
 
-bool FloraPlacerInputControl::ShouldShowModelPreview_() const {
+bool FloraPainterInputControl::ShouldShowModelPreview_() const {
     return settings_.previewMode != PropPreviewMode::Hidden &&
         IsInDirectPaintState_() &&
         (settings_.previewMode == PropPreviewMode::FullModel ||
          settings_.previewMode == PropPreviewMode::Combined);
 }
 
-bool FloraPlacerInputControl::HasActivePreviewOccupant_() const {
+bool FloraPainterInputControl::HasActivePreviewOccupant_() const {
     return previewOccupant_ != nullptr;
 }
 
-void FloraPlacerInputControl::CreatePreviewOccupant_() {
+void FloraPainterInputControl::CreatePreviewOccupant_() {
     if (!floraSimulator_) {
         return;
     }
@@ -186,7 +186,7 @@ void FloraPlacerInputControl::CreatePreviewOccupant_() {
     LOG_INFO("Created preview flora");
 }
 
-void FloraPlacerInputControl::DestroyPreviewOccupant_() {
+void FloraPainterInputControl::DestroyPreviewOccupant_() {
     if (!previewOccupant_) {
         previewFlora_.Reset();
         return;
@@ -204,13 +204,13 @@ void FloraPlacerInputControl::DestroyPreviewOccupant_() {
     LOG_INFO("Destroyed preview flora");
 }
 
-void FloraPlacerInputControl::HidePreviewForPick_() {
+void FloraPainterInputControl::HidePreviewForPick_() {
     if (previewOccupant_) {
         previewOccupant_->SetVisibility(false, true);
     }
 }
 
-void FloraPlacerInputControl::UpdatePreviewOccupantRotation_() {
+void FloraPainterInputControl::UpdatePreviewOccupantRotation_() {
     if (!previewFlora_ || !previewOccupant_) {
         return;
     }
@@ -226,7 +226,7 @@ void FloraPlacerInputControl::UpdatePreviewOccupantRotation_() {
     previewOccupant_->SetHighlight(0x3, true);
 }
 
-void FloraPlacerInputControl::UpdatePreviewOccupant_() {
+void FloraPainterInputControl::UpdatePreviewOccupant_() {
     if (!previewOccupant_) {
         return;
     }
@@ -261,7 +261,7 @@ void FloraPlacerInputControl::UpdatePreviewOccupant_() {
     previewOccupant_->SetVisibility(previewPositionValid_, true);
 }
 
-void FloraPlacerInputControl::PopulatePreviewBounds_(PropPaintOverlay::PreviewPlacement& placement,
+void FloraPainterInputControl::PopulatePreviewBounds_(PropPaintOverlay::PreviewPlacement& placement,
                                                       const uint32_t typeID) const {
     if (!floraRepository_) {
         return;
