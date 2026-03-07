@@ -6,7 +6,7 @@
 	url = https://github.com/caspervg/DBPFKit.git
 [submodule "vendor/sc4-render-services"]
 	path = vendor/sc4-render-services
-	url = https://github.com/caspervg/sc4-imgui-service.git
+	url = https://github.com/caspervg/sc4-render-services.git
 [submodule "vendor/D3D7Imgui"]
 	path = vendor/D3D7Imgui
 	url = https://github.com/caspervg/D3D7Imgui.git

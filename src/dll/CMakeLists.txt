@@ -3,10 +3,10 @@ if(NOT WIN32)
     return()
 endif()
 
-set(IMGUI_SERVICE_ROOT "${CMAKE_SOURCE_DIR}/vendor/sc4-imgui-service" CACHE PATH "Path to sc4-imgui-service")
+set(IMGUI_SERVICE_ROOT "${CMAKE_SOURCE_DIR}/vendor/sc4-render-services" CACHE PATH "Path to sc4-render-services")
 set(IMGUI_PUBLIC_DIR "${IMGUI_SERVICE_ROOT}/src")
 set(IMGUI_INCLUDE_DIR "${IMGUI_SERVICE_ROOT}/vendor/d3d7imgui/ImGui")
-set(IMGUI_LIB_DIR "${IMGUI_SERVICE_ROOT}" CACHE PATH "Path containing imgui.lib from sc4-imgui-service build")
+set(IMGUI_LIB_DIR "${IMGUI_SERVICE_ROOT}" CACHE PATH "Path containing imgui.lib from sc4-render-services build")
 
 set(GZCOM_DIR ${CMAKE_SOURCE_DIR}/vendor/gzcom-dll/gzcom-dll)
 
