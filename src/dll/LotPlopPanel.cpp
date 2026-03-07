@@ -2,6 +2,7 @@
 
 #include "BuildingsPanelTab.hpp"
 #include "FamiliesPanelTab.hpp"
+#include "FloraPanelTab.hpp"
 #include "PropPanelTab.hpp"
 #include "imgui_impl_win32.h"
 #include "OccupantGroups.hpp"
@@ -10,12 +11,14 @@
 LotPlopPanel::LotPlopPanel(SC4PlopAndPaintDirector* director,
                            LotRepository* lots,
                            PropRepository* props,
+                           FloraRepository* flora,
                            FavoritesRepository* favorites,
                            cIGZImGuiService* imguiService)
     : director_(director), imguiService_(imguiService) {
     tabs_.push_back(std::make_unique<BuildingsPanelTab>(director_, lots, props, favorites, imguiService_));
     tabs_.push_back(std::make_unique<PropPanelTab>(director_, lots, props, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FamiliesPanelTab>(director_, lots, props, favorites, imguiService_));
+    tabs_.push_back(std::make_unique<FloraPanelTab>(director_, flora, favorites, imguiService_));
 }
 
 void LotPlopPanel::OnRender() {

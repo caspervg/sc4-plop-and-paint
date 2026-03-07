@@ -170,9 +170,13 @@ ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
       , pidSimulatorDateDuration_(mapper.propertyId(kSimulatorDateDuration))
       , pidSimulatorDateInterval_(mapper.propertyId(kSimulatorDateInterval))
       , pidPropRandomChance_(mapper.propertyId(kPropRandomChance))
+      , pidFloraWild_(mapper.propertyId(kFloraWild))
+      , pidFloraFamily_(mapper.propertyId(kFloraFamily))
+      , pidFloraClusterType_(mapper.propertyId(kFloraClusterType))
       , optBuilding_(mapper.propertyOptionId(kExemplarType, kExemplarTypeBuilding))
       , optLotConfig_(mapper.propertyOptionId(kExemplarType, kExemplarTypeLotConfig))
-      , optProp_(mapper.propertyOptionId(kExemplarType, kExemplarTypeProp)) {
+      , optProp_(mapper.propertyOptionId(kExemplarType, kExemplarTypeProp))
+      , optFlora_(mapper.propertyOptionId(kExemplarType, kExemplarTypeFlora)) {
     if (renderThumbnails && indexService_) {
         thumbnailRenderer_ = std::make_unique<thumb::ThumbnailRenderer>(*indexService_);
     }
@@ -198,6 +202,7 @@ std::optional<ExemplarType> ExemplarParser::getExemplarType(const Exemplar::Reco
     if (optBuilding_ && *exemplarTypeOpt == *optBuilding_) return ExemplarType::Building;
     if (optLotConfig_ && *exemplarTypeOpt == *optLotConfig_) return ExemplarType::LotConfig;
     if (optProp_ && *exemplarTypeOpt == *optProp_) return ExemplarType::Prop;
+    if (optFlora_ && *exemplarTypeOpt == *optFlora_) return ExemplarType::Flora;
     return std::nullopt;
 }
 
@@ -551,6 +556,139 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
     }
 
     return parsedPropExemplar;
+}
+
+std::optional<ParsedFloraExemplar> ExemplarParser::parseFlora(const Exemplar::Record& exemplar,
+                                                              const DBPF::Tgi& tgi) const {
+    // Only parse MMP flora (Flora: Wild == false). Skip wild/god-mode flora.
+    if (pidFloraWild_) {
+        if (const auto* prop = findProperty(exemplar, *pidFloraWild_)) {
+            if (const auto wild = prop->GetScalarAs<bool>()) {
+                if (*wild) {
+                    spdlog::trace("Skipping wild flora at {}", tgi.ToString());
+                    return std::nullopt;
+                }
+            }
+        }
+    }
+
+    ParsedFloraExemplar parsed;
+    parsed.tgi = tgi;
+
+    if (pidUserVisibleNameKey_) {
+        if (const auto* prop = findProperty(exemplar, *pidUserVisibleNameKey_)) {
+            if (auto tgiKey = tgiFromProperty(prop, kTypeIdLText)) {
+                if (auto localized = loadLocalizedText(indexService_, *tgiKey)) {
+                    parsed.visibleName = SanitizeString(resolveLTextTags_(*localized, exemplar));
+                }
+            }
+        }
+    }
+
+    if (pidExemplarName_) {
+        if (const auto* prop = findProperty(exemplar, *pidExemplarName_)) {
+            if (const auto name = prop->GetScalarAs<std::string>()) {
+                parsed.exemplarName = SanitizeString(*name);
+            }
+        }
+    }
+
+    if (pidOccupantSize_) {
+        if (const auto* prop = findProperty(exemplar, *pidOccupantSize_)) {
+            if (prop->IsNumericList() && prop->values.size() >= 3) {
+                const auto w = prop->GetScalarAs<float>(0);
+                const auto h = prop->GetScalarAs<float>(1);
+                const auto d = prop->GetScalarAs<float>(2);
+                if (w && h && d) {
+                    parsed.width = *w;
+                    parsed.height = *h;
+                    parsed.depth = *d;
+                }
+            }
+        }
+    }
+
+    if (pidFloraFamily_) {
+        if (const auto* prop = findProperty(exemplar, *pidFloraFamily_)) {
+            for (size_t i = 0; i < prop->values.size(); ++i) {
+                if (const auto familyId = prop->GetScalarAs<uint32_t>(i)) {
+                    parsed.familyIds.push_back(*familyId);
+                }
+            }
+        }
+    }
+
+    if (pidFloraClusterType_) {
+        if (const auto* prop = findProperty(exemplar, *pidFloraClusterType_)) {
+            if (const auto value = prop->GetScalarAs<uint32_t>()) {
+                if (*value != 0) {
+                    parsed.clusterNextType = *value;
+                }
+            }
+        }
+    }
+
+    parsed.modelTgi = resolveModelTgi_(exemplar, tgi);
+
+    if (parsed.modelTgi.has_value()) {
+        if (const auto bounds = loadModelBounds_(*parsed.modelTgi)) {
+            parsed.minX = (*bounds)[0];
+            parsed.maxX = (*bounds)[1];
+            parsed.minY = (*bounds)[2];
+            parsed.maxY = (*bounds)[3];
+            parsed.minZ = (*bounds)[4];
+            parsed.maxZ = (*bounds)[5];
+            parsed.hasModelBounds = true;
+        }
+    }
+
+    if (!parsed.hasModelBounds &&
+        parsed.width > 0.0f && parsed.height > 0.0f && parsed.depth > 0.0f) {
+        parsed.minX = -parsed.width * 0.5f;
+        parsed.maxX =  parsed.width * 0.5f;
+        parsed.minY = 0.0f;
+        parsed.maxY = parsed.height;
+        parsed.minZ = -parsed.depth * 0.5f;
+        parsed.maxZ =  parsed.depth * 0.5f;
+    }
+
+    return parsed;
+}
+
+Flora ExemplarParser::floraFromParsed(const ParsedFloraExemplar& parsed) const {
+    Flora flora;
+    flora.instanceId = parsed.tgi.instance;
+    flora.groupId    = parsed.tgi.group;
+    flora.exemplarName = parsed.exemplarName;
+    flora.visibleName  = parsed.visibleName;
+    flora.width  = parsed.width;
+    flora.height = parsed.height;
+    flora.depth  = parsed.depth;
+    flora.minX = parsed.minX;
+    flora.maxX = parsed.maxX;
+    flora.minY = parsed.minY;
+    flora.maxY = parsed.maxY;
+    flora.minZ = parsed.minZ;
+    flora.maxZ = parsed.maxZ;
+    flora.familyIds.reserve(parsed.familyIds.size());
+    for (const auto fid : parsed.familyIds) {
+        flora.familyIds.emplace_back(fid);
+    }
+    if (parsed.clusterNextType.has_value()) {
+        flora.clusterNextType = rfl::Hex<uint32_t>(*parsed.clusterNextType);
+    }
+
+    if (parsed.modelTgi.has_value() && thumbnailRenderer_) {
+        auto rendered = thumbnailRenderer_->renderModel(*parsed.modelTgi, kRenderedThumbnailSize);
+        if (rendered.has_value() && !rendered->pixels.empty()) {
+            PreRendered preview;
+            preview.data = rfl::Bytestring(std::move(rendered->pixels));
+            preview.width  = rendered->width;
+            preview.height = rendered->height;
+            flora.thumbnail = preview;
+        }
+    }
+    return flora;
 }
 
 std::optional<PropFamilyInfo> ExemplarParser::parsePropFamilyFromCohort(const Exemplar::Record& cohort) const {

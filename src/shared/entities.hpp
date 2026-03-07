@@ -115,15 +115,44 @@ struct PropFamily {
     float densityVariation = 0.0f;
 };
 
+struct Flora {
+    rfl::Hex<uint32_t> groupId;
+    rfl::Hex<uint32_t> instanceId;
+
+    std::string exemplarName;
+    std::string visibleName;
+
+    float width{0};
+    float height{0};
+    float depth{0};
+    float minX{0};
+    float maxX{0};
+    float minY{0};
+    float maxY{0};
+    float minZ{0};
+    float maxZ{0};
+
+    std::vector<rfl::Hex<uint32_t>> familyIds;
+    std::optional<rfl::Hex<uint32_t>> clusterNextType;
+
+    std::optional<Thumbnail> thumbnail;
+};
+
+struct FloraCache {
+    uint32_t version = 1;
+    std::vector<Flora> floraItems;
+    std::vector<PropFamilyInfo> floraFamilies;
+};
+
 struct TabFavorites {
     std::vector<rfl::Hex<uint64_t>> items;
 };
 
 struct AllFavorites {
-    uint32_t version = 2;
+    uint32_t version = 3;
     TabFavorites lots;
-    std::optional<TabFavorites> props;  // Future: prop favorites
-    std::optional<TabFavorites> flora;  // Future: flora favorites
+    std::optional<TabFavorites> props;
+    std::optional<TabFavorites> flora;
     std::optional<std::vector<PropFamily>> families;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

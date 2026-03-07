@@ -1,4 +1,6 @@
 #include "PropPaintStatusPanel.hpp"
+
+#include "PropPainterInputControl.hpp"
 #include "imgui.h"
 
 void PropPaintStatusPanel::OnRender() {
@@ -67,7 +69,7 @@ void PropPaintStatusPanel::OnRender() {
     ImGui::End();
 }
 
-void PropPaintStatusPanel::SetActiveControl(PropPainterInputControl* control) {
+void PropPaintStatusPanel::SetActiveControl(BasePainterInputControl* control) {
     activeControl_ = control;
 }
 

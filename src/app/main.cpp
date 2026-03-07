@@ -145,11 +145,13 @@ namespace {
             ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails);
             std::vector<Building> allBuildings;
             std::vector<Prop> allProps;
+            std::vector<Flora> allFlora;
             std::unordered_map<uint32_t, std::string> propFamilyNamesById;
             std::unordered_map<uint32_t, ParsedBuildingExemplar> buildingMap;
             std::unordered_map<uint32_t, Building> builtBuildings;
             std::unordered_set<uint64_t> seenLotKeys;
             std::unordered_set<uint64_t> seenPropKeys;
+            std::unordered_set<uint64_t> seenFloraKeys;
 
             // Use the index service to get exemplars and cohorts across all files.
             logger.info("Processing exemplar/cohort records using type index...");
@@ -248,6 +250,18 @@ namespace {
                                         parser.propFromParsed(*prop)
                                     );
                                     seenPropKeys.insert(MakeGIKey(tgi.group, tgi.instance));
+                                }
+                            }
+                            else if (*exemplarType == ExemplarType::Flora) {
+                                if (seenFloraKeys.contains(MakeGIKey(tgi.group, tgi.instance))) {
+                                    logger.warn("Duplicate flora skipped: (group=0x{:08X}, instance=0x{:08X})",
+                                                tgi.group, tgi.instance);
+                                    continue;
+                                }
+                                if (auto flora = parser.parseFlora(*exemplarResult, tgi)) {
+                                    logger.trace("  Flora: {} (0x{:08X})", flora->visibleName, tgi.instance);
+                                    allFlora.emplace_back(parser.floraFromParsed(*flora));
+                                    seenFloraKeys.insert(MakeGIKey(tgi.group, tgi.instance));
                                 }
                             }
                         }
@@ -480,6 +494,48 @@ namespace {
                 }
                 catch (const std::exception& error) {
                     logger.error("Error exporting props: {}", error.what());
+                }
+            }
+
+            // Extract flora thumbnails into a sidecar binary file, then strip them.
+            {
+                std::vector<std::pair<uint64_t, Thumbnail>> floraThumbnails;
+                for (auto& f : allFlora) {
+                    if (f.thumbnail.has_value()) {
+                        const uint64_t key = MakeGIKey(f.groupId.value(), f.instanceId.value());
+                        floraThumbnails.emplace_back(key, std::move(*f.thumbnail));
+                        f.thumbnail.reset();
+                    }
+                }
+                if (!floraThumbnails.empty()) {
+                    const auto binPath = config.userPluginsRoot / "flora_thumbnails.bin";
+                    const auto count = floraThumbnails.size();
+                    ThumbnailBin::Write(binPath, std::move(floraThumbnails));
+                    logger.info("Exported {} flora thumbnails to {}", count, binPath.string());
+                }
+            }
+
+            if (!allFlora.empty()) {
+                try {
+                    auto cborPath = config.userPluginsRoot / "flora.cbor";
+                    fs::create_directories(config.userPluginsRoot);
+
+                    FloraCache floraCache;
+                    floraCache.floraItems = std::move(allFlora);
+
+                    logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), cborPath.string());
+
+                    if (std::ofstream file(cborPath, std::ios::binary); !file) {
+                        logger.error("Failed to open file for writing: {}", cborPath.string());
+                    }
+                    else {
+                        rfl::cbor::write(floraCache, file);
+                        file.close();
+                        logger.info("Successfully exported flora");
+                    }
+                }
+                catch (const std::exception& error) {
+                    logger.error("Error exporting flora: {}", error.what());
                 }
             }
 

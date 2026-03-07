@@ -18,6 +18,7 @@
 #include "cRZMessage2COMDirector.h"
 #include "GZServPtrs.h"
 #include "imgui.h"
+#include "FloraPlacerInputControl.hpp"
 #include "PropPainterInputControl.hpp"
 #include "PropPaintStatusPanel.hpp"
 #include "PropStripperInputControl.hpp"
@@ -29,10 +30,10 @@
 #include "public/ImGuiServiceIds.h"
 
 class LotPlopPanel;
+class FloraRepository;
 class LotRepository;
 class PropRepository;
 class FavoritesRepository;
-struct PropPaintSettings;
 class cIGZS3DCameraService;
 
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
@@ -62,6 +63,9 @@ public:
     bool SwitchPropPaintingTarget(uint32_t propId, const std::string& name);
     void StopPropPainting();
     [[nodiscard]] bool IsPropPainting() const;
+    bool StartFloraPainting(uint32_t floraTypeId, const PropPaintSettings& settings, const std::string& name);
+    void StopFloraPainting();
+    [[nodiscard]] bool IsFloraPainting() const;
     bool StartPropStripping();
     void StopPropStripping();
     [[nodiscard]] bool IsPropStripping() const;
@@ -91,14 +95,17 @@ private:
 
     std::unique_ptr<LotRepository>       lotRepository_;
     std::unique_ptr<PropRepository>      propRepository_;
+    std::unique_ptr<FloraRepository>     floraRepository_;
     std::unique_ptr<FavoritesRepository> favoritesRepository_;
 
     bool panelRegistered_{false};
     bool panelVisible_{false};
     bool shortcutRegistered_{false};
     std::unique_ptr<LotPlopPanel> panel_;
-    cRZAutoRefCount<PropPainterInputControl> propPainterControl_;
+    cRZAutoRefCount<PropPainterInputControl>  propPainterControl_;
     bool propPainting_{false};
+    cRZAutoRefCount<FloraPlacerInputControl>  floraPlacerControl_;
+    bool floraPainting_{false};
     cRZAutoRefCount<PropStripperInputControl> propStripperControl_;
     bool propStripping_{false};
     std::unique_ptr<PropPaintStatusPanel> statusPanel_;

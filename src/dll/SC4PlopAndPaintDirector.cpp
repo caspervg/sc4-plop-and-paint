@@ -13,6 +13,7 @@
 #include "cIGZWinKeyAcceleratorRes.h"
 #include "cRZBaseVariant.h"
 #include "FavoritesRepository.hpp"
+#include "FloraRepository.hpp"
 #include "LotPlopPanel.hpp"
 #include "LotRepository.hpp"
 #include "PropPainterInputControl.hpp"
@@ -125,16 +126,19 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
 
         lotRepository_       = std::make_unique<LotRepository>();
         propRepository_      = std::make_unique<PropRepository>();
+        floraRepository_     = std::make_unique<FloraRepository>();
         favoritesRepository_ = std::make_unique<FavoritesRepository>(*propRepository_);
 
         lotRepository_->Load();
         propRepository_->Load();
+        floraRepository_->Load();
         favoritesRepository_->Load();
 
         panel_ = std::make_unique<LotPlopPanel>(
             this,
             lotRepository_.get(),
             propRepository_.get(),
+            floraRepository_.get(),
             favoritesRepository_.get(),
             imguiService_);
 
@@ -195,6 +199,13 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
         propPainterControl_.Reset();
     }
 
+    if (floraPlacerControl_) {
+        StopFloraPainting();
+        floraPlacerControl_->SetCity(nullptr);
+        floraPlacerControl_->Shutdown();
+        floraPlacerControl_.Reset();
+    }
+
     if (imguiService_ && statusPanelRegistered_) {
         imguiService_->UnregisterPanel(kStatusPanelId);
         statusPanelRegistered_ = false;
@@ -212,6 +223,7 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     panel_.reset();
 
     favoritesRepository_.reset();
+    floraRepository_.reset();
     propRepository_.reset();
     lotRepository_.reset();
 
@@ -221,6 +233,7 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     }
 
     if (imguiService_) {
+        ImGuiTexture::SetServiceAlive(false);
         imguiService_->Release();
         imguiService_ = nullptr;
     }
@@ -392,6 +405,79 @@ bool SC4PlopAndPaintDirector::IsPropPainting() const {
     return propPainting_;
 }
 
+bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
+                                                   const PropPaintSettings& settings,
+                                                   const std::string& name) {
+    if (!pCity_ || !pView3D_) {
+        LOG_WARN("Cannot start flora painting: city or view not available");
+        return false;
+    }
+
+    if (!floraPlacerControl_) {
+        auto* control = new FloraPlacerInputControl();
+        floraPlacerControl_ = control;
+        if (!floraPlacerControl_->Init()) {
+            LOG_ERROR("Failed to initialize FloraPlacerInputControl");
+            floraPlacerControl_.Reset();
+            return false;
+        }
+    }
+
+    floraPlacerControl_->SetCity(pCity_);
+    floraPlacerControl_->SetWindow(pView3D_->AsIGZWin());
+    floraPlacerControl_->SetCameraService(cameraService_);
+    floraPlacerControl_->SetFloraRepository(floraRepository_.get());
+    floraPlacerControl_->SetOnCancel([this]() {
+        if (pView3D_ && floraPlacerControl_ &&
+            pView3D_->GetCurrentViewInputControl() == floraPlacerControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+        floraPainting_ = false;
+        if (statusPanel_) {
+            statusPanel_->SetVisible(false);
+        }
+        LOG_INFO("Stopped flora painting");
+    });
+
+    floraPlacerControl_->SetFloraToPaint(floraTypeId, settings, name);
+    if (!pView3D_->SetCurrentViewInputControl(
+        floraPlacerControl_,
+        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        LOG_WARN("Failed to set flora placer as current view input control");
+        return false;
+    }
+
+    floraPainting_ = true;
+    if (statusPanel_) {
+        statusPanel_->SetActiveControl(floraPlacerControl_);
+        statusPanel_->SetVisible(true);
+    }
+    LOG_INFO("Started flora painting: 0x{:08X}", floraTypeId);
+    return true;
+}
+
+void SC4PlopAndPaintDirector::StopFloraPainting() {
+    if (floraPlacerControl_) {
+        floraPlacerControl_->CancelAllPlacements();
+    }
+
+    if (pView3D_ && floraPlacerControl_) {
+        if (pView3D_->GetCurrentViewInputControl() == floraPlacerControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+    }
+
+    floraPainting_ = false;
+    if (statusPanel_) {
+        statusPanel_->SetVisible(false);
+    }
+    LOG_INFO("Stopped flora painting");
+}
+
+bool SC4PlopAndPaintDirector::IsFloraPainting() const {
+    return floraPainting_;
+}
+
 bool SC4PlopAndPaintDirector::StartPropStripping() {
     if (!pCity_ || !pView3D_) {
         LOG_WARN("Cannot start prop stripping: city or view not available");
@@ -486,12 +572,16 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     if (director->propPainterControl_) {
         director->propPainterControl_->ProcessPendingActions();
     }
+    if (director->floraPlacerControl_) {
+        director->floraPlacerControl_->ProcessPendingActions();
+    }
 
     // Capture control pointers to avoid race conditions with flag changes
     PropPainterInputControl* painterControl = director->propPainterControl_;
     PropStripperInputControl* stripperControl = director->propStripperControl_;
+    FloraPlacerInputControl* floraControl = director->floraPlacerControl_;
 
-    const bool needsOverlay = painterControl || stripperControl;
+    const bool needsOverlay = painterControl || stripperControl || floraControl;
 
     if (!director->imguiService_ || !needsOverlay) {
         return;
@@ -508,6 +598,9 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     }
     if (stripperControl) {
         stripperControl->DrawOverlay(device);
+    }
+    if (floraControl) {
+        floraControl->DrawOverlay(device);
     }
     device->Release();
     dd->Release();
@@ -545,11 +638,15 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     SetLotPlopPanelVisible(false);
     StopPropStripping();
     StopPropPainting();
+    StopFloraPainting();
     if (propStripperControl_) {
         propStripperControl_->SetCity(nullptr);
     }
     if (propPainterControl_) {
         propPainterControl_->SetCity(nullptr);
+    }
+    if (floraPlacerControl_) {
+        floraPlacerControl_->SetCity(nullptr);
     }
     pCity_ = nullptr;
     if (pView3D_) {

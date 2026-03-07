@@ -44,6 +44,10 @@ constexpr auto kTypeIdLText = 0x2026960Bu;
 constexpr auto kLotIconGroup = 0x6A386D26u;
 constexpr auto kBuildingPropFamily = "Building/prop Family";
 constexpr auto kBuildingFamilyAlt = "Building/Prop Family";
+constexpr auto kExemplarTypeFlora = "Flora";        // ExemplarType value 0x0F
+constexpr auto kFloraWild = "Flora: Wild";           // 0x6a37ebb6
+constexpr auto kFloraFamily = "kSC4FloraFamilyProperty"; // 0xa8f149c5
+constexpr auto kFloraClusterType = "Flora: Cluster type"; // 0x2a0348ba
 constexpr auto kRkt0PropertyId = 0x27812820u;
 constexpr auto kRkt1PropertyId = 0x27812821u;
 constexpr auto kRkt2PropertyId = 0x27812822u;
@@ -67,7 +71,8 @@ constexpr auto kRenderedThumbnailSize = 44u;
 enum class ExemplarType {
     Building, // Exemplar Type 0x02
     LotConfig, // Exemplar Type 0x10
-    Prop, // Exemplar Type 0x1E
+    Prop,     // Exemplar Type 0x1E
+    Flora,    // Exemplar Type 0x0F
 };
 
 struct ParsedBuildingExemplar {
@@ -92,6 +97,25 @@ struct ParsedLotConfigExemplar {
     std::optional<uint8_t> zoneType; // LotConfigPropertyZoneTypes
     std::optional<uint8_t> wealthType; // LotConfigPropertyWealthTypes
     std::optional<uint8_t> purposeType; // LotConfigPropertyPurposeTypes
+};
+
+struct ParsedFloraExemplar {
+    DBPF::Tgi tgi;
+    std::string exemplarName;
+    std::string visibleName;
+    float width{-1.0f};
+    float height{-1.0f};
+    float depth{-1.0f};
+    float minX{0.0f};
+    float maxX{0.0f};
+    float minY{0.0f};
+    float maxY{0.0f};
+    float minZ{0.0f};
+    float maxZ{0.0f};
+    bool hasModelBounds{false};
+    std::vector<uint32_t> familyIds;
+    std::optional<uint32_t> clusterNextType;
+    std::optional<DBPF::Tgi> modelTgi;
 };
 
 struct ParsedPropExemplar {
@@ -135,12 +159,15 @@ public:
         const std::unordered_map<uint32_t, std::vector<uint32_t>>& familyToBuildingsMap) const;
     [[nodiscard]] std::optional<ParsedPropExemplar> parseProp(const Exemplar::Record& exemplar,
                                                               const DBPF::Tgi& tgi) const;
+    [[nodiscard]] std::optional<ParsedFloraExemplar> parseFlora(const Exemplar::Record& exemplar,
+                                                                const DBPF::Tgi& tgi) const;
     [[nodiscard]] std::optional<PropFamilyInfo> parsePropFamilyFromCohort(const Exemplar::Record& cohort) const;
 
     // Conversion functions to canonical entities
     [[nodiscard]] Building buildingFromParsed(const ParsedBuildingExemplar& parsed) const;
     [[nodiscard]] Lot lotFromParsed(const ParsedLotConfigExemplar& parsed) const;
     [[nodiscard]] Prop propFromParsed(const ParsedPropExemplar& parsed) const;
+    [[nodiscard]] Flora floraFromParsed(const ParsedFloraExemplar& parsed) const;
 
     // Cohort-aware property lookup - searches exemplar and parent cohorts recursively
     [[nodiscard]] const Exemplar::Property* findProperty(
@@ -189,8 +216,13 @@ private:
     std::optional<uint32_t> pidSimulatorDateInterval_;
     std::optional<uint32_t> pidPropRandomChance_;
 
+    std::optional<uint32_t> pidFloraWild_;
+    std::optional<uint32_t> pidFloraFamily_;
+    std::optional<uint32_t> pidFloraClusterType_;
+
     // Cached exemplar type option IDs
     std::optional<uint32_t> optBuilding_;
     std::optional<uint32_t> optLotConfig_;
     std::optional<uint32_t> optProp_;
+    std::optional<uint32_t> optFlora_;
 };

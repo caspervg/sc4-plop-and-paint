@@ -3,26 +3,25 @@
 
 #include "../shared/entities.hpp"
 #include "BasePainterInputControl.hpp"
-#include "PaintSettings.hpp"
-#include "cISC4PropManager.h"
+#include "cISC4FloraOccupant.h"
+#include "cISC4FloraSimulator.h"
+#include "cISC4Occupant.h"
 #include "cRZAutoRefCount.h"
 
-class PropRepository;
+class FloraRepository;
 
-class PropPainterInputControl : public BasePainterInputControl {
+class FloraPlacerInputControl : public BasePainterInputControl {
 public:
-    PropPainterInputControl();
-    ~PropPainterInputControl() override;
+    FloraPlacerInputControl();
+    ~FloraPlacerInputControl() override;
 
-    void SetPropToPaint(uint32_t propID, const PropPaintSettings& settings, const std::string& name);
-    void SetPropRepository(const PropRepository* propRepository);
+    void SetFloraToPaint(uint32_t floraTypeID, const PropPaintSettings& settings, const std::string& name);
+    void SetFloraRepository(const FloraRepository* floraRepository);
 
 protected:
     bool PlaceAtWorld_(const cS3DVector3& pos, int32_t rotation, uint32_t typeID) override;
     void RemoveOccupant_(cISC4Occupant* occupant) override;
-
     void OnCityChanged_(cISC4City* pCity) override;
-
     [[nodiscard]] bool ShouldShowModelPreview_() const override;
     [[nodiscard]] bool HasActivePreviewOccupant_() const override;
     void CreatePreviewOccupant_() override;
@@ -33,9 +32,9 @@ protected:
     void PopulatePreviewBounds_(PropPaintOverlay::PreviewPlacement& placement, uint32_t typeID) const override;
 
 private:
-    cRZAutoRefCount<cISC4PropManager> propManager_;
-    const PropRepository* propRepository_{nullptr};
+    cRZAutoRefCount<cISC4FloraSimulator> floraSimulator_;
+    const FloraRepository* floraRepository_{nullptr};
 
-    cRZAutoRefCount<cISC4PropOccupant> previewProp_{};
+    cRZAutoRefCount<cISC4FloraOccupant> previewFlora_{};
     cRZAutoRefCount<cISC4Occupant> previewOccupant_{};
 };

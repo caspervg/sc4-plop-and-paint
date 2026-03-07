@@ -5,6 +5,7 @@
 #include "SC4PlopAndPaintDirector.hpp"
 #include "public/ImGuiTexture.h"
 
+class FloraRepository;
 class LotRepository;
 class PropRepository;
 class FavoritesRepository;
@@ -14,6 +15,7 @@ public:
     LotPlopPanel(SC4PlopAndPaintDirector* director,
                  LotRepository* lots,
                  PropRepository* props,
+                 FloraRepository* flora,
                  FavoritesRepository* favorites,
                  cIGZImGuiService* imguiService);
     void OnInit() override {}

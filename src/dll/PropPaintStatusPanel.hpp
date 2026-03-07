@@ -1,5 +1,5 @@
 #pragma once
-#include "PropPainterInputControl.hpp"
+#include "BasePainterInputControl.hpp"
 #include "public/ImGuiPanel.h"
 
 class PropPaintStatusPanel final : public ImGuiPanel {
@@ -10,10 +10,10 @@ public:
         visible_ = false;
     }
 
-    void SetActiveControl(PropPainterInputControl* control);
+    void SetActiveControl(BasePainterInputControl* control);
     void SetVisible(bool visible);
 
 private:
-    PropPainterInputControl* activeControl_ = nullptr;
+    BasePainterInputControl* activeControl_ = nullptr;
     bool visible_ = false;
 };
