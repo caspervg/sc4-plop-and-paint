@@ -41,9 +41,9 @@ jobs:
           ./vendor/vcpkg/bootstrap-vcpkg.bat
           echo "VCPKG_ROOT=${{ github.workspace }}/vendor/vcpkg" >> $env:GITHUB_ENV
 
-      # sc4-imgui-service (32-bit) - only imgui is needed for this package
-      - name: Build sc4-imgui-service
-        working-directory: vendor/sc4-imgui-service
+      # sc4-render-services (32-bit) - only imgui is needed for this package
+      - name: Build sc4-render-services
+        working-directory: vendor/sc4-render-services
         run: |
           cmake -B build -G "Visual Studio 17 2022" -A Win32
           cmake --build build --config Release --target imgui
