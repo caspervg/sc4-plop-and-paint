@@ -15,6 +15,9 @@ namespace thumb {
         constexpr auto kTypeIdS3D = 0x5AD0E817u;
         constexpr auto kTypeIdFSH = 0x7AB50E44u;
         constexpr auto kTypeIdATC = 0x29A5D1ECu;
+        constexpr float kHorizontalPadding = 1.12f;
+        constexpr float kTopPadding = 1.20f;
+        constexpr float kBottomPadding = 1.08f;
     }
 
     ThumbnailRenderer::ThumbnailRenderer(const DbpfIndexService& indexService)
@@ -67,6 +70,11 @@ namespace thumb {
             return std::nullopt;
         }
         const Vector3 center = Vector3Scale(Vector3Add(bounds.min, bounds.max), 0.5f);
+        const Vector3 framingTarget{
+            center.x,
+            bounds.min.y,
+            center.z
+        };
 
         const float scale = 0.95f * static_cast<float>(size) / (maxDim * 1.414f);
 
@@ -75,7 +83,7 @@ namespace thumb {
 
         camera.fovy = static_cast<float>(size) / 2.0f;
         camera.up = Vector3{0.0f, 1.0f, 0.0f};
-        camera.target = center;
+        camera.target = framingTarget;
 
         constexpr auto kYawRad = 0.785398f; // 45° (π/4) - SW view
         constexpr auto kPitchRadZoom5 = 0.5236f; // ~30° from horizontal
@@ -88,7 +96,7 @@ namespace thumb {
         // Keep the model well within raylib's fixed far plane (~1000 units)
         // while staying far enough to avoid near-plane clipping on small props.
         const auto camDistance = std::clamp(maxDim * 12.0f, 80.0f, 1200.0f);
-        camera.position = Vector3Add(center, Vector3Scale(dir, camDistance));
+        camera.position = Vector3Add(framingTarget, Vector3Scale(dir, camDistance));
 
         // Compute ortho size to tightly fit all corners after rotation
         // We need to project all 8 corners of the bounding box onto the camera's view plane
@@ -97,8 +105,10 @@ namespace thumb {
         Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera.up));
         Vector3 camUp = Vector3Normalize(Vector3CrossProduct(right, forward));
 
-        auto maxRight = 0.0f;
-        auto maxUp = 0.0f;
+        auto minRight = std::numeric_limits<float>::max();
+        auto maxRight = std::numeric_limits<float>::lowest();
+        auto minUp = std::numeric_limits<float>::max();
+        auto maxUp = std::numeric_limits<float>::lowest();
         for (auto xi = 0; xi < 2; ++xi) {
             for (auto yi = 0; yi < 2; ++yi) {
                 for (auto zi = 0; zi < 2; ++zi) {
@@ -110,25 +120,28 @@ namespace thumb {
                     // Project the corner onto the camera's right and up vectors
                     // to determine how much screen space it needs
                     Vector3 scaledCorner = Vector3Scale(corner, scale);
-                    Vector3 toCorner = Vector3Subtract(scaledCorner, Vector3Scale(center, scale));
-                    const float projRight = std::abs(Vector3DotProduct(toCorner, right));
-                    const float projUp = std::abs(Vector3DotProduct(toCorner, camUp));
+                    Vector3 toCorner = Vector3Subtract(scaledCorner, Vector3Scale(framingTarget, scale));
+                    const float projRight = Vector3DotProduct(toCorner, right);
+                    const float projUp = Vector3DotProduct(toCorner, camUp);
+                    minRight = std::min(minRight, projRight);
                     maxRight = std::max(maxRight, projRight);
+                    minUp = std::min(minUp, projUp);
                     maxUp = std::max(maxUp, projUp);
                 }
             }
         }
 
-        // Use the maximum of width and height to ensure the model fits in the square viewport
-        // Add 5% padding to ensure we don't clip at the edges
-        float orthoHalfSize = std::max(maxRight, maxUp) * 1.15f;
+        const float horizontalHalfSize = std::max(std::abs(minRight), std::abs(maxRight)) * kHorizontalPadding;
+        const float verticalHalfSize = std::max(maxUp * kTopPadding, std::abs(minUp) * kBottomPadding);
+        float orthoHalfSize = std::max(horizontalHalfSize, verticalHalfSize);
         if (orthoHalfSize <= 0.0f) {
             orthoHalfSize = static_cast<float>(size) / 2.0f;
         }
         camera.fovy = orthoHalfSize * 2.0f;
 
-        spdlog::trace("Thumbnail renderer camera for {}: maxDim={}, camDistance={}, orthoHalfSize={}",
-                      tgi.ToString(), maxDim, camDistance, orthoHalfSize);
+        spdlog::trace(
+            "Thumbnail renderer camera for {}: maxDim={}, camDistance={}, orthoHalfSize={}, focusY={}",
+            tgi.ToString(), maxDim, camDistance, orthoHalfSize, framingTarget.y);
 
         BeginTextureMode(target);
         ClearBackground(BLANK);
