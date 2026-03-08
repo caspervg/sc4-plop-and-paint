@@ -2,10 +2,16 @@
 #include "imgui.h"
 
 namespace UI {
+    constexpr float kMinIconSize = 22.0f;
+    constexpr float kMaxIconSize = 176.0f;
+
     // Shared
     inline float wideInputWidth() { return 7.7f * ImGui::GetFontSize(); }
     inline float dropdownWidth() { return 7.7f * ImGui::GetFontSize(); }
-    constexpr auto kIconSize = 44.0f; // fixed: pre-rendered texture size
+    inline float kIconSize = 44.0f;
+    inline void SetIconSize(const float size) {
+        kIconSize = std::clamp(size, kMinIconSize, kMaxIconSize);
+    }
     inline float iconColumnWidth() { return kIconSize + 0.1f * ImGui::GetFontSize(); }
     inline float actionColumnWidth() { return 8.5f * ImGui::GetFontSize(); }
     constexpr auto kMeterFloatFormat = "%.1f m";

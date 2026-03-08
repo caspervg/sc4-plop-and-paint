@@ -113,7 +113,17 @@ namespace {
                 }
 
                 RgbaImage content = source;
-                if (source.width > targetSize || source.height > targetSize) {
+                if constexpr (std::is_same_v<Variant, Icon>) {
+                    if (source.width != targetSize || source.height != targetSize) {
+                        const float scale = std::min(
+                            static_cast<float>(targetSize) / static_cast<float>(source.width),
+                            static_cast<float>(targetSize) / static_cast<float>(source.height));
+                        const uint32_t scaledWidth = std::max(1u, static_cast<uint32_t>(source.width * scale));
+                        const uint32_t scaledHeight = std::max(1u, static_cast<uint32_t>(source.height * scale));
+                        content = ResizeRgbaImage(source, scaledWidth, scaledHeight);
+                    }
+                }
+                else if (source.width > targetSize || source.height > targetSize) {
                     const float scale = std::min(
                         static_cast<float>(targetSize) / static_cast<float>(source.width),
                         static_cast<float>(targetSize) / static_cast<float>(source.height));

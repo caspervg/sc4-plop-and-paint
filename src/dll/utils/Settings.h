@@ -24,6 +24,7 @@ public:
     [[nodiscard]] bool GetDefaultSnapPointsToGrid() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPlacementsToGrid() const noexcept;
     [[nodiscard]] float GetDefaultGridStepMeters() const noexcept;
+    [[nodiscard]] float GetThumbnailDisplaySize() const noexcept;
     [[nodiscard]] std::array<uint8_t, 4> GetThumbnailBackgroundColor() const noexcept;
     [[nodiscard]] std::array<uint8_t, 4> GetThumbnailBorderColor() const noexcept;
 
@@ -36,6 +37,7 @@ private:
     bool defaultSnapPointsToGrid_;
     bool defaultSnapPlacementsToGrid_;
     float defaultGridStepMeters_;
+    float thumbnailDisplaySize_;
     std::array<uint8_t, 4> thumbnailBackgroundColor_;
     std::array<uint8_t, 4> thumbnailBorderColor_;
 };

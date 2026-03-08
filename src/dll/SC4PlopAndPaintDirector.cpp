@@ -13,6 +13,7 @@
 #include "cIGZWinKeyAccelerator.h"
 #include "cIGZWinKeyAcceleratorRes.h"
 #include "cRZBaseVariant.h"
+#include "common/Constants.hpp"
 #include "common/Utils.hpp"
 #include "favorites/FavoritesRepository.hpp"
 #include "flora/FloraRepository.hpp"
@@ -76,6 +77,7 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
     defaultSnapPointsToGrid_ = settings.GetDefaultSnapPointsToGrid();
     defaultSnapPlacementsToGrid_ = settings.GetDefaultSnapPlacementsToGrid();
     defaultGridStepMeters_ = settings.GetDefaultGridStepMeters();
+    UI::SetIconSize(settings.GetThumbnailDisplaySize());
     const auto thumbnailBackgroundColor = settings.GetThumbnailBackgroundColor();
     thumbnailBackgroundColor_ = IM_COL32(
         thumbnailBackgroundColor[0],

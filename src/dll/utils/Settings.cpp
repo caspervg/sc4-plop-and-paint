@@ -3,6 +3,8 @@
 
 #include "mini/ini.h"
 
+#include "../common/Constants.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -18,6 +20,7 @@ namespace {
     constexpr bool kDefaultSnapPointsToGrid = false;
     constexpr bool kDefaultSnapPlacementsToGrid = false;
     constexpr float kDefaultGridStepMeters = 16.0f;
+    constexpr float kDefaultThumbnailDisplaySize = 44.0f;
     constexpr std::array<uint8_t, 4> kDefaultThumbnailBackgroundColor = {0x42, 0x50, 0x66, 0xFF};
     constexpr std::array<uint8_t, 4> kDefaultThumbnailBorderColor = {0x5B, 0x6B, 0x84, 0xFF};
 
@@ -153,6 +156,7 @@ Settings::Settings()
     , defaultSnapPointsToGrid_(kDefaultSnapPointsToGrid)
     , defaultSnapPlacementsToGrid_(kDefaultSnapPlacementsToGrid)
     , defaultGridStepMeters_(kDefaultGridStepMeters)
+    , thumbnailDisplaySize_(kDefaultThumbnailDisplaySize)
     , thumbnailBackgroundColor_(kDefaultThumbnailBackgroundColor)
     , thumbnailBorderColor_(kDefaultThumbnailBorderColor) {}
 
@@ -267,6 +271,20 @@ void Settings::Load(const std::filesystem::path& settingsFilePath) {
             }
         }
 
+        if (section.has("ThumbnailDisplaySize")) {
+            bool valid = false;
+            const std::string text = section.get("ThumbnailDisplaySize");
+            const float parsed = ParseFloat(text, valid);
+            if (!valid || parsed < UI::kMinIconSize || parsed > UI::kMaxIconSize) {
+                thumbnailDisplaySize_ = kDefaultThumbnailDisplaySize;
+                LOG_ERROR("Invalid ThumbnailDisplaySize value '{}' in {}. Using default 44.0.", text,
+                          settingsFilePath.string());
+            }
+            else {
+                thumbnailDisplaySize_ = parsed;
+            }
+        }
+
         if (section.has("ThumbnailBackgroundColor")) {
             bool valid = false;
             const std::string text = section.get("ThumbnailBackgroundColor");
@@ -307,5 +325,6 @@ bool Settings::GetDefaultShowGridOverlay() const noexcept { return defaultShowGr
 bool Settings::GetDefaultSnapPointsToGrid() const noexcept { return defaultSnapPointsToGrid_; }
 bool Settings::GetDefaultSnapPlacementsToGrid() const noexcept { return defaultSnapPlacementsToGrid_; }
 float Settings::GetDefaultGridStepMeters() const noexcept { return defaultGridStepMeters_; }
+float Settings::GetThumbnailDisplaySize() const noexcept { return thumbnailDisplaySize_; }
 std::array<uint8_t, 4> Settings::GetThumbnailBackgroundColor() const noexcept { return thumbnailBackgroundColor_; }
 std::array<uint8_t, 4> Settings::GetThumbnailBorderColor() const noexcept { return thumbnailBorderColor_; }
