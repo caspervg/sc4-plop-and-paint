@@ -6,12 +6,14 @@
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <ranges>
 #include <span>
 #include <unordered_set>
 
+#include "raylib.h"
 #include "spdlog/spdlog.h"
 
 #include <stb_image.h>
@@ -32,6 +34,39 @@ namespace {
         uint32_t width = 0;
         uint32_t height = 0;
     };
+
+    PreRendered makeRenderFailedThumbnail(const uint32_t size) {
+        constexpr Color background{0, 0, 0, 0};
+        constexpr Color textShadow{12, 18, 28, 180};
+        constexpr Color text{232, 238, 246, 230};
+
+        Image image = GenImageColor(static_cast<int>(size), static_cast<int>(size), background);
+        const int fontSize = std::max(10, static_cast<int>(size / 11));
+        const int spacing = std::max(1, fontSize / 10);
+        const char* label = "RENDER FAILED";
+        const Vector2 labelSize = MeasureTextEx(GetFontDefault(), label, static_cast<float>(fontSize), static_cast<float>(spacing));
+        const float labelY = static_cast<float>(size) - labelSize.y - std::max(6.0f, static_cast<float>(size) / 14.0f);
+        const Vector2 labelPos{(static_cast<float>(size) - labelSize.x) * 0.5f, labelY};
+
+        ImageDrawTextEx(&image, GetFontDefault(), label,
+                        Vector2{labelPos.x + 1.0f, labelPos.y + 1.0f},
+                        static_cast<float>(fontSize), static_cast<float>(spacing), textShadow);
+        ImageDrawTextEx(&image, GetFontDefault(), label,
+                        labelPos,
+                        static_cast<float>(fontSize), static_cast<float>(spacing), text);
+
+        ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+
+        std::vector<std::byte> pixels(static_cast<size_t>(size) * size * 4);
+        std::memcpy(pixels.data(), image.data, pixels.size());
+        UnloadImage(image);
+
+        PreRendered preview;
+        preview.width = size;
+        preview.height = size;
+        preview.data = rfl::Bytestring(std::move(pixels));
+        return preview;
+    }
 
     std::optional<DBPF::Tgi> tgiFromProperty(const Exemplar::Property* prop, uint32_t defaultType) {
         if (!prop || prop->values.size() < 3) {
@@ -689,6 +724,9 @@ Flora ExemplarParser::floraFromParsed(const ParsedFloraExemplar& parsed) const {
             preview.height = rendered->height;
             flora.thumbnail = preview;
         }
+        else {
+            flora.thumbnail = makeRenderFailedThumbnail(thumbnailSize_);
+        }
     }
     return flora;
 }
@@ -789,6 +827,7 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
         else {
             spdlog::debug("Thumbnail render failed for building {} ({})",
                           parsed.name, parsed.modelTgi->ToString());
+            building.thumbnail = makeRenderFailedThumbnail(thumbnailSize_);
         }
     }
 
@@ -849,6 +888,7 @@ Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
         else {
             spdlog::debug("Thumbnail render failed for prop {} ({})",
                           parsed.visibleName, parsed.modelTgi->ToString());
+            prop.thumbnail = makeRenderFailedThumbnail(thumbnailSize_);
         }
     }
     return prop;
