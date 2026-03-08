@@ -15,12 +15,27 @@ namespace thumb {
         constexpr auto kTypeIdS3D = 0x5AD0E817u;
         constexpr auto kTypeIdFSH = 0x7AB50E44u;
         constexpr auto kTypeIdATC = 0x29A5D1ECu;
+        constexpr bool kEnableSilhouettePostFit = true;
+        constexpr bool kFlipRightBasis = false;
+        constexpr bool kFlipUpBasis = false;
+        constexpr bool kFlipScreenOffsetX = false;
+        constexpr bool kFlipScreenOffsetY = false;
         constexpr uint32_t kSupersampleFactor = 2;
         constexpr uint8_t kAlphaFitThreshold = 12;
         constexpr float kPostFitMarginRatio = 0.08f;
         constexpr float kHorizontalPadding = 1.06f;
         constexpr float kTopPadding = 1.12f;
         constexpr float kBottomPadding = 1.04f;
+        constexpr size_t kSc4ZoomCount = 5;
+        constexpr float kSc4DefaultYawRadians = 0.39269909f; // -22.5 degrees
+        constexpr float kSc4DefaultPitchRadians[kSc4ZoomCount] = {
+            0.52359879f, // 30 degrees
+            0.61086524f, // 35 degrees
+            0.69813168f, // 40 degrees
+            0.78539819f, // 45 degrees
+            0.78539819f  // 45 degrees
+        };
+        constexpr size_t kThumbnailZoomIndex = 4; // SC4 zoom 5 framing
 
         struct AlphaBounds {
             int minX;
@@ -127,12 +142,10 @@ namespace thumb {
         camera.up = Vector3{0.0f, 1.0f, 0.0f};
         camera.target = framingTarget;
 
-        constexpr auto kYawRad = 0.785398f; // 45° (π/4) - SW view
-        constexpr auto kPitchRadZoom5 = 0.5236f; // ~30° from horizontal
         const Vector3 dir{
-            std::cos(kYawRad) * std::cos(kPitchRadZoom5),
-            std::sin(kPitchRadZoom5),
-            std::sin(kYawRad) * std::cos(kPitchRadZoom5)
+            std::cos(kSc4DefaultYawRadians) * std::cos(kSc4DefaultPitchRadians[kThumbnailZoomIndex]),
+            std::sin(kSc4DefaultPitchRadians[kThumbnailZoomIndex]),
+            std::sin(kSc4DefaultYawRadians) * std::cos(kSc4DefaultPitchRadians[kThumbnailZoomIndex])
         };
 
         // Compute ortho size to tightly fit all corners after rotation
@@ -140,8 +153,12 @@ namespace thumb {
         // compute both viewport extents and the depth needed to keep the camera
         // in front of the closest geometry.
         Vector3 forward = Vector3Normalize(Vector3Negate(dir));
-        Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera.up));
-        Vector3 camUp = Vector3Normalize(Vector3CrossProduct(right, forward));
+        Vector3 right = kFlipRightBasis
+            ? Vector3Normalize(Vector3CrossProduct(camera.up, forward))
+            : Vector3Normalize(Vector3CrossProduct(forward, camera.up));
+        Vector3 camUp = kFlipUpBasis
+            ? Vector3Normalize(Vector3Negate(Vector3CrossProduct(right, forward)))
+            : Vector3Normalize(Vector3CrossProduct(right, forward));
 
         auto minRight = std::numeric_limits<float>::max();
         auto maxRight = std::numeric_limits<float>::lowest();
@@ -192,17 +209,21 @@ namespace thumb {
         const float nearMargin = std::max(maxDim * 0.25f, 4.0f);
         const float maxDistance = std::max(nearMargin, 900.0f - std::max(0.0f, maxForward));
         const float camDistance = std::clamp(-minForward + nearMargin, nearMargin, maxDistance);
+        const float targetOffsetX = kFlipScreenOffsetX ? -centerRight : centerRight;
+        const float targetOffsetY = kFlipScreenOffsetY ? -centerUp : centerUp;
         const Vector3 cameraTarget = Vector3Add(
             framingTarget,
-            Vector3Add(Vector3Scale(right, centerRight), Vector3Scale(camUp, centerUp)));
+            Vector3Add(Vector3Scale(right, targetOffsetX), Vector3Scale(camUp, targetOffsetY)));
         camera.target = cameraTarget;
         camera.position = Vector3Add(cameraTarget, Vector3Scale(dir, camDistance));
         camera.fovy = orthoHalfSize * 2.0f;
 
         spdlog::trace(
-            "Thumbnail renderer camera for {}: maxDim={}, camDistance={}, orthoHalfSize={}, focusY={}, offset=({}, {}), depth=[{}, {}]",
-            tgi.ToString(), maxDim, camDistance, orthoHalfSize, framingTarget.y, centerRight, centerUp, minForward,
-            maxForward);
+            "Thumbnail renderer camera for {}: maxDim={}, camDistance={}, orthoHalfSize={}, focusY={}, offset=({}, {}), depth=[{}, {}], sc4Camera[yaw={}, pitchZoom{}={}], toggles[rightFlip={}, upFlip={}, offsetXFlip={}, offsetYFlip={}]",
+            tgi.ToString(), maxDim, camDistance, orthoHalfSize, framingTarget.y, targetOffsetX, targetOffsetY,
+            minForward, maxForward, kSc4DefaultYawRadians, kThumbnailZoomIndex + 1,
+            kSc4DefaultPitchRadians[kThumbnailZoomIndex], kFlipRightBasis, kFlipUpBasis, kFlipScreenOffsetX,
+            kFlipScreenOffsetY);
 
         BeginTextureMode(target);
         ClearBackground(BLANK);
@@ -218,57 +239,66 @@ namespace thumb {
         ImageFlipVertical(&image);
         ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
 
-        std::optional<AlphaBounds> visibleBounds = FindVisibleAlphaBounds(image, kAlphaFitThreshold);
-        if (!visibleBounds.has_value()) {
-            UnloadImage(image);
-            UnloadRenderTexture(target);
-            modelCache_.erase(tgi);
-            return std::nullopt;
+        Image finalImage{};
+        if (kEnableSilhouettePostFit) {
+            std::optional<AlphaBounds> visibleBounds = FindVisibleAlphaBounds(image, kAlphaFitThreshold);
+            if (!visibleBounds.has_value()) {
+                UnloadImage(image);
+                UnloadRenderTexture(target);
+                modelCache_.erase(tgi);
+                return std::nullopt;
+            }
+
+            const int visibleWidth = visibleBounds->maxX - visibleBounds->minX + 1;
+            const int visibleHeight = visibleBounds->maxY - visibleBounds->minY + 1;
+            const int margin = std::max(1, static_cast<int>(std::ceil(std::max(visibleWidth, visibleHeight) * kPostFitMarginRatio)));
+            Rectangle cropRect{
+                static_cast<float>(std::max(0, visibleBounds->minX - margin)),
+                static_cast<float>(std::max(0, visibleBounds->minY - margin)),
+                static_cast<float>(std::min(static_cast<int>(renderSize), visibleBounds->maxX + margin + 1) -
+                                   std::max(0, visibleBounds->minX - margin)),
+                static_cast<float>(std::min(static_cast<int>(renderSize), visibleBounds->maxY + margin + 1) -
+                                   std::max(0, visibleBounds->minY - margin))
+            };
+
+            Image cropped = ImageFromImage(image, cropRect);
+            if (cropped.data == nullptr) {
+                UnloadImage(image);
+                UnloadRenderTexture(target);
+                modelCache_.erase(tgi);
+                return std::nullopt;
+            }
+
+            const float fitScale = std::min(
+                static_cast<float>(size) / static_cast<float>(cropped.width),
+                static_cast<float>(size) / static_cast<float>(cropped.height));
+            const int fittedWidth = std::max(1, static_cast<int>(std::round(cropped.width * fitScale)));
+            const int fittedHeight = std::max(1, static_cast<int>(std::round(cropped.height * fitScale)));
+
+            ImageResize(&cropped, fittedWidth, fittedHeight);
+            ImageFormat(&cropped, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+
+            finalImage = GenImageColor(static_cast<int>(size), static_cast<int>(size), BLANK);
+            const Rectangle srcRect{
+                0.0f,
+                0.0f,
+                static_cast<float>(cropped.width),
+                static_cast<float>(cropped.height)
+            };
+            const Rectangle dstRect{
+                std::floor((static_cast<float>(size) - cropped.width) * 0.5f),
+                std::floor((static_cast<float>(size) - cropped.height) * 0.5f),
+                static_cast<float>(cropped.width),
+                static_cast<float>(cropped.height)
+            };
+            ImageDraw(&finalImage, cropped, srcRect, dstRect, WHITE);
+            UnloadImage(cropped);
         }
-
-        const int visibleWidth = visibleBounds->maxX - visibleBounds->minX + 1;
-        const int visibleHeight = visibleBounds->maxY - visibleBounds->minY + 1;
-        const int margin = std::max(1, static_cast<int>(std::ceil(std::max(visibleWidth, visibleHeight) * kPostFitMarginRatio)));
-        Rectangle cropRect{
-            static_cast<float>(std::max(0, visibleBounds->minX - margin)),
-            static_cast<float>(std::max(0, visibleBounds->minY - margin)),
-            static_cast<float>(std::min(static_cast<int>(renderSize), visibleBounds->maxX + margin + 1) -
-                               std::max(0, visibleBounds->minX - margin)),
-            static_cast<float>(std::min(static_cast<int>(renderSize), visibleBounds->maxY + margin + 1) -
-                               std::max(0, visibleBounds->minY - margin))
-        };
-
-        Image cropped = ImageFromImage(image, cropRect);
-        if (cropped.data == nullptr) {
-            UnloadImage(image);
-            UnloadRenderTexture(target);
-            modelCache_.erase(tgi);
-            return std::nullopt;
+        else {
+            finalImage = ImageCopy(image);
+            ImageResize(&finalImage, static_cast<int>(size), static_cast<int>(size));
+            ImageFormat(&finalImage, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
         }
-
-        const float fitScale = std::min(
-            static_cast<float>(size) / static_cast<float>(cropped.width),
-            static_cast<float>(size) / static_cast<float>(cropped.height));
-        const int fittedWidth = std::max(1, static_cast<int>(std::round(cropped.width * fitScale)));
-        const int fittedHeight = std::max(1, static_cast<int>(std::round(cropped.height * fitScale)));
-
-        ImageResize(&cropped, fittedWidth, fittedHeight);
-        ImageFormat(&cropped, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-
-        Image finalImage = GenImageColor(static_cast<int>(size), static_cast<int>(size), BLANK);
-        const Rectangle srcRect{
-            0.0f,
-            0.0f,
-            static_cast<float>(cropped.width),
-            static_cast<float>(cropped.height)
-        };
-        const Rectangle dstRect{
-            std::floor((static_cast<float>(size) - cropped.width) * 0.5f),
-            std::floor((static_cast<float>(size) - cropped.height) * 0.5f),
-            static_cast<float>(cropped.width),
-            static_cast<float>(cropped.height)
-        };
-        ImageDraw(&finalImage, cropped, srcRect, dstRect, WHITE);
 
         RenderedImage rendered;
         rendered.width = size;
@@ -284,7 +314,6 @@ namespace thumb {
         }
 
         UnloadImage(finalImage);
-        UnloadImage(cropped);
         UnloadImage(image);
         UnloadRenderTexture(target);
 
