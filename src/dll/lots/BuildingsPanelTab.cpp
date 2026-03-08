@@ -35,7 +35,7 @@ void BuildingsPanelTab::OnRender() {
     const auto& buildings = lots_->GetBuildings();
 
     if (buildings.empty()) {
-        ImGui::TextUnformatted("No buildings loaded. Please ensure lot_configs.cbor exists in the Plugins directory.");
+        ImGui::TextUnformatted("No buildings loaded. Please ensure lots.cbor exists in the Plugins directory.");
         return;
     }
 
