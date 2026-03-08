@@ -15,9 +15,52 @@ namespace thumb {
         constexpr auto kTypeIdS3D = 0x5AD0E817u;
         constexpr auto kTypeIdFSH = 0x7AB50E44u;
         constexpr auto kTypeIdATC = 0x29A5D1ECu;
-        constexpr float kHorizontalPadding = 1.12f;
-        constexpr float kTopPadding = 1.20f;
-        constexpr float kBottomPadding = 1.08f;
+        constexpr uint32_t kSupersampleFactor = 2;
+        constexpr uint8_t kAlphaFitThreshold = 12;
+        constexpr float kPostFitMarginRatio = 0.08f;
+        constexpr float kHorizontalPadding = 1.06f;
+        constexpr float kTopPadding = 1.12f;
+        constexpr float kBottomPadding = 1.04f;
+
+        struct AlphaBounds {
+            int minX;
+            int minY;
+            int maxX;
+            int maxY;
+        };
+
+        std::optional<AlphaBounds> FindVisibleAlphaBounds(const Image& image, const uint8_t alphaThreshold) {
+            if (!image.data || image.width <= 0 || image.height <= 0 || image.format != PIXELFORMAT_UNCOMPRESSED_R8G8B8A8) {
+                return std::nullopt;
+            }
+
+            const auto* pixels = static_cast<const uint8_t*>(image.data);
+            AlphaBounds bounds{
+                .minX = image.width,
+                .minY = image.height,
+                .maxX = -1,
+                .maxY = -1
+            };
+
+            for (int y = 0; y < image.height; ++y) {
+                for (int x = 0; x < image.width; ++x) {
+                    const size_t index = (static_cast<size_t>(y) * image.width + x) * 4;
+                    if (pixels[index + 3] < alphaThreshold) {
+                        continue;
+                    }
+                    bounds.minX = std::min(bounds.minX, x);
+                    bounds.minY = std::min(bounds.minY, y);
+                    bounds.maxX = std::max(bounds.maxX, x);
+                    bounds.maxY = std::max(bounds.maxY, y);
+                }
+            }
+
+            if (bounds.maxX < bounds.minX || bounds.maxY < bounds.minY) {
+                return std::nullopt;
+            }
+
+            return bounds;
+        }
     }
 
     ThumbnailRenderer::ThumbnailRenderer(const DbpfIndexService& indexService)
@@ -55,7 +98,8 @@ namespace thumb {
             return std::nullopt;
         }
 
-        const RenderTexture2D target = LoadRenderTexture(static_cast<int>(size), static_cast<int>(size));
+        const uint32_t renderSize = size * kSupersampleFactor;
+        const RenderTexture2D target = LoadRenderTexture(static_cast<int>(renderSize), static_cast<int>(renderSize));
         if (target.id == 0) {
             return std::nullopt;
         }
@@ -127,22 +171,38 @@ namespace thumb {
             }
         }
 
-        const float horizontalHalfSize = std::max(std::abs(minRight), std::abs(maxRight)) * kHorizontalPadding;
-        const float verticalHalfSize = std::max(maxUp * kTopPadding, std::abs(minUp) * kBottomPadding);
-        float orthoHalfSize = std::max(horizontalHalfSize, verticalHalfSize);
+        const float leftBound = minRight * kHorizontalPadding;
+        const float rightBound = maxRight * kHorizontalPadding;
+        const float bottomBound = minUp * kBottomPadding;
+        const float topBound = maxUp * kTopPadding;
+
+        const float centerRight = (leftBound + rightBound) * 0.5f;
+        const float centerUp = (bottomBound + topBound) * 0.5f;
+
+        float orthoHalfSize = std::max({
+            std::abs(leftBound - centerRight),
+            std::abs(rightBound - centerRight),
+            std::abs(bottomBound - centerUp),
+            std::abs(topBound - centerUp)
+        });
         if (orthoHalfSize <= 0.0f) {
-            orthoHalfSize = static_cast<float>(size) / 2.0f;
+            orthoHalfSize = static_cast<float>(renderSize) / 2.0f;
         }
 
         const float nearMargin = std::max(maxDim * 0.25f, 4.0f);
         const float maxDistance = std::max(nearMargin, 900.0f - std::max(0.0f, maxForward));
         const float camDistance = std::clamp(-minForward + nearMargin, nearMargin, maxDistance);
-        camera.position = Vector3Add(framingTarget, Vector3Scale(dir, camDistance));
+        const Vector3 cameraTarget = Vector3Add(
+            framingTarget,
+            Vector3Add(Vector3Scale(right, centerRight), Vector3Scale(camUp, centerUp)));
+        camera.target = cameraTarget;
+        camera.position = Vector3Add(cameraTarget, Vector3Scale(dir, camDistance));
         camera.fovy = orthoHalfSize * 2.0f;
 
         spdlog::trace(
-            "Thumbnail renderer camera for {}: maxDim={}, camDistance={}, orthoHalfSize={}, focusY={}, depth=[{}, {}]",
-            tgi.ToString(), maxDim, camDistance, orthoHalfSize, framingTarget.y, minForward, maxForward);
+            "Thumbnail renderer camera for {}: maxDim={}, camDistance={}, orthoHalfSize={}, focusY={}, offset=({}, {}), depth=[{}, {}]",
+            tgi.ToString(), maxDim, camDistance, orthoHalfSize, framingTarget.y, centerRight, centerUp, minForward,
+            maxForward);
 
         BeginTextureMode(target);
         ClearBackground(BLANK);
@@ -158,12 +218,64 @@ namespace thumb {
         ImageFlipVertical(&image);
         ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
 
+        std::optional<AlphaBounds> visibleBounds = FindVisibleAlphaBounds(image, kAlphaFitThreshold);
+        if (!visibleBounds.has_value()) {
+            UnloadImage(image);
+            UnloadRenderTexture(target);
+            modelCache_.erase(tgi);
+            return std::nullopt;
+        }
+
+        const int visibleWidth = visibleBounds->maxX - visibleBounds->minX + 1;
+        const int visibleHeight = visibleBounds->maxY - visibleBounds->minY + 1;
+        const int margin = std::max(1, static_cast<int>(std::ceil(std::max(visibleWidth, visibleHeight) * kPostFitMarginRatio)));
+        Rectangle cropRect{
+            static_cast<float>(std::max(0, visibleBounds->minX - margin)),
+            static_cast<float>(std::max(0, visibleBounds->minY - margin)),
+            static_cast<float>(std::min(static_cast<int>(renderSize), visibleBounds->maxX + margin + 1) -
+                               std::max(0, visibleBounds->minX - margin)),
+            static_cast<float>(std::min(static_cast<int>(renderSize), visibleBounds->maxY + margin + 1) -
+                               std::max(0, visibleBounds->minY - margin))
+        };
+
+        Image cropped = ImageFromImage(image, cropRect);
+        if (cropped.data == nullptr) {
+            UnloadImage(image);
+            UnloadRenderTexture(target);
+            modelCache_.erase(tgi);
+            return std::nullopt;
+        }
+
+        const float fitScale = std::min(
+            static_cast<float>(size) / static_cast<float>(cropped.width),
+            static_cast<float>(size) / static_cast<float>(cropped.height));
+        const int fittedWidth = std::max(1, static_cast<int>(std::round(cropped.width * fitScale)));
+        const int fittedHeight = std::max(1, static_cast<int>(std::round(cropped.height * fitScale)));
+
+        ImageResize(&cropped, fittedWidth, fittedHeight);
+        ImageFormat(&cropped, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+
+        Image finalImage = GenImageColor(static_cast<int>(size), static_cast<int>(size), BLANK);
+        const Rectangle srcRect{
+            0.0f,
+            0.0f,
+            static_cast<float>(cropped.width),
+            static_cast<float>(cropped.height)
+        };
+        const Rectangle dstRect{
+            std::floor((static_cast<float>(size) - cropped.width) * 0.5f),
+            std::floor((static_cast<float>(size) - cropped.height) * 0.5f),
+            static_cast<float>(cropped.width),
+            static_cast<float>(cropped.height)
+        };
+        ImageDraw(&finalImage, cropped, srcRect, dstRect, WHITE);
+
         RenderedImage rendered;
         rendered.width = size;
         rendered.height = size;
         rendered.pixels.resize(size * size * 4);
-        if (image.data) {
-            std::memcpy(rendered.pixels.data(), image.data, rendered.pixels.size());
+        if (finalImage.data) {
+            std::memcpy(rendered.pixels.data(), finalImage.data, rendered.pixels.size());
             for (size_t i = 0; i + 3 < rendered.pixels.size(); i += 4) {
                 std::byte tmp = rendered.pixels[i];
                 rendered.pixels[i] = rendered.pixels[i + 2];
@@ -171,6 +283,8 @@ namespace thumb {
             }
         }
 
+        UnloadImage(finalImage);
+        UnloadImage(cropped);
         UnloadImage(image);
         UnloadRenderTexture(target);
 
