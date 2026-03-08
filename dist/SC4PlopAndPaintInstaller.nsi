@@ -41,9 +41,11 @@ Var HBrowsePluginsDir
 Var CacheLocale
 Var CacheRenderThumbs
 Var CacheBuildNow
+Var CacheThumbnailSize
 Var HCacheLocale
 Var HCacheRenderThumbs
 Var HCacheBuildNow
+Var HCacheThumbnailSize
 Var HSummaryText
 Var GameExePath
 Var RenderServicesDllPath
@@ -75,6 +77,7 @@ Function .onInit
   StrCpy $CacheLocale "English"
   StrCpy $CacheRenderThumbs "0"
   StrCpy $CacheBuildNow "1"
+  StrCpy $CacheThumbnailSize "44"
 FunctionEnd
 
 Function DetectDefaultGameRoot
@@ -346,7 +349,11 @@ Function ConfigureCachePage
     ${NSD_Check} $HCacheRenderThumbs
   ${EndIf}
 
-  ${NSD_CreateCheckbox} 0u 90u 100% 12u "Build cache during installation"
+  ${NSD_CreateLabel} 0u 90u 100% 10u "Thumbnail size in pixels (22-176, used for cache thumbnails and UI display):"
+  ${NSD_CreateText} 0u 102u 100% 12u "$CacheThumbnailSize"
+  Pop $HCacheThumbnailSize
+
+  ${NSD_CreateCheckbox} 0u 122u 100% 12u "Build cache during installation"
   Pop $HCacheBuildNow
   ${If} $CacheBuildNow == "1"
     ${NSD_Check} $HCacheBuildNow
@@ -357,6 +364,7 @@ FunctionEnd
 
 Function ConfigureCachePageLeave
   ${NSD_GetText} $HCacheLocale $CacheLocale
+  ${NSD_GetText} $HCacheThumbnailSize $CacheThumbnailSize
   ${NSD_GetState} $HCacheRenderThumbs $0
   ${If} $0 == ${BST_CHECKED}
     StrCpy $CacheRenderThumbs "1"
@@ -368,6 +376,22 @@ Function ConfigureCachePageLeave
     MessageBox MB_OK|MB_ICONEXCLAMATION "Locale cannot be empty."
     Abort
   ${EndIf}
+
+  ${If} $CacheThumbnailSize == ""
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Thumbnail size cannot be empty."
+    Abort
+  ${EndIf}
+
+  IntCmp $CacheThumbnailSize 22 0 thumbnail_size_too_small thumbnail_size_ok_min
+  thumbnail_size_too_small:
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Thumbnail size must be an integer between 22 and 176 pixels."
+    Abort
+  thumbnail_size_ok_min:
+  IntCmp $CacheThumbnailSize 176 thumbnail_size_ok_max thumbnail_size_ok_max thumbnail_size_too_large
+  thumbnail_size_too_large:
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Thumbnail size must be an integer between 22 and 176 pixels."
+    Abort
+  thumbnail_size_ok_max:
 
   ${NSD_GetState} $HCacheBuildNow $0
   ${If} $0 == ${BST_CHECKED}
@@ -433,7 +457,7 @@ Function ConfigureSummaryPage
     StrCpy $1 "No"
   ${EndIf}
 
-  ${NSD_CreateLabel} 0u 16u 100% 78u "Game root:$\r$\n$GameRoot$\r$\n$\r$\nPlugins dir:$\r$\n$SC4PluginsDir$\r$\n$\r$\nTools/output dir:$\r$\n$SC4ToolsDir$\r$\n$\r$\nCache locale: $CacheLocale$\r$\nRender 3D thumbnails: $0$\r$\nBuild cache during install: $1"
+  ${NSD_CreateLabel} 0u 16u 100% 88u "Game root:$\r$\n$GameRoot$\r$\n$\r$\nPlugins dir:$\r$\n$SC4PluginsDir$\r$\n$\r$\nTools/output dir:$\r$\n$SC4ToolsDir$\r$\n$\r$\nCache locale: $CacheLocale$\r$\nRender 3D thumbnails: $0$\r$\nThumbnail size: $CacheThumbnailSize px$\r$\nBuild cache during install: $1"
   Pop $HSummaryText
 
   nsDialogs::Show
@@ -449,6 +473,7 @@ Section "Install"
   SetOverwrite off
   File "SC4PlopAndPaint.ini"
   SetOverwrite on
+  WriteINIStr "$SC4PluginsDir\SC4PlopAndPaint.ini" "SC4PlopAndPaint" "ThumbnailDisplaySize" "$CacheThumbnailSize"
 
   CreateDirectory "$SC4ToolsDir"
   SetOutPath "$SC4ToolsDir"
@@ -480,7 +505,8 @@ Section "Install"
   FileWrite $3 "$$game = '$GameRoot'.TrimEnd('\')$\r$\n"
   FileWrite $3 "$$plugins = '$SC4PluginsDir'.TrimEnd('\')$\r$\n"
   FileWrite $3 "$$locale = '$CacheLocale'.TrimEnd('\')$\r$\n"
-  FileWrite $3 "$$cacheArgs = @('--scan', '--game', $$game, '--plugins', $$plugins, '--locale', $$locale)$\r$\n"
+  FileWrite $3 "$$thumbnailSize = '$CacheThumbnailSize'$\r$\n"
+  FileWrite $3 "$$cacheArgs = @('--scan', '--game', $$game, '--plugins', $$plugins, '--locale', $$locale, '--thumbnail-size', $$thumbnailSize)$\r$\n"
   ${If} $CacheRenderThumbs == "1"
     FileWrite $3 "$$cacheArgs += '--render-thumbnails'$\r$\n"
   ${EndIf}
@@ -494,6 +520,7 @@ Section "Install"
   FileWrite $3 "  ('Plugins dir: ' + $$plugins),$\r$\n"
   FileWrite $3 "  ('Locale: ' + $$locale),$\r$\n"
   FileWrite $3 "  ('Render thumbnails: ' + $$renderThumbs),$\r$\n"
+  FileWrite $3 "  ('Thumbnail size: ' + $$thumbnailSize + ' px'),$\r$\n"
   FileWrite $3 "  ('Command: ' + $$exe + ' ' + ($$cacheArgs -join ' ')),$\r$\n"
   FileWrite $3 "  ''$\r$\n"
   FileWrite $3 ")$\r$\n"
@@ -564,9 +591,13 @@ Section "Uninstall"
   Delete "$SC4ToolsDir\Uninstall-SC4PlopAndPaint.exe"
   RMDir "$SC4ToolsDir"
 
-  MessageBox MB_YESNO|MB_ICONQUESTION "Also remove generated cache files (lot_configs.cbor and props.cbor)?" IDNO +2
-  Delete "$SC4PluginsDir\lot_configs.cbor"
+  MessageBox MB_YESNO|MB_ICONQUESTION "Also remove generated cache files (lots.cbor, props.cbor, flora.cbor, and thumbnail .bin sidecars)?" IDNO +7
+  Delete "$SC4PluginsDir\lots.cbor"
   Delete "$SC4PluginsDir\props.cbor"
+  Delete "$SC4PluginsDir\flora.cbor"
+  Delete "$SC4PluginsDir\lot_thumbnails.bin"
+  Delete "$SC4PluginsDir\prop_thumbnails.bin"
+  Delete "$SC4PluginsDir\flora_thumbnails.bin"
 
   DeleteRegKey HKCU "${UNINSTALL_KEY}"
   DeleteRegKey HKCU "${APP_REG_KEY}"
