@@ -27,7 +27,7 @@ namespace thumb {
         constexpr float kTopPadding = 1.12f;
         constexpr float kBottomPadding = 1.04f;
         constexpr size_t kSc4ZoomCount = 5;
-        constexpr float kSc4DefaultYawRadians = 0.39269909f; // -22.5 degrees
+        constexpr float kSc4DefaultYawRadians = 1.17809725; // 67.5 degrees
         constexpr float kSc4DefaultPitchRadians[kSc4ZoomCount] = {
             0.52359879f, // 30 degrees
             0.61086524f, // 35 degrees
