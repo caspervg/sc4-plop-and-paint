@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <exception>
 #include <string>
 
@@ -91,7 +92,7 @@ namespace {
         try {
             size_t parsedChars = 0;
             const float parsed = std::stof(value, &parsedChars);
-            valid = parsedChars == value.size();
+            valid = parsedChars == value.size() && std::isfinite(parsed);
             return parsed;
         }
         catch (...) {
