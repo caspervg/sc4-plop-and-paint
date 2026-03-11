@@ -95,6 +95,7 @@ private:
     void UnregisterLotPlopShortcut_();
     static std::filesystem::path GetUserPluginsPath_();
     static void DrawOverlayCallback_(DrawServicePass pass, bool begin, void* pThis);
+    void ProcessPendingToolActions_();
     void UpdatePaintPanels_();
     void SyncRecentPaintsCache_();
     void PersistRecentPaints_();
@@ -136,6 +137,7 @@ private:
     RecentPaintHistory recentPaints_{};
     bool enableRecentPaints_{true};
     PaintSwitchPolicy paintSwitchPolicy_{PaintSwitchPolicy::KeepPending};
+    bool drawOverlayEnabled_{true};
     uint32_t drawCallbackToken_{0};
     PreviewMode defaultPropPreviewMode_ = PreviewMode::Outline;
     bool defaultShowGridOverlay_ = true;

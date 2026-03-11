@@ -208,8 +208,12 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
             LOG_WARN("S3D camera service not available");
         }
 
-        if (settings.GetEnableDrawOverlay() &&
-            mpFrameWork->GetSystemService(kDrawServiceID, GZIID_cIGZDrawService,
+        drawOverlayEnabled_ = settings.GetEnableDrawOverlay();
+        if (!drawOverlayEnabled_) {
+            LOG_INFO("Draw overlay disabled in settings");
+        }
+
+        if (mpFrameWork->GetSystemService(kDrawServiceID, GZIID_cIGZDrawService,
                                           reinterpret_cast<void**>(&drawService_))) {
             LOG_INFO("Acquired draw service");
             if (!drawService_->RegisterDrawPassCallback(
@@ -219,9 +223,6 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
                 &drawCallbackToken_)) {
                 LOG_WARN("Failed to register draw pass callback");
             }
-        }
-        else if (!settings.GetEnableDrawOverlay()) {
-            LOG_INFO("Draw overlay disabled in settings");
         }
         else {
             LOG_WARN("Draw service not available");
@@ -819,6 +820,18 @@ ImU32 SC4PlopAndPaintDirector::GetThumbnailBorderColor() const noexcept {
     return thumbnailBorderColor_;
 }
 
+void SC4PlopAndPaintDirector::ProcessPendingToolActions_() {
+    if (propStripperControl_) {
+        propStripperControl_->ProcessPendingActions();
+    }
+    if (propPainterControl_) {
+        propPainterControl_->ProcessPendingActions();
+    }
+    if (floraPlacerControl_) {
+        floraPlacerControl_->ProcessPendingActions();
+    }
+}
+
 void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, const bool begin, void* pThis) {
     if (pass != DrawServicePass::PreDynamic || begin) {
         return;
@@ -829,16 +842,7 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
         return;
     }
 
-    // Process deferred cancel for the stripper (before D3D, fires even if acquisition fails)
-    if (director->propStripperControl_) {
-        director->propStripperControl_->ProcessPendingActions();
-    }
-    if (director->propPainterControl_) {
-        director->propPainterControl_->ProcessPendingActions();
-    }
-    if (director->floraPlacerControl_) {
-        director->floraPlacerControl_->ProcessPendingActions();
-    }
+    director->ProcessPendingToolActions_();
 
     // Capture control pointers to avoid race conditions with flag changes
     PropPainterInputControl* painterControl = director->propPainterControl_;
@@ -847,7 +851,7 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
 
     const bool needsOverlay = painterControl || stripperControl || floraControl;
 
-    if (!director->imguiService_ || !needsOverlay) {
+    if (!director->drawOverlayEnabled_ || !director->imguiService_ || !needsOverlay) {
         return;
     }
 
