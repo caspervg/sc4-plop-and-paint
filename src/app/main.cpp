@@ -178,12 +178,34 @@ namespace {
         return config;
     }
 
+    bool IsDirectoryEmpty(const fs::path& directory) {
+        if (directory.empty()) {
+            return false;
+        }
+
+        std::error_code ec;
+        if (!fs::exists(directory, ec) || !fs::is_directory(directory, ec)) {
+            return false;
+        }
+
+        const fs::directory_iterator begin(directory, fs::directory_options::skip_permission_denied, ec);
+        if (ec) {
+            return false;
+        }
+
+        return begin == fs::directory_iterator();
+    }
+
     void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
                                  spdlog::logger& logger,
                                  bool renderModelThumbnails,
                                  const uint32_t thumbnailSize) {
         try {
             logger.info("Initializing plugin scanner...");
+
+            if (IsDirectoryEmpty(config.userPluginsRoot)) {
+                logger.warn("User Plugins folder is empty: {}", config.userPluginsRoot.string());
+            }
 
             // Create locator to discover plugin files
             PluginLocator locator(config);

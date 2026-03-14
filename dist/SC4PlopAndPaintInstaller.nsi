@@ -165,6 +165,34 @@ Function WarnIfNo4GBPatch
   ${EndIf}
 FunctionEnd
 
+Function WarnIfPluginsFolderEmpty
+  ClearErrors
+  FindFirst $0 $1 "$SC4PluginsDir\*"
+  ${If} ${Errors}
+    Return
+  ${EndIf}
+
+  StrCpy $2 "1"
+  plugins_dir_scan:
+    StrCmp $1 "." plugins_dir_next
+    StrCmp $1 ".." plugins_dir_next
+    StrCpy $2 "0"
+    Goto plugins_dir_done
+  plugins_dir_next:
+    ClearErrors
+    FindNext $0 $1
+    ${IfNot} ${Errors}
+      Goto plugins_dir_scan
+    ${EndIf}
+
+  plugins_dir_done:
+  FindClose $0
+
+  ${If} $2 == "1"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "The selected Plugins folder is empty:$\r$\n$SC4PluginsDir$\r$\n$\r$\nThis usually means the wrong folder was selected!"
+  ${EndIf}
+FunctionEnd
+
 Function ValidateRenderServicesDependency
   StrCpy $RenderServicesDllPath "$SC4PluginsDir\${RENDER_SERVICES_DLL_NAME}"
 
@@ -326,6 +354,7 @@ Function ConfigurePathsPageLeave
 
   Call ValidateGameExecutable
   Call WarnIfNo4GBPatch
+  Call WarnIfPluginsFolderEmpty
   Call ValidateRenderServicesDependency
   Call WarnLegacyPlugins
 FunctionEnd
