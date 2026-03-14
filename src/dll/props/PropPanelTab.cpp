@@ -82,7 +82,7 @@ void PropPanelTab::OnRender() {
             director_->StartPropStripping();
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click props in the city to remove them one by one.\nCtrl+Z to undo, ESC to stop.");
+            ImGui::SetTooltip("Click props in the city to remove them one by one.\nPress B to toggle brush mode.\nHold left mouse in brush mode to strip within the preview radius.\nCtrl+Z to undo, ESC to stop.");
         }
     }
 

@@ -47,11 +47,26 @@ bool PropStripperInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t /
     if (!active_ || !IsOnTop()) {
         return false;
     }
+    if (stripMode_ == StripMode::Brush) {
+        leftMouseDown_ = true;
+        if (!cursorValid_) {
+            return false;
+        }
+        DeletePropsInBrush_();
+        BuildOverlay_();
+        return true;
+    }
+
     if (!cursorValid_ || !hoveredOccupant_) {
         return false;
     }
     DeleteHoveredProp_();
     return true;
+}
+
+bool PropStripperInputControl::OnMouseUpL(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
+    leftMouseDown_ = false;
+    return active_ && IsOnTop();
 }
 
 bool PropStripperInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
@@ -69,7 +84,15 @@ bool PropStripperInputControl::OnMouseMove(const int32_t x, const int32_t z, con
         return false;
     }
     UpdateCursorWorldFromScreen_(x, z);
-    PickNearestProp_();
+    if (stripMode_ == StripMode::Brush) {
+        ClearHoveredProp_();
+        if (leftMouseDown_) {
+            DeletePropsInBrush_();
+        }
+    }
+    else {
+        PickNearestProp_();
+    }
     BuildOverlay_();
     return true;
 }
@@ -91,6 +114,21 @@ bool PropStripperInputControl::OnKeyDown(const int32_t vkCode, const uint32_t mo
         return true;
     }
 
+    if (vkCode == 'B') {
+        stripMode_ = stripMode_ == StripMode::Single ? StripMode::Brush : StripMode::Single;
+        leftMouseDown_ = false;
+        if (stripMode_ == StripMode::Brush) {
+            ClearHoveredProp_();
+            LOG_INFO("PropStripperInputControl: Switched to brush mode");
+        }
+        else {
+            PickNearestProp_();
+            LOG_INFO("PropStripperInputControl: Switched to single mode");
+        }
+        BuildOverlay_();
+        return true;
+    }
+
     return false;
 }
 
@@ -106,6 +144,7 @@ void PropStripperInputControl::Activate() {
 
 void PropStripperInputControl::Deactivate() {
     active_ = false;
+    leftMouseDown_ = false;
     ProcessPendingActions();
     ClearHoveredProp_();
     overlay_.Clear();
@@ -249,6 +288,63 @@ void PropStripperInputControl::PickNearestProp_() {
     }
 
     SetHoveredProp_(nearest);
+}
+
+void PropStripperInputControl::DeletePropsInBrush_() {
+    if (!cursorValid_ || !propManager_) {
+        return;
+    }
+
+    const SC4Rect<float> rect(
+        currentCursorWorld_.fX - kPickRadiusMeters,
+        currentCursorWorld_.fZ - kPickRadiusMeters,
+        currentCursorWorld_.fX + kPickRadiusMeters,
+        currentCursorWorld_.fZ + kPickRadiusMeters);
+
+    SC4List<cISC4Occupant*> candidates;
+    propManager_->GetCityProps(candidates, rect);
+
+    size_t removedCount = 0;
+    for (cISC4Occupant* occupant : candidates) {
+        if (!occupant) {
+            continue;
+        }
+
+        cISC4PropOccupant* propOccupant = nullptr;
+        if (!occupant->QueryInterface(GZIID_cISC4PropOccupant, reinterpret_cast<void**>(&propOccupant)) || !propOccupant) {
+            continue;
+        }
+        cRZAutoRefCount<cISC4PropOccupant> propRef(propOccupant);
+        cRZAutoRefCount<cISC4Occupant> occupantRef(occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
+
+        cS3DVector3 pos{};
+        if (!occupantRef->GetPosition(&pos)) {
+            continue;
+        }
+
+        const float dx = pos.fX - currentCursorWorld_.fX;
+        const float dz = pos.fZ - currentCursorWorld_.fZ;
+        if ((dx * dx + dz * dz) > (kPickRadiusMeters * kPickRadiusMeters)) {
+            continue;
+        }
+
+        const uint32_t propType = propRef->GetPropType();
+        const int32_t orientation = propRef->GetOrientation();
+        occupantRef->SetHighlight(0x0, true);
+
+        if (!propManager_->RemovePropA(occupantRef)) {
+            LOG_WARN("PropStripperInputControl: Failed to remove prop 0x{:08X} in brush mode", propType);
+            continue;
+        }
+
+        undoStack_.push_back({propType, pos, orientation});
+        ++removedCount;
+    }
+
+    if (removedCount > 0) {
+        LOG_INFO("PropStripperInputControl: Brush removed {} prop(s), {} undo(s) available",
+                 removedCount, undoStack_.size());
+    }
 }
 
 void PropStripperInputControl::SetHoveredProp_(cISC4Occupant* newOccupant) {

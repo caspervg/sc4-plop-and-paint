@@ -21,6 +21,7 @@ public:
     bool Shutdown() override;
 
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
+    bool OnMouseUpL(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
@@ -35,8 +36,14 @@ public:
     void DrawOverlay(IDirect3DDevice7* device);
 
 private:
+    enum class StripMode {
+        Single,
+        Brush
+    };
+
     bool UpdateCursorWorldFromScreen_(int32_t screenX, int32_t screenZ);
     void PickNearestProp_();
+    void DeletePropsInBrush_();
     void SetHoveredProp_(cISC4Occupant* occupant);
     void ClearHoveredProp_();
     void DeleteHoveredProp_();
@@ -55,6 +62,8 @@ private:
 
     bool active_ = false;
     bool cancelPending_ = false;
+    bool leftMouseDown_ = false;
+    StripMode stripMode_{StripMode::Single};
     cS3DVector3 currentCursorWorld_{};
     bool cursorValid_ = false;
 
