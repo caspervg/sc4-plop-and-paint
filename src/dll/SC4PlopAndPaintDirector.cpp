@@ -1128,6 +1128,7 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
     PersistRecentPaints_();
     SetLotPlopPanelVisible(false);
+    StopFloraStripping();
     StopPropStripping();
     StopPropPainting();
     StopFloraPainting();
@@ -1142,6 +1143,9 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     }
     if (floraPlacerControl_) {
         floraPlacerControl_->SetCity(nullptr);
+    }
+    if (floraStripperControl_) {
+        floraStripperControl_->SetCity(nullptr);
     }
     pCity_ = nullptr;
     if (pView3D_) {

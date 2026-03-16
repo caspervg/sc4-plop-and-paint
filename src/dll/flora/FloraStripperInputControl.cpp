@@ -305,8 +305,14 @@ void FloraStripperInputControl::PickNearestFlora_() {
         }
     }
 
+    if (nearest) {
+        nearest->AddRef();
+    }
     occupantManager_->ReleaseOccupantList(candidates);
     SetHoveredFlora_(nearest);
+    if (nearest) {
+        nearest->Release();
+    }
 }
 
 void FloraStripperInputControl::DeleteFloraInBrush_() {
