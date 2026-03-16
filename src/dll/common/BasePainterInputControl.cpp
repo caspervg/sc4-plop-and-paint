@@ -864,6 +864,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
                 pp.placement.position.fY += settings_.deltaYMeters;
                 SnapPlacementToGrid_(pp.placement);
                 PopulatePreviewBounds_(pp, pp.placement.itemId);
+                pp.valid = IsDirectPreviewPlacementValid_(pp.placement);
                 plannedPlacements.push_back(pp);
             }
         }
@@ -894,6 +895,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
             pp.placement.position.fY += settings_.deltaYMeters;
             SnapPlacementToGrid_(pp.placement);
             PopulatePreviewBounds_(pp, pp.placement.itemId);
+            pp.valid = IsDirectPreviewPlacementValid_(pp.placement);
             cachedPolygonPlacements_.push_back(pp);
         }
 

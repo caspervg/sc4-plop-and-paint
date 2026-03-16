@@ -34,6 +34,7 @@ FloraPainterInputControl::~FloraPainterInputControl() = default;
 void FloraPainterInputControl::SetFloraToPaint(const uint32_t floraTypeID, const PropPaintSettings& settings,
                                                const std::string& name) {
     SetTypeToPaint(floraTypeID, settings, name);
+    RefreshStaticFloraData_();
     LOG_INFO("Setting flora to paint: {} (0x{:08X})", name, floraTypeID);
 }
 
@@ -41,14 +42,34 @@ void FloraPainterInputControl::SetFloraRepository(const FloraRepository* floraRe
     floraRepository_ = floraRepository;
 }
 
-bool FloraPainterInputControl::IsFloraPlacementValid_(const uint32_t typeID, const cS3DVector3& position) const {
+bool FloraPainterInputControl::IsFloraPlacementValid_(const uint32_t typeID,
+                                                      const cS3DVector3& position,
+                                                      cISC4Occupant* ignoredOccupant) const {
     if (!floraSimulator_ || typeID == 0) {
         return true;
     }
 
-    // Override the game's check
-    // return true;
-    return floraSimulator_->LocationIsOKForNewFlora(typeID, position.fX, position.fZ, nullptr);
+    cSC4StaticFloraData* floraData = typeID == typeToPaint_
+        ? selectedFloraData_
+        : floraSimulator_->GetStaticFloraData(typeID);
+    if (!floraData) {
+        LOG_DEBUG("No static flora data for 0x{:08X}", typeID);
+        return false;
+    }
+
+    return floraSimulator_->LocationIsOKForNewFlora(typeID, position.fX, position.fZ, ignoredOccupant);
+}
+
+void FloraPainterInputControl::RefreshStaticFloraData_() {
+    selectedFloraData_ = nullptr;
+    if (!floraSimulator_ || typeToPaint_ == 0) {
+        return;
+    }
+
+    selectedFloraData_ = floraSimulator_->GetStaticFloraData(typeToPaint_);
+    if (!selectedFloraData_) {
+        LOG_WARN("No static flora data found for 0x{:08X}", typeToPaint_);
+    }
 }
 
 void FloraPainterInputControl::OnCityChanged_(cISC4City* pCity) {
@@ -58,6 +79,8 @@ void FloraPainterInputControl::OnCityChanged_(cISC4City* pCity) {
     else {
         floraSimulator_.Reset();
     }
+
+    RefreshStaticFloraData_();
 }
 
 bool FloraPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos, const int32_t rotation,
@@ -85,7 +108,7 @@ bool FloraPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos, const int32
         return false;
     }
 
-    float posArr[3] = {pos.fX, -1.0f, pos.fZ};
+    float posArr[3] = {pos.fX, pos.fY, pos.fZ};
 
     // On the x86 game binary this overload returns the occupant-facing interface
     // pointer directly, despite the SDK header currently declaring a flora interface.
@@ -144,7 +167,10 @@ void FloraPainterInputControl::CreatePreviewOccupant_() {
         return;
     }
 
-    float posArr[3] = {currentCursorWorld_.fX, -1.0f, currentCursorWorld_.fZ};
+    cS3DVector3 initialPos = currentCursorWorld_;
+    initialPos.fY += settings_.deltaYMeters;
+
+    float posArr[3] = {initialPos.fX, initialPos.fY, initialPos.fZ};
     cISC4Occupant* occupant =
         reinterpret_cast<cISC4Occupant*>(floraSimulator_->AddNewFloraOccupant(previewFloraType, posArr, false));
     if (!occupant) {
@@ -161,8 +187,6 @@ void FloraPainterInputControl::CreatePreviewOccupant_() {
     cRZAutoRefCount<cISC4Occupant> previewOccupant(occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
     cRZAutoRefCount<cISC4FloraOccupant> previewFlora(floraOccupant);
 
-    cS3DVector3 initialPos = currentCursorWorld_;
-    initialPos.fY += settings_.deltaYMeters;
     const bool needsVerticalAdjustment = std::abs(settings_.deltaYMeters) > kPreviewPosEpsilon;
     if (needsVerticalAdjustment && !previewOccupant->SetPosition(&initialPos)) {
         floraSimulator_->DemolishFloraOccupant(occupant, 0);
@@ -240,7 +264,7 @@ void FloraPainterInputControl::UpdatePreviewOccupant_() {
 
     cS3DVector3 worldPos = currentCursorWorld_;
     worldPos.fY += settings_.deltaYMeters;
-    if (!IsFloraPlacementValid_(CurrentDirectTypeID_(), worldPos)) {
+    if (!IsFloraPlacementValid_(CurrentDirectTypeID_(), worldPos, previewOccupant_)) {
         previewOccupant_->SetVisibility(false, true);
         previewPositionValid_ = false;
         return;
@@ -274,7 +298,7 @@ void FloraPainterInputControl::UpdatePreviewOccupant_() {
 }
 
 bool FloraPainterInputControl::IsDirectPreviewPlacementValid_(const PlannedPaint& placement) const {
-    return IsFloraPlacementValid_(placement.itemId, placement.position);
+    return IsFloraPlacementValid_(placement.itemId, placement.position, previewOccupant_);
 }
 
 bool FloraPainterInputControl::ShouldForceDirectOverlay_() const {
@@ -282,7 +306,9 @@ bool FloraPainterInputControl::ShouldForceDirectOverlay_() const {
         return false;
     }
 
-    return !IsFloraPlacementValid_(CurrentDirectTypeID_(), currentCursorWorld_);
+    cS3DVector3 overlayPos = currentCursorWorld_;
+    overlayPos.fY += settings_.deltaYMeters;
+    return !IsFloraPlacementValid_(CurrentDirectTypeID_(), overlayPos, previewOccupant_);
 }
 
 void FloraPainterInputControl::PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement,

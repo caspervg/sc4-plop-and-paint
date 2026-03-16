@@ -195,7 +195,7 @@ void FloraStripperInputControl::UndoLastDeletion() {
     const DeletedFloraInfo info = undoStack_.back();
     undoStack_.pop_back();
 
-    float posArr[3] = {info.position.fX, -1.0f, info.position.fZ};
+    float posArr[3] = {info.position.fX, info.position.fY, info.position.fZ};
     cISC4Occupant* occupant =
         reinterpret_cast<cISC4Occupant*>(floraSimulator_->AddNewFloraOccupant(info.floraType, posArr, false));
     if (!occupant) {

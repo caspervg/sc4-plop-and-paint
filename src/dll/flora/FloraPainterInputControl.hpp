@@ -34,10 +34,14 @@ protected:
     [[nodiscard]] bool ShouldForceDirectOverlay_() const override;
 
 private:
-    [[nodiscard]] bool IsFloraPlacementValid_(uint32_t typeID, const cS3DVector3& position) const;
+    [[nodiscard]] bool IsFloraPlacementValid_(uint32_t typeID,
+                                              const cS3DVector3& position,
+                                              cISC4Occupant* ignoredOccupant = nullptr) const;
+    void RefreshStaticFloraData_();
 
     cRZAutoRefCount<cISC4FloraSimulator> floraSimulator_;
     const FloraRepository* floraRepository_{nullptr};
+    cSC4StaticFloraData* selectedFloraData_{nullptr};
 
     cRZAutoRefCount<cISC4FloraOccupant> previewFlora_{};
     cRZAutoRefCount<cISC4Occupant> previewOccupant_{};
