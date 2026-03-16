@@ -47,8 +47,8 @@ bool FloraPainterInputControl::IsFloraPlacementValid_(const uint32_t typeID, con
     }
 
     // Override the game's check
-    return true;
-    // return floraSimulator_->LocationIsOKForNewFlora(typeID, position.fX, position.fZ, nullptr);
+    // return true;
+    return floraSimulator_->LocationIsOKForNewFlora(typeID, position.fX, position.fZ, nullptr);
 }
 
 void FloraPainterInputControl::OnCityChanged_(cISC4City* pCity) {
