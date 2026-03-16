@@ -73,22 +73,11 @@ bool FloraPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos, const int32
         return false;
     }
 
-    if (IsInDirectPaintState_() &&
-        previewOccupant_ &&
-        previewOccupantTypeID_ == floraType &&
-        previewPositionValid_) {
-        previewOccupant_->SetHighlight(0x9, true);
-        previewOccupant_->SetVisibility(true, true);
-        AddOccupantToUndo_(previewOccupant_);
-
-        previewFlora_.Reset();
-        previewOccupant_.Reset();
-        previewOccupantTypeID_ = 0;
-        previewPositionValid_ = false;
-
-        LOG_INFO("Placed flora 0x{:08X} from preview at ({:.2f}, {:.2f}, {:.2f}), rotation: {}",
-                 floraType, pos.fX, pos.fY, pos.fZ, rotation & 3);
-        return true;
+    // Never commit the live preview occupant into the city. Demolish it first and
+    // create a fresh flora occupant for the actual placement so preview state does
+    // not leak into saved city data.
+    if (previewOccupant_) {
+        DestroyPreviewOccupant_();
     }
 
     if (!IsFloraPlacementValid_(floraType, pos)) {
