@@ -69,7 +69,7 @@ jobs:
           cp cmake-build-release-visual-studio-x64/src/app/Release/SC4PlopAndPaintCli.exe dist-package/_SC4PlopAndPaintCacheBuilder.exe
 
           cp dist/README.txt dist-package/
-          cp dist/RUN_CACHE_BUILDER.ps1 dist-package/
+          cp dist/RUN_CACHE_BUILDER.cmd dist-package/
           cp LICENSE.txt dist-package/
           cp dist/THIRD_PARTY_NOTICES.txt dist-package/
           cp dist/SC4PlopAndPaintInstaller.nsi dist-package/

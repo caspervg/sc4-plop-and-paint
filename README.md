@@ -24,7 +24,8 @@ Dependencies:
 - SC4RenderServices (required): GitHub project `https://github.com/caspervg/sc4-render-services`
 - SC4RenderServices download page: `https://community.simtropolis.com/files/file/37372-sc4-render-services/`
 - Visual C++ 2015-2022 Redistributable (x86, required for SimCity 4 / 32-bit): `https://aka.ms/vs/17/release/vc_redist.x86.exe`
-- Visual C++ 2015-2022 Redistributable (x64): `https://aka.ms/vs/17/release/vc_redist.x64.exe`
+- Visual C++ 2015-2022 Redistributable (x64, required for the cache builder): `https://aka.ms/vs/17/release/vc_redist.x64.exe`
+- The bundled cache builder is x64-only and requires 64-bit Windows.
 
 The installer will:
 
@@ -32,10 +33,10 @@ The installer will:
 2. Verify that `SC4RenderServices.dll` is already present in your Plugins folder. If it is missing, the installer will stop and direct you to the SC4RenderServices download page.
 3. Place `SC4PlopAndPaint.dll` and `SC4PlopAndPaint.dat` in your Plugins folder.
 4. Let you choose the thumbnail size used for cache generation and apply the same size to `ThumbnailDisplaySize` in `SC4PlopAndPaint.ini`.
-5. Place `_SC4PlopAndPaintCacheBuilder.exe` and a generated `Rebuild-Cache.ps1` in `Documents\SimCity 4\SC4PlopAndPaint\`.
+5. Place `_SC4PlopAndPaintCacheBuilder.exe` and a generated `Rebuild-Cache.cmd` in `Documents\SimCity 4\SC4PlopAndPaint\`.
 6. Optionally run the cache builder immediately.
 
-To rebuild the cache later, for example after adding or removing plugins, run `Rebuild-Cache.ps1`.
+To rebuild the cache later, for example after adding or removing plugins, run `Rebuild-Cache.cmd`.
 
 If something looks wrong in game, check the separate services plugin's log output in `Documents\SimCity 4\`.
 
