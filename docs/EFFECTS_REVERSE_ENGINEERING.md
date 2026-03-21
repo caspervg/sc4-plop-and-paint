@@ -735,3 +735,161 @@ The most likely explanation is that SC4's authored script distinguishes between:
 
 So nesting exists, but not by literally putting an `effect` block inside another
 `effect` block.
+
+## Recovered Child Command Semantics
+
+Three high-value parser handlers are now recovered well enough to author simple
+ test content.
+
+### `visualEffect`
+
+Handler:
+
+- `cGroupGroupCommand::Parse(...)` at `0x0078B656`
+
+Recovered syntax shape:
+
+```text
+effect WrapperName
+    visualEffect ExistingEffectName [shared desc-rec switches...]
+end
+```
+
+Recovered behavior:
+
+- valid only inside an `effect` block
+- takes one non-switch argument: the referenced visual-effect name
+- validates that the referenced effect already exists in the active collection
+- throws:
+  - `Not in effects block`
+  - `Unknown visual effect: %s`
+- emits a `cSC4EffectDescription::cDescriptionRec` with type `2`
+- runs `ParseDescRecOptions(...)` on the same argument list
+- appends the description record to the current effect's child list
+
+This strongly confirms that `visualEffect` is a nested reference / instance of
+another visual effect, not a nested top-level `effect` definition.
+
+### Shared Description-Record Switches
+
+`visualEffect` and sibling child commands use:
+
+- `cSC4EffectsParser::ParseDescRecOptions(...)` at `0x00401D2C`
+
+Recovered supported switches:
+
+- `-offset <vec3>`
+- `-rotateX <float>`
+- `-rotateY <float>`
+- `-rotateZ <float>`
+- `-rotateXYZ <x> <y> <z>`
+- `-rotateZXY <z> <x> <y>`
+- `-scale <float>`
+- `-lod <uint>`
+- `-lodRange <min> <max>`
+- `-emitScale <min> [max]`
+- `-sizeScale <min> [max]`
+- `-ignoreLength`
+- `-respectLength`
+
+Select-only support recovered from the same routine:
+
+- `-prob <float>`
+
+Restrictions recovered:
+
+- `-prob` is only valid inside a `select` group
+- `-lod` / `-lodRange` are rejected inside a `select` group with:
+  `Can't specify LOD in a select`
+
+### `testEffect`
+
+Handler:
+
+- `cTestEffectCommand::Parse(...)` at `0x00781150`
+- later started by `cSC4EffectsParser::StartTestEffects()` at `0x00401842`
+
+Recovered syntax shape:
+
+```text
+testEffect ExistingEffectName [pos2_or_pos3]
+    -sourceScale <float>
+    -scale <float>
+    -trans <vec3>
+    -speed <float>
+    -target <vec3>
+    -hard
+```
+
+Recovered behavior:
+
+- creates a visual effect immediately during parse/load time
+- the effect name must already exist, or parsing throws `No such effect`
+- optional second non-switch argument is placement:
+  - if omitted: default position is `(512, 100, 512)`
+  - if it contains 3 values: parsed as a full `vec3`
+  - otherwise: parsed as a `vec2`, terrain height is queried, and Y gets `+4`
+- `-sourceScale` controls the source transform scale and defaults to `1.0`
+- `-scale` controls the main transform scale and defaults to `1.0`
+- `-trans` sets a secondary translation vector
+- `-speed` writes parameter selector `0` with one float
+- `-target` writes parameter selector `5` with one `vec3`
+- `-hard` records a hard-start transition; absence records soft/default start
+- the created effect reference is pushed into parser vector `+0x4B0`
+- the matching transition type is pushed into parser vector `+0x4BC`
+- `StartTestEffects()` later iterates those vectors and starts each stored test
+  effect
+
+Interpretation:
+
+- `testEffect` is an author-side bootstrap / debugging hook
+- it is likely intended to auto-spawn one or more effects when an `.fx` file is
+  parsed or reloaded
+
+### `messageTrigger`
+
+Handler:
+
+- `cMessageTriggerCommand::Parse(...)` at `0x007857BC`
+
+Recovered syntax shape:
+
+```text
+messageTrigger <messageID> <effectName>
+```
+
+Recovered behavior:
+
+- requires two non-switch arguments
+- parses the first as a `uint` message ID
+- parses the second as the target effect name
+- constructs a `cSC4MessageTriggerDescription`
+- adds that description to the active `cSC4EffectsCollection`
+
+This is the author-side binding that later feeds the manager's trigger map and
+`DoMessage()` auto-spawn path.
+
+## Smallest Plausible Custom Wrapper
+
+The simplest custom `main.fx` content we can justify from the recovered parser
+and the Timbuktu syntax presentation is a wrapper around an already-existing
+effect:
+
+```text
+effect my_wrapper
+    visualEffect atmospheric_effects
+end
+```
+
+This is still partly inferential because the binary recovery gives command and
+argument semantics, while the `... end` block form comes from the Timbuktu
+presentation rather than a decompiled block lexer. But it is now a defensible
+first candidate:
+
+- `effect my_wrapper` defines a new top-level visual effect
+- `visualEffect atmospheric_effects` nests a reference to an existing effect
+- `Effect my_wrapper` should then be the shortest manual in-game test
+
+If `atmospheric_effects` turns out not to be a valid visual-effect description
+name in the loaded collection, the same wrapper pattern should still work once
+we substitute a known stock visual-effect name.
