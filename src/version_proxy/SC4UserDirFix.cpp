@@ -133,6 +133,25 @@ namespace {
         g_fixState.logPath = std::move(logPath);
     }
 
+    void ResetLogFile() noexcept {
+        if (g_fixState.logPath.empty()) {
+            return;
+        }
+
+        const HANDLE file = CreateFileW(
+            g_fixState.logPath.c_str(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr,
+            CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr
+        );
+        if (file != INVALID_HANDLE_VALUE) {
+            CloseHandle(file);
+        }
+    }
+
     [[nodiscard]] bool EqualsIgnoreCase(const std::wstring_view lhs, const std::wstring_view rhs) noexcept {
         if (lhs.size() != rhs.size()) {
             return false;
@@ -394,6 +413,7 @@ namespace {
 
 SC4UserDirFixStatus ApplySC4UserDirFix(HINSTANCE moduleInstance) noexcept {
     InitializeLogPath(moduleInstance);
+    ResetLogFile();
     AppendLogLine("DLL_PROCESS_ATTACH received");
 
     const std::wstring userDir = TryGetUserDirArgument();
