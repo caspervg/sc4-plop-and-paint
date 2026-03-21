@@ -501,3 +501,102 @@ its full parse handler.
 - packed effects resource serialization / deserialization
 - the message-trigger description vector consumed by `EndCollection()` and
   `DoMessage()`
+
+## Timbuktu Presentation Cross-Check
+
+The local presentation `docs/TimbuktuEffects.html` strongly validates the
+reverse-engineered parser model.
+
+High-signal statements from the presentation:
+
+- the system uses a "Very simple command-based scripting system"
+- the generic syntax is:
+
+```text
+command arg1 arg2 -switch1 -switch2 switch2arg
+
+blockCommand
+    ...
+end
+```
+
+- inheritance is explicit and uses `:`
+
+Example shown in the presentation:
+
+```text
+particles smokeDark : smoke
+    color (0.2, 0.2, 0.3) (0.1, 0.1, 0.1)
+    alpha 0.1 0.2 0.2 0.1 0
+end
+```
+
+- scripts are parsed into description blocks; there is "no live script logic"
+- each component has its own class, driven by a description, with associated
+  parser commands
+- the effects manager controls:
+  - instantiation
+  - script reload
+  - LOD changes
+  - parameters
+- a visual effect is a collection of component effects
+- visual effects can contain particles, decals, framebuffer effects, sequences,
+  and other components
+- visual effects are also components, so nesting is supported conceptually
+- game-specific components include:
+  - terrain brushes
+  - automata attractors
+  - pause / unpause simulator
+  - camera manipulation
+  - pool water
+  - game messages
+- hard and soft transitions are first-class concepts
+- LOD and priority scaling are built into the authored effect system
+
+The presentation also includes code that starts an effect by calling
+`CreateVisualEffect("nhood_fly", ...)`, setting a transform, then calling
+`Start()`. That lines up directly with the `cSC4EffectsManager::CreateVisualEffect`
+and script wrapper paths recovered from the binary.
+
+### Strong Matches Between Presentation and Binary
+
+These presentation concepts match the reverse-engineered Mac binary almost
+exactly:
+
+- `effect` as a composite visual effect
+- component sub-effects like particles, decals, camera, brush, sequence, and
+  attractor-like behaviors
+- command-based block parsing
+- inheritance syntax using `:`
+- `CreateVisualEffect(...)` as the primary runtime entry point
+- hard / soft stop semantics
+- LOD and priority support
+- manager-controlled script reload
+
+### Likely Interpretation
+
+The presentation makes the current best interpretation much stronger:
+
+- top-level blocks like `particles`, `dynamicParticle`, `decal`, `shake`, and
+  `light` are reusable component descriptions
+- `effect` defines a composite visual effect that instantiates or references
+  those components
+- nested commands like `particleEffect`, `decalEffect`, `soundEffect`,
+  `cameraEffect`, `brushEffect`, and `automataEffect` are component instances
+  inside a composite effect
+- `messageTrigger` and `startMessage` are not SC4-specific hacks; they fit the
+  intended original system design
+
+### One Important Difference
+
+The presentation says visual effects can nest, while the SC4 parser throws:
+
+- `Can't nest effects! (Perhaps you meant visualEffect?)`
+
+The most likely explanation is that SC4's authored script distinguishes between:
+
+- the top-level composite definition block: `effect`
+- a nested component/reference command inside that block: `visualEffect`
+
+So nesting exists, but not by literally putting an `effect` block inside another
+`effect` block.
