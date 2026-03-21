@@ -484,6 +484,137 @@ At minimum:
 There is also a top-level `effectID` command, but this pass did not yet recover
 its full parse handler.
 
+## Manual Execution Via Cheat
+
+The practical runtime test hook is:
+
+- `cSC4EffectsManager::DoEffectCheat(cRZCmdLine&)` at `0x00409012`
+
+Recovered special subcommands:
+
+- `kill`
+- `save`
+- `load`
+- `showMaps`
+- `clearMaps`
+- `prop`
+
+Recovered string addresses used by the handler:
+
+- `0x005E0964`: `kill`
+- `0x005D027C`: `save`
+- `0x005E096C`: `load`
+- `0x005E0974`: `showMaps`
+- `0x005E0980`: `clearMaps`
+- `0x005E098C`: `softStop`
+- `0x005D8B78`: `prop`
+- `0x005E00E8`: `No such effect`
+
+### Slot Model
+
+`DoEffectCheat()` maintains a vector of test effects at manager offset
+`+0xDC4`.
+
+Recovered behavior:
+
+- if the first token is numeric, it is parsed as a slot index
+- if no numeric token is given, slot `0` is used
+- starting a new effect in an occupied slot first stops the previous effect
+- if the next token is `softStop`, the existing effect is stopped softly
+- otherwise the stop is hard
+
+This yields the following practical forms:
+
+```text
+Effect <slot> softStop
+Effect <slot> <effectName> ...
+Effect <effectName> ...
+```
+
+### Visual Effect Creation Forms
+
+After slot handling, the cheat calls:
+
+- `HasVisualEffect()`
+- `CreateVisualEffect()`
+- then starts the created effect object
+
+Recovered argument forms:
+
+```text
+Effect <effectName>
+Effect <effectName> <surfaceX> <surfaceZ>
+Effect <effectName> <worldX> <worldY> <worldZ>
+```
+
+Recovered placement behavior:
+
+- with only `<effectName>`, the effect is placed at the current cursor /
+  terrain point
+- with `<surfaceX> <surfaceZ>`, those map-space coordinates are converted
+  through `SurfacePointTo3D(...)`
+- with `<worldX> <worldY> <worldZ>`, the transform is filled directly from the
+  three floats
+- the cursor/surface forms add `+4.0f` to Y before applying the transform
+
+The created effect is then started through the visual-effect vtable.
+
+### Alternate Four-Value Path
+
+If four numeric values follow the effect name, `DoEffectCheat()` does not build
+the normal transform. Instead it:
+
+- parses four numeric values
+- truncates them to integers
+- stores them as four floats
+- calls the effect vtable at `+0x30` with selector `0x0C` and count `4`
+- then starts the effect
+
+Recovered syntax shape:
+
+```text
+Effect <effectName> <a> <b> <c> <d>
+```
+
+The exact semantic meaning of selector `0x0C` is still unresolved. It is
+probably a parameter or payload-setting path rather than ordinary placement.
+
+### `prop` Test Path
+
+The `prop` subcommand is separate from normal visual-effect spawning.
+
+Recovered behavior:
+
+- `Effect prop` defaults the prop name to `pothole`
+- `Effect prop <name>` uses the supplied prop exemplar / identifier
+- with no coordinates, it uses the current cursor / terrain point
+- with two coordinates, it converts them through `SurfacePointTo3D(...)`
+- it then assigns the prop name, sets the position, inserts the occupant into
+  the occupant manager, and starts it
+
+### Most Likely Minimal Workflow
+
+For a custom entry added to `main.fx`, the shortest likely proof path is:
+
+```text
+Effect MyEffect
+```
+
+or, if the effect wants explicit placement:
+
+```text
+Effect MyEffect 128 128
+Effect MyEffect 10 20 30
+```
+
+If repeated tests are needed without leaking prior instances, the slot form is
+the intended harness:
+
+```text
+Effect 0 MyEffect
+Effect 0 softStop
+```
+
 ## Open Questions
 
 - What is the exact grammar accepted by `cSC4EffectsParser` for blocks like
@@ -493,6 +624,8 @@ its full parse handler.
 - How are message-trigger descriptions authored in the source `.fx` format?
 - Which definitions in `main.fx` override stock packed resources versus append
   new entries?
+- What does the visual-effect vtable selector `0x0C` represent in the
+  four-value cheat path?
 
 ## Suggested Next Pivots
 
@@ -501,6 +634,8 @@ its full parse handler.
 - packed effects resource serialization / deserialization
 - the message-trigger description vector consumed by `EndCollection()` and
   `DoMessage()`
+- exact handler meanings for `visualEffect`, `soundEffect`, `messageTrigger`,
+  and `testEffect`
 
 ## Timbuktu Presentation Cross-Check
 
