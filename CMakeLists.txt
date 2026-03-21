@@ -81,6 +81,7 @@ find_package(utf8cpp CONFIG REQUIRED)
 add_subdirectory(vendor/DBPFKit)
 add_subdirectory(src/shared)
 add_subdirectory(src/dll)
+add_subdirectory(src/version_proxy)
 add_subdirectory(src/app)
 add_subdirectory(tools)
 
