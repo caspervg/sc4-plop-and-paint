@@ -288,7 +288,23 @@ Recovered `textureID` behavior:
 - it lowercases `<name>`
 - it inserts or updates that key in the parser texture map at `+0xB4`
 - it parses the third token with `nSCRes::ParseUint(...)`
+- `nSCRes::ParseUint(...)` goes through the shared expression parser, so this
+  accepts decimal values, lowercase `0x...` hex constants, and simple numeric
+  expressions
+- practical caveat: the hex prefix check is specifically lowercase `0x`, so
+  `0X...` should not be assumed to work
 - it stores the resulting numeric texture ID as the map value
+- parser-side implication: `textureID` binds only a single 32-bit numeric
+  value; no type or group travels through the effects DSL itself
+- confirmed particles-runtime implication from
+  `cSC4ParticlesEffect::SetTexture(unsigned long)` and
+  `cS3DTextureBindingFactory::GetBinding(unsigned long, ...)`: that single
+  value is later wrapped as a fixed resource key
+  `T=0x7AB50E44, G=0x1ABE787D, I=<textureID value>`
+- important scope caveat: that fixed `T/G` pair is confirmed for the particles
+  texture-binding path; decal runtime binding still appears to go through
+  `cSC4DecalEffect::Start(...)` plus an overlay-manager path, and its final
+  resource-key construction is still unresolved
 
 So the authoring shape is:
 
@@ -312,6 +328,169 @@ end
 The `texture` line does not define the numeric ID itself. It only looks up the
 symbolic name `scorch_tex`, lowercases it, and stores the resolved numeric
 texture ID into the current decal description.
+
+Recovered `modelID` behavior:
+
+- handler: `(anonymous namespace)::cModelIDCommand::Parse(...)` at `0x0077EB72`
+- it requires exactly 3 tokens total:
+  - `modelID`
+  - `<name>`
+  - `<uint>`
+- otherwise it throws `Wrong number of arguments`
+- it lowercases `<name>`
+- it inserts or updates that key in the parser model map at `+0xCC`
+- it parses the third token with `nSCRes::ParseUint(...)`
+- as with `textureID`, the parsed value may be decimal, lowercase `0x...` hex,
+  or another simple numeric expression accepted by `ParseUint(...)`
+- it stores the resulting numeric model ID as the map value
+
+So the authoring shape is:
+
+```text
+modelID my_model_name 12345678
+```
+
+Recovered `soundID` behavior:
+
+- handler: `(anonymous namespace)::cSoundIDCommand::Parse(...)` at `0x0077EC72`
+- it requires exactly 3 tokens total:
+  - `soundID`
+  - `<name>`
+  - `<uint>`
+- otherwise it throws `Wrong number of arguments`
+- it lowercases `<name>`
+- it inserts or updates that key in the parser sound map at `+0xE4`
+- it parses the third token with `nSCRes::ParseUint(...)`
+- as with `textureID`, the parsed value may be decimal, lowercase `0x...` hex,
+  or another simple numeric expression accepted by `ParseUint(...)`
+- it stores the resulting numeric sound ID as the map value
+
+So the authoring shape is:
+
+```text
+soundID my_sound_name 12345678
+```
+
+Interpretation:
+
+- `textureID`, `modelID`, and `soundID` are parallel top-level name-binding
+  commands
+- all three normalize symbolic names to lowercase
+- later nested commands resolve those symbolic names through parser-owned maps
+
+## Related Config-Rule DSL
+
+This section is adjacent reverse-engineering work from the same Mac binary, but
+it is **not** the `main.fx` / `cSC4EffectsParser` DSL. It belongs to the
+separate `cSC4RuleParser` used for config-rule style files.
+
+Top-level rule-parser registration:
+
+- `cSC4RuleParser::RegisterCommands()` at `0x003DF230`
+
+Recovered top-level commands:
+
+- `rule`
+- `partialRule`
+- `optionGroup`
+- `vendor`
+
+Recovered `rule` / `partialRule` behavior:
+
+- handler: `(anonymous namespace)::cRuleCommand::Parse(...)` at `0x00768144`
+- nested commands are registered by
+  `(anonymous namespace)::cRuleCommand::RegisterCommands()` at `0x0076606C`
+- legal nested subcommands inside a `rule` block:
+  - `property`
+  - `option`
+  - `has`
+  - `hasNo`
+  - `stringMatch`
+  - `stringNotMatch`
+  - `atLeast`
+  - `atMost`
+- the first non-switch argument becomes the rule name
+- if no name is given and the parse is nested, the parser derives the name from
+  the parent rule
+- `partialRule` also sets the same internal partial flag that can be requested
+  via a `partial` switch
+- an `any` switch sets a separate rule flag
+- `cRuleCommand::EndBlock(...)` at `0x0076340E` closes the active rule scope
+
+Practical syntax shape:
+
+```text
+rule <name> [switches...] {
+    property <propertyName> <value>
+    option <groupId> <optionId>
+    has <flag>
+    hasNo <flag>
+    stringMatch ...
+    stringNotMatch ...
+    atLeast ...
+    atMost ...
+}
+
+partialRule <name> [switches...] {
+    ...
+}
+```
+
+Recovered `optionGroup` behavior:
+
+- handler: `(anonymous namespace)::cOptionGroupCommand::Parse(...)` at
+  `0x007673C2`
+- nested commands are registered by
+  `(anonymous namespace)::cOptionGroupCommand::RegisterCommands()` at
+  `0x007662A2`
+- legal nested subcommands inside an `optionGroup` block:
+  - `option`
+  - `property`
+- the first non-switch argument is parsed as the option-group id
+- the parser stores that as the current option-group index and resizes its
+  option-group vector as needed
+- `cOptionGroupCommand::EndBlock(...)` at `0x007632D6` clears the active
+  option-group index
+
+Practical syntax shape:
+
+```text
+optionGroup <groupId> {
+    option <optionId>
+    property <propertyName> <value>
+}
+```
+
+Recovered nested command details:
+
+- `(anonymous namespace)::cOptionCommand::Parse(...)` at `0x00764DC4`:
+  - grammar inside `rule`: `option <groupId> <optionId>`
+  - appends the `(groupId, optionId)` pair to the current rule's selected
+    options list
+- `(anonymous namespace)::cPropertyCommand::Parse(...)` at `0x00765176`:
+  - grammar inside `rule`: `property <propertyName> <value>`
+  - resolves the property/value pair into the current rule's property-set
+    constraints
+  - throws `Unknown render property` if the property name is not recognized
+- `(anonymous namespace)::cOptionGroupOptionCommand::Parse(...)` at
+  `0x0076680E`:
+  - grammar inside `optionGroup`: `option <optionId>`
+  - changes the current option index inside the current option group
+- `(anonymous namespace)::cOptionGroupPropertyCommand::Parse(...)` at
+  `0x0076526A`:
+  - grammar inside `optionGroup`: `property <propertyName> <value>`
+  - adds the property/value pair to the current option's property set
+  - throws `Unknown render property` if the property name is not recognized
+
+Interpretation:
+
+- `rule` and `optionGroup` are related but distinct block types
+- inside `rule`, `option` selects a `(group, option)` pair
+- inside `optionGroup`, `option` selects the current option within the current
+  group, and nested `property` lines define that option's property set
+- this rule/config DSL should not be conflated with the top-level `main.fx`
+  effects DSL, even though both parsers live in the same binary and use the
+  same command-parser framework
 
 ## Effect Block Grammar
 
@@ -462,6 +641,297 @@ Nested commands:
   - `colour255`
   - `alpha255`
 
+Mac symbolized anchors:
+
+- parse: `cParticleEffectCommand::Parse(...)` at `0x0078B1A4`
+- end-block commit: `cParticleEffectCommand::EndBlock(...)` at `0x0078448E`
+
+Recovered block behavior:
+
+- `particles <name>` requires a name; missing one throws `No name specified!`
+- the parser stores the active particle name in parser state at `+0x118`
+- it seeds a fresh current particle-description object in parser state at
+  `+0x120`
+- `particles <name> : <baseName>` inheritance is supported
+- if a base name is provided and an active collection is present, the parser
+  validates / copies from an existing particle-family definition before opening
+  the block
+- on `end`, the active particle name plus assembled description are committed
+  into the active collection via collection vfunc `+0x1C`, then the current
+  particle name is cleared back to empty
+
+Recovered subcommand parser details:
+
+- `cParticleZoomCommand::Parse(...)`:
+  - requires at least one argument after `zoom`
+  - parses a single `uint`
+  - the exact destination field is still unresolved from this pass
+- `cParticleColorCommand::Parse(...)`:
+  - clears the current particle color curve at parser `+0x1B4`
+  - parses each non-switch argument with `nSCRes::ParseColor(...)`
+  - appends each parsed color sample to that curve
+  - supports `-vary <vector3>` with each component parsed through a `0.0..1.0`
+    bounded helper
+  - `color255` / `colour255` are handled by the same parser and then scale the
+    finished color curve by `1 / 255`
+  - `colour` is just an alias for `color`
+- `cParticleAlphaCommand::Parse(...)`:
+  - clears the current alpha curve at parser `+0x1C0`
+  - parses each non-switch argument as one float sample and appends it
+  - supports `-vary <float>` through `ParseRangedFloat(..., 0.0, 1.0)` and
+    stores the result at parser `+0x198`
+  - `alpha255` scales the finished alpha curve by `1 / 255`
+- `cParticleSizeCommand::Parse(...)`:
+  - clears the current size curve at parser `+0x1CC`
+  - parses each non-switch argument as a float, multiplies it by `50.0`, and
+    appends the result
+  - supports `-vary <float>` through `ParseRangedFloat(..., 0.0, 1.0)` and
+    stores the result at parser `+0x188`
+- `cParticleAspectCommand::Parse(...)`:
+  - clears the current aspect curve at parser `+0x1D8`
+  - parses each non-switch argument as one float sample and appends it
+  - supports `-vary <float>` through `ParseRangedFloat(..., 0.0, 1.0)` and
+    stores the result at parser `+0x18C`
+- `cParticleRotateCommand::Parse(...)`:
+  - clears the current rotation curve at parser `+0x1E4`
+  - parses each non-switch argument as one float sample and appends it
+  - supports `-vary <float>` through `ParseRangedFloat(..., 0.0, 1.0)` and
+    stores the result at parser `+0x190`
+  - supports `-offset <float>` and stores that value at parser `+0x194`
+- `cParticleStretchCommand::Parse(...)`:
+  - requires one float argument
+  - stores it at parser `+0x1FC`
+- `cParticleLifeCommand::Parse(...)`:
+  - takes one required float and one optional second float
+  - stores lifetime as a symmetric min/max pair:
+    - `min = arg0 - arg1`
+    - `max = arg0 + arg1`
+  - if the second argument is omitted, the range collapses to a single value
+  - supports `-preroll <float>` and stores that value at parser `+0x13C`
+  - without `-preroll`, parser `+0x13C` defaults to the primary lifetime value
+- `cParticleSourceCommand::Parse(...)`:
+  - builds the source bounding box at parser `+0x170`
+  - supports these source-shape switches:
+    - `-point`
+    - `-square <float> [translateVec3]`
+    - `-quad <vec2> [translateVec3]`
+    - `-cube <float> [translateVec3]`
+    - `-box <vec3> [translateVec3]`
+    - `-dice <float>`
+    - `-model`
+    - `-modelBase`
+    - `-city [floatRange]`
+    - `-cityWindySide [floatRange]`
+  - supports placement / filtering switches:
+    - `-scaleParticles`
+    - `-pinToTerrain`
+    - `-pinToWater`
+    - `-terrainOnly`
+    - `-waterOnly`
+    - `-seaOnly`
+    - `-lakeOnly`
+    - `-belowHeight <float>`
+    - `-aboveHeight <float>`
+    - `-heightRange <float> <float>`
+    - `-killOutsideCity`
+    - `-resetIncoming`
+- `ParseRateCurveCommands(...)` at `0x00401A3C` is a shared helper used by
+  `rate`, `inject`, and `maintain`
+  - it handles:
+    - `-loop <float> [uint]`
+    - `-single [float]`
+    - `-sustain`
+    - `-scale`
+    - `-areaScale`
+    - `-volumeScale`
+    - `-delay <floatRange>`
+    - `-trigger <floatRange>`
+    - `-retrigger <floatRange>`
+- `cParticleRateCommand::Parse(...)`:
+  - if `-inject <float>` is used, it resizes the rate curve to one sample,
+    stores that float, and sets bit `1` in the particle-description flags
+  - otherwise it collects non-switch arguments as the rate curve samples
+  - it then delegates to `ParseRateCurveCommands(...)`
+- `cParticleInjectCommand::Parse(...)`:
+  - forces the rate curve to a single float sample
+  - sets bit `1` in the particle-description flags
+  - then delegates to `ParseRateCurveCommands(...)`
+- `cParticleMaintainCommand::Parse(...)`:
+  - forces the rate curve to a single float sample
+  - sets bit `2` in the particle-description flags
+  - also supports `-delay <floatRange>`
+- `cParticleEmitCommand::Parse(...)`:
+  - has its own inline copy of the same rate / inject / loop / single /
+    sustain / scale / delay / trigger handling
+  - also supports velocity-direction controls:
+    - `-velocity <vec3> [speed] [spread]`
+    - `-speed <float> [vary]`
+    - `-dir <vec3> [float | vec3]`
+    - `-vel <vec3>`
+    - `-base`
+  - this command controls the velocity box at parser `+0x150` and speed range
+    at `+0x168/+0x16C`
+- `cParticleForceCommand::Parse(...)`:
+  - supports:
+    - `-reset`
+    - `-gravity <float>`
+    - `-wind <vec3> [float]`
+    - `-global_wind <float>`
+    - `-screw <float>`
+    - `-bomb <float> [vec3]`
+    - `-drag <float>`
+    - `-motherDuck <float> <float...>`
+    - `-attractor <float> <float...>`
+    - `-alphaAttractor <float> <float...>`
+    - `-automata <uint> <float>`
+    - `-tractor <vec3> <float|vec3> [float]`
+    - `-tractorRel <vec3> <float|vec3> [float]`
+    - `-tractorResetSpeed <float>`
+    - `-tractorTimeScale <float>`
+    - `-terrainRepel <float> <float> [float]`
+  - the long parser body mutates accumulated force vectors, attractor curves,
+    and a vector of tractor points in parser state
+- `cParticleWarpCommand::Parse(...)`:
+  - supports:
+    - `-screw <float>`
+    - `-wiggle <float> <float> <float> <phase01>`
+    - `-wiggleDir <float> <vec3> [vec3]`
+    - `-wiggleVerts`
+    - `-uv <float> <vec2>`
+    - `-alpha <vec3> <float...>`
+  - `-wiggle*`, `-uv`, and `-alpha` populate dedicated warp / UV / alpha-warp
+    structures in the particle description
+- `cParticleRandomWalkCommand::Parse(...)`:
+  - sets the random-walk enable flag
+  - supports:
+    - `-delay <float> [vary]`
+    - `-strength <float> [vary]`
+    - `-turn <float01> [float01]`
+    - `-wait`
+    - `-preferSea`
+    - `-preferDir <vec3>`
+- `ParseDrawOptions(...)` at `0x004018F0` is shared by `texture` and `model`
+  - it handles:
+    - `-draw <enum from kParticleDrawTypes>`
+    - `-light`
+    - `-noCull`
+    - `-sortOffset <float>`
+- `cParticleTextureCommand::Parse(...)`:
+  - first applies `ParseDrawOptions(...)`
+  - also supports:
+    - `-vflip`
+    - `-hflip`
+  - resolves the first non-switch argument through the lowercase texture-id map
+    at parser `+0xB4`
+  - on success it stores the resolved texture ID at parser `+0x1F0`
+  - on failure it throws `No such texture: '%s'`
+- `cParticleModelCommand::Parse(...)`:
+  - only legal inside a `particles` block; otherwise throws
+    `Not in particles block`
+  - marks the current particle description as model-driven
+  - applies `ParseDrawOptions(...)`
+  - supports:
+    - `-fakePerspective`
+    - `-moveEntireSlave`
+    - `-slaveApplyAlpha`
+    - `-applyAlpha`
+    - `-modelSpeed <float>`
+    - `-modelSpeedStatic <float>`
+    - `-sustain`
+    - `-applyLighting`
+    - `-noCullFaces`
+  - resolves one or more model names through the lowercase model-id map at
+    parser `+0xCC`
+  - a single resolved model ID is stored at parser `+0x1F0`
+  - multiple resolved model IDs are stored in the vector at parser `+0x2F8`
+  - unknown names throw `No such model: '%s'`
+- `cParticleAlignmentCommand::Parse(...)`:
+  - only legal inside a `particles` block; otherwise throws
+    `Not in particles block`
+  - requires an alignment enum name as the first argument
+  - also supports:
+    - `-damp <float>`
+    - `-bank <float> <float>`
+    - `-windBank <float> <float>`
+- `cParticleCollisionCommand::Parse(...)`:
+  - only legal inside a `particles` block; otherwise throws
+    `Not in particles block`
+  - enables collision handling and defaults `bounce` to `0.3` if the user does
+    not specify it
+  - supports:
+    - `-bounce <float>`
+    - `-sticky`
+    - `-killOutsideCity`
+    - `-effect <float>`
+    - `-death <float01>`
+    - `-deathByWater <float01>`
+    - `-destroyBuildings`
+- `cParticleTerrainRepelCommand::Parse(...)`:
+  - enables terrain-repel behavior
+  - requires two float arguments
+  - also supports:
+    - `-scout <float>`
+    - `-vertical <float>`
+    - `-killHeight <float>`
+- `cParticleEffectBaseCommand::Parse(...)`:
+  - only legal inside a `particles` block; otherwise throws
+    `Not in particles block`
+  - takes one non-switch argument and stores it as the effect-base name at
+    parser `+0x280`
+- `cParticleTimedEffectCommand::Parse(...)`:
+  - requires two non-switch arguments:
+    - effect name
+    - trigger time as float
+  - sets timed-effect flag bit `0x1F`
+  - inserts the timed-effect record into the parser's timed-effect vector in
+    time-sorted order
+
+Illustrative parser-grounded examples:
+
+```text
+textureID smoke_tex 0x12345678
+modelID spark_model 0x23456789
+
+particles smoke_plume
+    color "0.8 0.8 0.8" "0.4 0.4 0.4" -vary "0.1 0.1 0.1"
+    alpha 0.9 0.3 -vary 0.1
+    size 0.2 0.8 -vary 0.15
+    aspect 1.0
+    rotate 0.0 180.0 -vary 0.25 -offset 15.0
+    life 3.0 0.5 -preroll 0.25
+    source -cube 0.5 "0 2 0" -pinToTerrain
+    rate 8.0 4.0 1.0 -loop 4.0 -delay 0.0 0.25
+    emit -velocity "0 1 0" 2.5 0.2 -trigger 0.0 0.0
+    force -gravity 9.8 -wind "1 0 0" 0.5 -drag 0.1
+    randomWalk -delay 0.5 0.2 -strength 0.3 0.1 -turn 0.2 0.1
+    stretch 0.6
+    texture smoke_tex -draw decal -sortOffset 0.1
+end
+```
+
+```text
+particles spark_burst : smoke_plume
+    color255 "255 220 128" "255 64 0"
+    alpha255 255 0
+    inject 24.0 -single 0.01
+    emit -vel "0 3 0"
+    collide -bounce 0.4 -death 0.25
+    timedEffect ember_trail 0.4
+    effectBase ember_fx
+    model spark_model -applyLighting -modelSpeed 1.0
+end
+```
+
+Notes on the examples:
+
+- these snippets are intended to match the recovered parser grammar, not to
+  guarantee a particular in-game visual result
+- for `color` / `color255`, each RGB triple should be passed as a single
+  argument, so quoting vector-like literals is the safest documented shape
+- `rate`, `inject`, and `maintain` share the same loop / delay / trigger helper
+- `emit` overlaps with `rate` semantics and also adds velocity / direction
+  controls, so both styles are worth testing against live content
+
 ### `dynamicParticle`
 
 Registered by `cDynamicParticleEffectCommand::RegisterCommands()` at
@@ -473,6 +943,64 @@ Nested commands:
 - `model`
 - `mass`
 - `friction`
+
+Mac symbolized anchors:
+
+- parse: `cDynamicParticleEffectCommand::Parse(...)` at `0x0078A162`
+- end-block commit: `cDynamicParticleEffectCommand::EndBlock(...)` at
+  `0x0078450E`
+
+Recovered block behavior:
+
+- `dynamicParticle <name>` requires a name; missing one throws
+  `No name specified!`
+- the parser stores the active dynamic-particle name in parser state at
+  `+0x324`
+- it seeds a fresh current dynamic-particle description object in parser state
+  at `+0x32C`
+- `dynamicParticle <name> : <baseName>` inheritance is supported
+- if a base name is provided and an active collection is present, the parser
+  validates / copies from an existing dynamic-particle-family definition before
+  opening the block
+- on `end`, the active dynamic-particle name plus assembled description are
+  committed into the active collection via collection vfunc `+0x24`, then the
+  current dynamic-particle name is cleared back to empty
+
+Recovered subcommand parser details:
+
+- `cDynamicParticleEffectBaseCommand::Parse(...)`:
+  - only legal inside a `dynamicParticle` block; otherwise throws
+    `Not in dynamic particle block`
+  - takes one non-switch argument and stores it as the effect-base name at
+    parser `+0x338`
+- `cDynamicParticleModelCommand::Parse(...)`:
+  - only legal inside a `dynamicParticle` block; otherwise throws
+    `Not in dynamic particle block`
+  - resolves one or more model names through the lowercase model-id map at
+    parser `+0xCC`
+  - a single resolved model ID is stored at parser `+0x354`
+  - multiple resolved model IDs are stored in the vector at parser `+0x358`
+  - unknown names throw `No such model: '%s'`
+- `cDynamicParticleMassCommand::Parse(...)`:
+  - only legal inside a `dynamicParticle` block; otherwise throws
+    `Not in dynamic particle block`
+  - requires one float argument and stores it at parser `+0x33C`
+- `cDynamicParticleFrictionCommand::Parse(...)`:
+  - only legal inside a `dynamicParticle` block; otherwise throws
+    `Not in dynamic particle block`
+  - requires two float arguments and stores them at parser `+0x344/+0x348`
+  - also supports `-angular <float>` stored at parser `+0x34C`
+
+Illustrative parser-grounded example:
+
+```text
+dynamicParticle tumbling_debris
+    effectBase debris_fx
+    model spark_model
+    mass 2.5
+    friction 0.15 0.05 -angular 0.2
+end
+```
 
 ### `decal`
 
@@ -592,6 +1120,37 @@ Note on one decompilation artifact:
 - that is almost certainly a recovered-string / slot-label mismatch rather than
   the true semantic, because the surrounding parser state and collection slots
   clearly line up with the top-level `decal` family rather than `particles`
+
+Illustrative parser-grounded example:
+
+```text
+textureID scorch_tex 12345678
+
+decal scorch_mark
+    color "1.0 1.0 1.0"
+    alpha 0.9 0.1 -vary 0.1
+    size 1.0 2.0 -vary 0.2
+    aspect 1.0
+    rotate 0.0 30.0 -vary 0.2
+    life 2.5 -single
+    texture scorch_tex -draw decal -offset "0.0 0.0"
+end
+
+effect scorch_mark_fx
+    decalEffect scorch_mark -scale 6.0
+end
+
+testEffect scorch_mark_fx -sourceScale 2.0 -scale 2.0 -hard
+```
+
+Notes:
+
+- this matches the recovered parser grammar for top-level `decal`, nested
+  `decalEffect`, and shared effect-child switches
+- `scorch_tex` must resolve to a real texture ID or the effect may parse but
+  still render nothing in-game
+- as with particles, the top-level `decal` and `effect` definitions do not do
+  anything until something instantiates them, for example `testEffect ...`
 
 ### `shake`
 
