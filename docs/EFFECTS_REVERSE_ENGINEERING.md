@@ -267,6 +267,52 @@ Recovered top-level commands:
 This establishes that `.fx` files are parsed as a command / block DSL rather
 than as a binary blob or a simple key-value format.
 
+## Top-Level Resource Name Maps
+
+One important parser-side mechanism is a set of top-level commands that bind
+symbolic names to numeric resource IDs. Nested effect-description commands then
+look those names up through parser-owned maps.
+
+Confirmed so far:
+
+- `cTextureIDCommand::cTextureIDCommand()` at `0x00781846`
+- `cTextureIDCommand::Parse(...)` in the Mac symbolized binary
+
+Recovered `textureID` behavior:
+
+- it requires exactly 3 tokens total:
+  - `textureID`
+  - `<name>`
+  - `<uint>`
+- otherwise it throws `Wrong number of arguments`
+- it lowercases `<name>`
+- it inserts or updates that key in the parser texture map at `+0xB4`
+- it parses the third token with `nSCRes::ParseUint(...)`
+- it stores the resulting numeric texture ID as the map value
+
+So the authoring shape is:
+
+```text
+textureID my_texture_name 12345678
+```
+
+and nested commands such as `decal` `texture ...` later resolve the final
+non-switch argument through that map.
+
+Practical implication for decals:
+
+```text
+textureID scorch_tex 12345678
+
+decal scorch_mark
+    texture scorch_tex -draw decal
+end
+```
+
+The `texture` line does not define the numeric ID itself. It only looks up the
+symbolic name `scorch_tex`, lowercases it, and stores the resolved numeric
+texture ID into the current decal description.
+
 ## Effect Block Grammar
 
 The core grouped effect block is handled by:
@@ -300,6 +346,9 @@ Recovered nested commands inside an `effect` block:
 Recovered parse behavior for `effect`:
 
 - the block takes a name as its first non-switch argument
+- the active effect name is stored in parser state at `+0x434`
+- a fresh default `cSC4EffectDescription` is copied into parser state at
+  `+0x43C` when the block opens
 - nested `effect` blocks are rejected with:
   `Can't nest effects! (Perhaps you meant visualEffect?)`
 - supported switches include:
@@ -315,9 +364,33 @@ Recovered parse behavior for `effect`:
 - it also accepts:
   - `-startMessage <u32> <u32> <u32>`
   - `-priority <1..5>`
+- after parsing its header, the block calls the generic block-command
+  `StartBlock(...)` path, so the active `effect` block is pushed onto the
+  parser block stack and later closed by a matching `end`
 
-The end of the block commits the assembled `cSC4EffectDescription` into the
-active collection.
+Additional recovered details:
+
+- `-startMessage` writes three `uint32` values into parser state; this is
+  distinct from top-level `messageTrigger`
+- if the effect name exists in the parser's effect-remapping map, the remap
+  entry overrides normal `-priority` parsing and marks the remap entry as used
+- otherwise `-priority` is parsed normally and bounded to `1..5`
+
+Recovered end-block behavior:
+
+- `cGroupEffectCommand::EndBlock(...)` checks the active collection pointer at
+  parser `+0x98`
+- if present, it calls the collection vfunc at `+0x14` with:
+  - the current effect name from parser `+0x434`
+  - the assembled `cSC4EffectDescription` at parser `+0x43C`
+- after commit, it clears the current effect name back to `""`
+
+Interpretation:
+
+- `effect <name> ... end` is not just a syntactic grouping node
+- it opens a parser-side "current effect" record, accumulates nested child
+  components into one `cSC4EffectDescription`, and commits that named effect to
+  the active collection only when the matching `end` is processed
 
 ## Named Definition Blocks
 
@@ -418,6 +491,107 @@ Nested commands:
 - `rotate`
 - `life`
 - `texture`
+
+Mac symbolized anchors:
+
+- constructor: `cDecalEffectCommand::cDecalEffectCommand()` at `0x0077D186`
+- nested command class: `cGroupDecalCommand::cGroupDecalCommand()` at
+  `0x00781DB0`
+- parse: `cDecalEffectCommand::Parse(...)` at `0x00789A0A`
+- end-block commit: `cDecalEffectCommand::EndBlock(...)` at `0x0078458E`
+
+Recovered behavior:
+
+- `decal <name>` requires a name; missing one throws `No name specified!`
+- the parser stores the active decal name in parser state at `+0x368`
+- it seeds a fresh current decal-description object in parser state at `+0x370`
+- `decal <name> : <baseName>` inheritance is supported
+- if a base name is provided and an active collection is present, the parser
+  validates / copies from an existing decal-family definition before opening the
+  block
+- on `end`, the active decal name plus assembled description are committed into
+  the active collection, then the current decal name is cleared back to empty
+
+Recovered subcommand parser details:
+
+- `cDecalColorCommand::Parse(...)` clears the current decal color curve at
+  parser `+0x3A4`, parses each non-switch argument with `nSCRes::ParseColor(...)`,
+  and appends each parsed color sample to that curve
+- `color255` / `colour255` are handled by the same parser and then scale the
+  finished color curve by `1 / 255`
+- practical implication: each color sample is one argument passed to
+  `ParseColor(...)`, so RGB triples need to be grouped as a single argument, for
+  example `color "1.0 0.8 0.3"`
+- `cDecalAlphaCommand::Parse(...)` clears the current alpha curve at parser
+  `+0x398`, parses each non-switch argument as one float sample, and appends the
+  results to that curve
+- `alpha255` is handled by the same parser and scales the finished alpha curve
+  by `1 / 255`
+- `alpha` also supports `-vary <float>`; the value is parsed through
+  `ParseRangedFloat(..., 0.0, 1.0)` and stored at parser `+0x3BC`
+- `cDecalAspectCommand::Parse(...)` clears the current aspect curve at parser
+  `+0x3B0`, parses each non-switch argument as one float sample, and appends the
+  results to that curve
+- `cDecalSizeCommand::Parse(...)` clears the current size curve at parser
+  `+0x38C`, parses each non-switch argument as one float sample, and appends the
+  results to that curve
+- `size` also supports `-vary <float>`; the value is parsed through
+  `ParseRangedFloat(..., 0.0, 1.0)` and stored at parser `+0x3C0`
+- `size -cityScale` sets flag bit `4` in the decal-description bitset at parser
+  `+0x370`
+- `cDecalLifeCommand::Parse(...)` parses the first non-switch argument, if
+  present, as the decal lifetime float and stores it at parser `+0x37C`
+- `life` also supports these mode switches:
+  - `-static`
+  - `-loop`
+  - `-single`
+  - `-sustain`
+- `-static` sets bit `6` in the decal-description flag bitset at parser
+  `+0x370` and also sets the mode byte at `+0x379` to `1`
+- `-loop` sets the mode byte at `+0x379` to `1`
+- `-single` sets the mode byte at `+0x379` to `2`
+- `-sustain` sets the mode byte at `+0x379` to `3`
+- `cDecalRotateCommand::Parse(...)` clears the current rotation curve at parser
+  `+0x380`, parses each non-switch argument as one float sample, and appends the
+  results to that curve
+- `rotate` also supports `-vary <float>`; the value is parsed through
+  `ParseRangedFloat(..., 0.0, 1.0)` and stored at parser `+0x3C4`
+- `cDecalTextureCommand::Parse(...)` controls both texture lookup and several
+  rendering / UV flags
+- `texture -draw <enum>` parses a draw mode through
+  `ParseEnum(..., kDecalDrawTypes, ...)` and stores the result in the draw-mode
+  byte at parser `+0x378`
+- recovered `kDecalDrawTypes` mapping:
+  - `decal` -> `0`
+  - `additive` -> `1`
+  - `modulate` -> `2`
+  - `decalInvertDepth` -> `3`
+  - `decalNoOverlap` -> `4`
+- `texture -light` sets flag bit `1` in the decal-description bitset at
+  parser `+0x370`
+- `texture -water` sets flag bit `2`
+- `texture -repeat <float>` sets flag bit `3` and stores the repeat value at
+  parser `+0x3C8`
+- `texture -cityScale` belongs to `size`, not `texture`
+- `texture -ring` sets flag bit `5`
+- `texture -offset <vec2>` parses a 2D vector and stores it at parser
+  `+0x3CC/+0x3D0`
+- after switch handling, `texture` resolves a texture name through the parser's
+  texture-id map at `+0xB4`; the lookup name is lowercased first
+- if the texture name is not found, it throws `No such texture: '%s'`
+- on success, the resolved texture id is stored at parser `+0x374`
+
+Still unresolved from the Mac side:
+
+- the concrete enum values behind `kDecalDrawTypes`
+
+Note on one decompilation artifact:
+
+- the recovered parse currently decompiles one inherited-base failure
+  path as `Unknown particle definition: %s`
+- that is almost certainly a recovered-string / slot-label mismatch rather than
+  the true semantic, because the surrounding parser state and collection slots
+  clearly line up with the top-level `decal` family rather than `particles`
 
 ### `shake`
 
@@ -548,6 +722,202 @@ At minimum:
 
 There is also a top-level `effectID` command, but this pass did not yet recover
 its full parse handler.
+
+## Resource Import / Include-Like Commands
+
+Two top-level commands are the closest thing this DSL has to include logic:
+
+- `loadResource`
+- `effectsResource`
+
+### `loadResource`
+
+Handler:
+
+- `cLoadResourceCommand::Parse(...)` at `0x00780820`
+
+Recovered syntax shape:
+
+```text
+loadResource <uint>
+```
+
+Recovered behavior:
+
+- parses one non-switch argument as a `uint`
+- looks up a packed effects resource with fixed type/group:
+  - `T = 0xEA5118B0`
+  - `G = 0xEA5118B1`
+  - `I = <parsed uint>`
+- if the resource is not found, parsing throws:
+  `Effects resource 0x%08x not found`
+- if found, it imports that resource into the active effects collection
+
+Recovered resource-manager path:
+
+- `loadResource` goes through
+  `cGZPersistResourceManager::GetResource(...)` at `0x00329F8E`
+
+Interpretation:
+
+- `loadResource` is a packed-resource import mechanism
+- it does **not** load another text `.fx` file by filename
+
+### `effectsResource`
+
+Handlers:
+
+- `cEffectsResourceCommand::Parse(...)` at `0x00788D62`
+- `cEffectsResourceCommand::EndBlock(...)` at `0x00788FA6`
+
+Recovered syntax shape:
+
+```text
+effectsResource <uint> <name>
+    ...
+end
+```
+
+Recovered behavior:
+
+- requires exactly two arguments after the command
+- cannot be nested; nested use throws:
+  `Can't nest resource blocks`
+- the first argument is parsed as a `uint` instance id
+- the parser opens / creates a packed effects resource with fixed type/group:
+  - `T = 0xEA5118B0`
+  - `G = 0xEA5118B1`
+  - `I = <parsed uint>`
+- the second argument is passed into the resource object before the block body
+  is parsed
+- while inside the block, the active collection target is swapped to that
+  resource-backed collection
+- on block end, the resource is saved back out; failures throw:
+  - `couldn't find segment for effect group 0x%08x`
+  - `couldn't save effects resource key 0x%08x`
+
+Important parser gate:
+
+- `cSC4EffectsParser::EnableResourceSaving()` at `0x004017B2` does exactly one
+  thing: sets parser byte flag `+0xAC = 1`
+- `cEffectsResourceCommand::Parse(...)` only creates / binds the backing
+  `cISC4EffectsResource` if that same parser flag is already set
+- `cEffectsResourceCommand::EndBlock(...)` immediately returns if either:
+  - parser byte flag `+0xAC == 0`
+  - active effects-resource pointer `+0x9C == 0`
+- this means an `effectsResource ... end` block can parse as a harmless no-op
+  container if resource saving was never enabled on the parser instance
+
+Recovered resource-manager path:
+
+- `effectsResource` creation goes through
+  `cGZPersistResourceManager::GetNewResource(...)` at `0x0032A102`
+- on block end it resolves a DB segment via
+  `cGZPersistResourceManager::FindDBSegment(...)` at `0x0032B030`
+- it then saves via
+  `cGZPersistResourceManager::Save(...)` at `0x003293A2`, which calls
+  `cGZPersistResourceManager::SaveResource(...)` at `0x0032941C`
+- the segment lookup key used at block end is the resource **group** id,
+  which for effects resources is `0xEA5118B1`
+
+Relevant loader context:
+
+- `cSC4EffectsManager::LoadAllEffects()` calls
+  `cSC4EffectsParser::SetManager(...)` through the parser interface
+- in the normal retail startup path recovered so far, I do **not** see
+  `EnableResourceSaving()` being called before `main.fx` is parsed
+- the wrapper `nSCRes::cFileParser` mode argument used by `AddInputFilePath`
+  does not currently show any save-enable handoff either; recovered bits are:
+  - bit `0x2`: attach directory watcher / hot-reload support
+  - bit `0x1`: stored in the input-file spec, but its exact meaning is still
+    unresolved
+
+Windows PE confirmation:
+
+- the Windows retail binary has the same gate, but with shifted parser offsets:
+  - save-enable flag at parser `+0xA4`
+  - active effects-resource pointer at parser `+0x94`
+  - current packed key fields at parser `+0x98`, `+0x9C`, `+0xA0`
+- `FUN_00596810` is the PE32 `effectsResource` parse handler:
+  - it throws `Can't nest resource blocks`
+  - it only calls `GetNewResource(...)` if parser byte `+0xA4` is already set
+- `FUN_00596970` is the PE32 end-block handler:
+  - it immediately returns unless parser byte `+0xA4 != 0` and parser
+    resource pointer `+0x94 != 0`
+  - if it does proceed, it calls the same segment lookup and save path as the
+    Mac binary
+- `FUN_005945B0` is the PE32 effects load function containing the
+  `packedeffects` / `main.fx` bootstrap
+- in that Windows load path, the parser is connected and `main.fx` is parsed,
+  but I do **not** see a call that would obviously enable resource saving first
+
+Interpretation:
+
+- `effectsResource` is an authoring / serialization block for packed effects
+  resources
+- it also does **not** appear to include another text `.fx` file by path
+- the save path is real code, not just parser scaffolding
+- however, it only works if the resource manager currently has a writable DB
+  segment registered with segment id `0xEA5118B1`
+- and the effects parser must first have resource saving explicitly enabled via
+  `EnableResourceSaving()`
+
+Current conclusion:
+
+- the `.fx` DSL does have resource import logic
+- the recovered include-like path is for packed SC4 effects resources, not for
+  arbitrary extra `.fx` text files
+- based on the loader code recovered so far, the direct text-file entry points
+  are still just stock `Effects/config.fx` and plugin `main.fx`
+- the game does have a real packed-effects save path
+- but the normal retail `LoadAllEffects()` path does not currently show the
+  required `EnableResourceSaving()` call, so `effectsResource` inside
+  `main.fx` is very likely non-persistent unless some other hidden setup path
+  flips that parser flag first
+
+### Generic Block Dispatch
+
+The generic parser-side `end` flow is now clear in the Mac binary:
+
+- `nSCRes::cEndBlockCommand::Parse(...)` at `0x007763F2`
+- `nSCRes::cBlockCommand::StartBlock(...)` at `0x003F849C`
+- `nSCRes::cBlockCommandT<nSCRes::cCommandParser>::Parse(...)` at
+  `0x00775E4C`
+- `nSCRes::cBlockCommandT<nSCRes::cCommandParser>::EndBlock(...)` at
+  `0x00775E80`
+
+Recovered behavior:
+
+- block commands call `StartBlock(...)` to push themselves onto the parser's
+  block stack at parser offset `+0x30`
+- `cEffectsResourceCommand::Parse(...)` at `0x00788D62` ends by calling the
+  block-command `StartBlock(...)` vfunc, so an `effectsResource` block really
+  does register itself on that stack
+- when the parser later sees `end`, `cEndBlockCommand::Parse(...)`:
+  - checks that the block stack is not empty
+  - fetches the top block via `vector<...>::back()`
+  - converts the generic parser interface back to the concrete parser pointer
+    via parser vfunc `+0x34`
+  - calls the popped block's end-block vfunc
+  - then pops the stack entry by decrementing the vector end pointer
+
+For `effectsResource`, that popped-block end callback is:
+
+- `(anonymous namespace)::cEffectsResourceCommand::EndBlock(...)` at
+  `0x00788FA6`
+
+Interpretation:
+
+- on Mac, the expected commit path is:
+  `effectsResource::Parse -> StartBlock push -> "end" -> cEndBlockCommand::Parse -> cEffectsResourceCommand::EndBlock`
+- so if the Windows retail path logs `effectsResource::Parse` but never reaches
+  the matching `EndBlock`, the likely failure is no longer in resource-manager
+  config alone
+- the most likely remaining causes are:
+  - the `end` token is not being routed through the generic `cEndBlockCommand`
+    path in that runtime
+  - or the active `effectsResource` block is not actually present on the parser
+    block stack by the time `end` is parsed
 
 ## Manual Execution Via Cheat
 
@@ -834,6 +1204,107 @@ Recovered behavior:
 
 This strongly confirms that `visualEffect` is a nested reference / instance of
 another visual effect, not a nested top-level `effect` definition.
+
+### `particleEffect`
+
+Handler:
+
+- `cGroupParticlesCommand::Parse(...)` at `0x0078D6C4`
+
+Recovered syntax shape:
+
+```text
+effect WrapperName
+    particleEffect ExistingParticleName [shared desc-rec switches...]
+    particleEffect ExistingParticleName -shells <count> [float]
+end
+```
+
+Recovered behavior:
+
+- valid only inside an `effect` block
+- takes one non-switch argument: the referenced named particle definition
+- if an active collection is present, it validates the referenced name through
+  the collection and throws:
+  - `Not in effects block`
+  - `Unknown particle definition: %s`
+- emits a `cSC4EffectDescription::cDescriptionRec` with type `0`
+- copies parser state at `+0x488` into the child desc-rec before option parsing
+- copies parser flag `+0x494` into child desc-rec flag bit `1`
+- runs `ParseDescRecOptions(...)` on the same argument list
+- appends the finished description record to the current effect's child list at
+  parser `+0x444`
+
+Recovered `-shells` switch:
+
+- syntax: `-shells <uint> [float]`
+- the first value is parsed as an unsigned integer and stored in the desc-rec
+- if a second value is present, it is parsed as a float and rounded to an
+  integer before storage
+- the exact runtime semantic of the second field is still unresolved, but the
+  authoring shape is binary-backed
+
+Interpretation:
+
+- `particleEffect` is the nested reference / instance form for top-level named
+  `particles` definitions
+- unlike `visualEffect`, it carries extra particle-specific fields, including
+  the `particleSequence` chain flag and optional `-shells` data
+
+### `dynamicParticleEffect`
+
+Handler:
+
+- `cGroupDynamicParticleCommand::Parse(...)` at `0x00784148`
+
+Recovered behavior:
+
+- valid only inside an `effect` block
+- emits a `cSC4EffectDescription::cDescriptionRec` with type `0x10`
+- copies parser state at `+0x488` into the child desc-rec
+- copies parser flag `+0x494` into child desc-rec flag bit `1`
+- runs `ParseDescRecOptions(...)`
+- appends directly to the current effect child list
+
+Notable difference from `particleEffect`:
+
+- this handler does not do the same active-collection name validation step
+  before emitting the child desc-rec
+
+### `decalEffect`
+
+Mac symbolized anchor:
+
+- child command class: `cGroupDecalCommand::cGroupDecalCommand()` at
+  `0x00781DB0`
+
+Windows PE cross-check:
+
+- parser thunk / handler recovered around `0x005A04A4` from the
+  `Unknown decal definition: %s` xref
+
+Recovered behavior:
+
+- `decalEffect` is only valid inside an `effect` block
+- it takes one non-switch argument: the referenced named top-level `decal`
+  definition
+- if an active collection is present, it validates the referenced name and
+  throws:
+  - `Not in effects block`
+  - `Unknown decal definition: %s`
+- it emits a child `cSC4EffectDescription::cDescriptionRec` that later maps to
+  runtime child type `1` (`decal effect`)
+- it stores the referenced decal name into the emitted child record
+- it then applies the shared description-record switches via
+  `ParseDescRecOptions(...)`
+- the finished child record is appended to the current effect's child list
+
+Interpretation:
+
+- `decalEffect` is the nested reference / instance form for top-level named
+  `decal` definitions, analogous to `particleEffect` for `particles`
+- no dedicated decal-only child-instance switches have been recovered yet beyond
+  the shared desc-rec options
 
 ### Shared Description-Record Switches
 
