@@ -218,8 +218,7 @@ void PropPainterInputControl::UpdatePreviewOccupant_() {
         return;
     }
 
-    cS3DVector3 worldPos = currentCursorWorld_;
-    worldPos.fY += settings_.deltaYMeters;
+    const cS3DVector3 worldPos = ResolveDirectPosition_(currentCursorWorld_);
 
     const bool posChanged =
         std::abs(worldPos.fX - lastPreviewPosition_.fX) > 0.05f ||

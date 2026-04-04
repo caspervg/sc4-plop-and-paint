@@ -8,6 +8,11 @@
 class cISTETerrain;
 class WeightedPicker;
 
+enum class PolygonHeightSamplingMode {
+    Terrain = 0,
+    InterpolateVertices = 1
+};
+
 class PolygonPlacer {
 public:
     static std::vector<PlannedPaint> ComputePlacements(
@@ -18,9 +23,12 @@ public:
         bool randomRotation,
         cISTETerrain* terrain,
         uint32_t seed,
+        PolygonHeightSamplingMode heightSamplingMode = PolygonHeightSamplingMode::Terrain,
         WeightedPicker* picker = nullptr,
         uint32_t singlePropID = 0,
         size_t maxPlacements = static_cast<size_t>(-1));
+
+    [[nodiscard]] static bool CanTriangulate(const std::vector<cS3DVector3>& polygonVertices);
 
 private:
     static bool PointInPolygon_(float px, float pz, const std::vector<cS3DVector3>& polygon);

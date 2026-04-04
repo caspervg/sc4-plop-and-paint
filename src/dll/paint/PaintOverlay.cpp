@@ -137,7 +137,9 @@ void PaintOverlay::BuildDirectPreview(const bool cursorValid,
 }
 
 void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
+                                        const std::vector<cS3DVector3>& terrainAnchors,
                                         const cS3DVector3& cursorPos,
+                                        const cS3DVector3& cursorTerrainPos,
                                         const bool cursorValid,
                                         cISTETerrain* terrain,
                                         const PropPaintSettings& settings,
@@ -166,7 +168,9 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
 }
 
 void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
+                                           const std::vector<cS3DVector3>& terrainAnchors,
                                            const cS3DVector3& cursorPos,
+                                           const cS3DVector3& cursorTerrainPos,
                                            const bool cursorValid,
                                            cISTETerrain* terrain,
                                            const PropPaintSettings& settings,

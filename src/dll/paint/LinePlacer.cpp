@@ -31,6 +31,7 @@ std::vector<PlannedPaint> LinePlacer::ComputePlacements(
     const float randomOffset,
     cISTETerrain* terrain,
     const uint32_t seed,
+    const LineHeightSamplingMode heightSamplingMode,
     WeightedPicker* picker,
     const uint32_t singlePropID,
     const size_t maxPlacements) {
@@ -78,11 +79,11 @@ std::vector<PlannedPaint> LinePlacer::ComputePlacements(
                     const float jitter = jitterDist(rng);
                     worldX += -dirZ * jitter;
                     worldZ += dirX * jitter;
-                    if (terrain) {
+                    if (terrain && heightSamplingMode == LineHeightSamplingMode::Terrain) {
                         worldY = terrain->GetAltitude(worldX, worldZ);
                     }
                 }
-                else if (terrain) {
+                else if (terrain && heightSamplingMode == LineHeightSamplingMode::Terrain) {
                     worldY = terrain->GetAltitude(worldX, worldZ);
                 }
 
