@@ -167,8 +167,7 @@ void FloraPainterInputControl::CreatePreviewOccupant_() {
         return;
     }
 
-    cS3DVector3 initialPos = currentCursorWorld_;
-    initialPos.fY += settings_.deltaYMeters;
+    cS3DVector3 initialPos = ResolveDirectPosition_(currentCursorWorld_);
 
     float posArr[3] = {initialPos.fX, initialPos.fY, initialPos.fZ};
     cISC4Occupant* occupant =
@@ -262,8 +261,7 @@ void FloraPainterInputControl::UpdatePreviewOccupant_() {
         return;
     }
 
-    cS3DVector3 worldPos = currentCursorWorld_;
-    worldPos.fY += settings_.deltaYMeters;
+    cS3DVector3 worldPos = ResolveDirectPosition_(currentCursorWorld_);
     if (!IsFloraPlacementValid_(CurrentDirectTypeID_(), worldPos, previewOccupant_)) {
         previewOccupant_->SetVisibility(false, true);
         previewPositionValid_ = false;
@@ -306,8 +304,7 @@ bool FloraPainterInputControl::ShouldForceDirectOverlay_() const {
         return false;
     }
 
-    cS3DVector3 overlayPos = currentCursorWorld_;
-    overlayPos.fY += settings_.deltaYMeters;
+    cS3DVector3 overlayPos = ResolveDirectPosition_(currentCursorWorld_);
     return !IsFloraPlacementValid_(CurrentDirectTypeID_(), overlayPos, previewOccupant_);
 }
 

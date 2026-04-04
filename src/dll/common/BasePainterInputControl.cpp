@@ -23,8 +23,8 @@ namespace {
         return std::round(value / gridStep) * gridStep;
     }
 
-    float ClampDeltaY(const float value) {
-        return std::max(value, 0.0f);
+    float ClampVerticalOffset(const float value) {
+        return std::clamp(value, -250.0f, 250.0f);
     }
 
     float SampleStableTerrainHeight(cISTETerrain* terrain, const float x, const float z) {
@@ -120,6 +120,7 @@ void BasePainterInputControl::Activate() {
 
 void BasePainterInputControl::Deactivate() {
     ClearCollectedPoints_();
+    ClearDirectAbsoluteHeight_();
     DestroyPreviewOccupant_();
 
     if (state_ != ControlState::Uninitialized) {
@@ -135,7 +136,15 @@ void BasePainterInputControl::SetTypeToPaint(const uint32_t typeID, const PropPa
 
     typeToPaint_ = typeID;
     settings_ = settings;
-    settings_.deltaYMeters = ClampDeltaY(settings_.deltaYMeters);
+    if (SupportsVerticalAdjustment_()) {
+        settings_.deltaYMeters = ClampVerticalOffset(settings_.deltaYMeters);
+        settings_.sketchCaptureOffsetMeters = std::clamp(settings_.sketchCaptureOffsetMeters, -250.0f, 250.0f);
+    }
+    else {
+        settings_.deltaYMeters = 0.0f;
+        settings_.sketchCaptureOffsetMeters = 0.0f;
+        settings_.sketchHeightMode = SketchHeightMode::Terrain;
+    }
     settings_.densityVariation = std::clamp(settings_.densityVariation, 0.0f, 1.0f);
     if (settings_.randomSeed == 0) {
         settings_.randomSeed = static_cast<uint32_t>(GetTickCount64() ^ static_cast<uint64_t>(typeToPaint_));
@@ -144,6 +153,7 @@ void BasePainterInputControl::SetTypeToPaint(const uint32_t typeID, const PropPa
 
     if (targetChanged) {
         ClearCollectedPoints_();
+        ClearDirectAbsoluteHeight_();
         DestroyPreviewOccupant_();
     }
     cachedPolygonPlacements_.clear();
@@ -191,6 +201,54 @@ bool BasePainterInputControl::HasPendingSketch() const {
 
 bool BasePainterInputControl::HasPendingPlacements() const {
     return PendingPlacementCount_() > 0;
+}
+
+bool BasePainterInputControl::SupportsVerticalAdjustment() const {
+    return SupportsVerticalAdjustment_();
+}
+
+float BasePainterInputControl::GetSketchCaptureOffsetMeters() const {
+    return settings_.sketchCaptureOffsetMeters;
+}
+
+bool BasePainterInputControl::HasCustomSketchHeights() const {
+    return ShouldUseCustomSketchHeights_();
+}
+
+bool BasePainterInputControl::HasCapturedDirectAbsoluteHeight() const {
+    return directAbsoluteHeightCaptured_;
+}
+
+float BasePainterInputControl::GetCapturedDirectAbsoluteHeight() const {
+    return directAbsoluteBaseY_;
+}
+
+bool BasePainterInputControl::TryGetCursorSketchPreview(cS3DVector3& terrainPos, cS3DVector3& resolvedPos) const {
+    if (!cursorValid_) {
+        return false;
+    }
+
+    terrainPos = currentCursorWorld_;
+    resolvedPos = ResolveCursorSketchPoint_();
+    return true;
+}
+
+std::vector<cS3DVector3> BasePainterInputControl::GetResolvedCollectedPoints() const {
+    std::vector<cS3DVector3> points;
+    points.reserve(collectedPoints_.size());
+    for (const auto& point : collectedPoints_) {
+        points.push_back(ResolveSketchPoint_(point));
+    }
+    return points;
+}
+
+std::vector<cS3DVector3> BasePainterInputControl::GetCollectedPointTerrainAnchors() const {
+    std::vector<cS3DVector3> points;
+    points.reserve(collectedPoints_.size());
+    for (const auto& point : collectedPoints_) {
+        points.push_back(point.terrainWorldPos);
+    }
+    return points;
 }
 
 void BasePainterInputControl::ProcessPendingActions() {
@@ -376,7 +434,15 @@ bool BasePainterInputControl::HandleActiveMouseDownL_(const int32_t x, const int
         if (!UpdateCursorWorldFromScreen_(x, z)) {
             return false;
         }
-        collectedPoints_.push_back({currentCursorWorld_});
+        {
+            const cS3DVector3 terrainPos = currentCursorWorld_;
+            const float captureOffset = ShouldUseCustomSketchHeights_() ? settings_.sketchCaptureOffsetMeters : 0.0f;
+            collectedPoints_.push_back({
+                terrainPos,
+                terrainPos.fY + captureOffset,
+                captureOffset
+            });
+        }
         if (state_ == ControlState::ActivePolygon) {
             polygonPreviewDirty_ = true;
         }
@@ -419,6 +485,12 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         if (state_ == ControlState::ActivePolygon) {
             polygonPreviewDirty_ = true;
         }
+        SyncPreviewForState_();
+        return true;
+    }
+
+    if (vkCode == 'H' && state_ == ControlState::ActiveDirect && SupportsVerticalAdjustment_()) {
+        CaptureDirectAbsoluteHeight_();
         SyncPreviewForState_();
         return true;
     }
@@ -479,7 +551,41 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         return true;
     }
 
-    if (vkCode == VK_OEM_4 || vkCode == VK_OEM_6) {
+    const bool shiftHeld = (modifiers & MOD_SHIFT) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool altHeld = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    const bool controlHeld = (modifiers & MOD_CONTROL) != 0;
+
+    if ((vkCode == VK_OEM_4 || vkCode == VK_OEM_6) &&
+        IsTargetActiveState_(state_) &&
+        (!controlHeld) &&
+        SupportsVerticalAdjustment_()) {
+        const float defaultStep = 1.0f;
+        const float coarseStep = 5.0f;
+        const float fineStep = 0.1f;
+        const float step = (shiftHeld && altHeld) ? fineStep : (shiftHeld ? coarseStep : defaultStep);
+        const float delta = (vkCode == VK_OEM_6 ? 1.0f : -1.0f) * step;
+        if (state_ == ControlState::ActiveDirect || !ShouldUseCustomSketchHeights_()) {
+            settings_.deltaYMeters = ClampVerticalOffset(settings_.deltaYMeters + delta);
+        }
+        else {
+            settings_.sketchCaptureOffsetMeters = std::clamp(settings_.sketchCaptureOffsetMeters + delta, -250.0f, 250.0f);
+        }
+        SyncPreviewForState_();
+        return true;
+    }
+
+    if (vkCode == '0' && IsTargetActiveState_(state_) && SupportsVerticalAdjustment_()) {
+        if (state_ == ControlState::ActiveDirect || !ShouldUseCustomSketchHeights_()) {
+            settings_.deltaYMeters = 0.0f;
+        }
+        else {
+            settings_.sketchCaptureOffsetMeters = 0.0f;
+        }
+        SyncPreviewForState_();
+        return true;
+    }
+
+    if ((vkCode == VK_OEM_4 || vkCode == VK_OEM_6) && controlHeld && !altHeld) {
         static constexpr float kGridSteps[] = {1.0f, 2.0f, 4.0f, 8.0f, 16.0f};
         static constexpr int kGridStepCount = sizeof(kGridSteps) / sizeof(kGridSteps[0]);
 
@@ -508,7 +614,6 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
     if (vkCode == VK_OEM_MINUS || vkCode == VK_OEM_PLUS) {
         const float lineDelta = (vkCode == VK_OEM_PLUS) ? 0.5f : -0.5f;
         const float densityDelta = (vkCode == VK_OEM_PLUS) ? 0.25f : -0.25f;
-        const bool controlHeld = (modifiers & MOD_CONTROL) != 0;
 
         if (state_ == ControlState::ActiveLine) {
             settings_.spacingMeters = std::clamp(settings_.spacingMeters + lineDelta, 0.5f, 50.0f);
@@ -583,11 +688,22 @@ cS3DVector3 BasePainterInputControl::SnapWorldToGrid_(const cS3DVector3& positio
     return {snappedX, snappedY, snappedZ};
 }
 
+cS3DVector3 BasePainterInputControl::SnapXZToGridPreserveY_(const cS3DVector3& position) const {
+    const float gridStep = GetGridStepMeters_();
+    return {
+        SnapCoordinate(position.fX, gridStep),
+        position.fY,
+        SnapCoordinate(position.fZ, gridStep)
+    };
+}
+
 void BasePainterInputControl::SnapPlacementToGrid_(PlannedPaint& placement) const {
     if (!settings_.snapPlacementsToGrid) {
         return;
     }
-    placement.position = SnapWorldToGrid_(placement.position);
+    placement.position = ShouldUseCustomSketchHeights_()
+        ? SnapXZToGridPreserveY_(placement.position)
+        : SnapWorldToGrid_(placement.position);
 }
 
 void BasePainterInputControl::ClearCollectedPoints_() {
@@ -603,6 +719,59 @@ cISTETerrain* BasePainterInputControl::GetTerrain_() const {
         return nullptr;
     }
     return city_->GetTerrain();
+}
+
+cS3DVector3 BasePainterInputControl::ResolveSketchPoint_(const CollectedPoint& point) const {
+    return {
+        point.terrainWorldPos.fX,
+        ShouldUseCustomSketchHeights_() ? point.capturedWorldY : point.terrainWorldPos.fY,
+        point.terrainWorldPos.fZ
+    };
+}
+
+cS3DVector3 BasePainterInputControl::ResolveCursorSketchPoint_() const {
+    cS3DVector3 result = currentCursorWorld_;
+    if (ShouldUseCustomSketchHeights_()) {
+        result.fY += settings_.sketchCaptureOffsetMeters;
+    }
+    return result;
+}
+
+bool BasePainterInputControl::ShouldUseCustomSketchHeights_() const {
+    return SupportsVerticalAdjustment_() &&
+        settings_.mode != PaintMode::Direct &&
+        settings_.sketchHeightMode == SketchHeightMode::Custom;
+}
+
+float BasePainterInputControl::GetActiveVerticalOffset_() const {
+    return SupportsVerticalAdjustment_() ? settings_.deltaYMeters : 0.0f;
+}
+
+cS3DVector3 BasePainterInputControl::ResolveDirectPosition_(const cS3DVector3& terrainPosition) const {
+    cS3DVector3 result = terrainPosition;
+    if (!SupportsVerticalAdjustment_()) {
+        return result;
+    }
+    if (settings_.mode == PaintMode::Direct && directAbsoluteHeightCaptured_) {
+        result.fY = directAbsoluteBaseY_ + GetActiveVerticalOffset_();
+    }
+    else {
+        result.fY += GetActiveVerticalOffset_();
+    }
+    return result;
+}
+
+void BasePainterInputControl::CaptureDirectAbsoluteHeight_() {
+    if (!cursorValid_) {
+        return;
+    }
+    directAbsoluteBaseY_ = currentCursorWorld_.fY;
+    directAbsoluteHeightCaptured_ = true;
+}
+
+void BasePainterInputControl::ClearDirectAbsoluteHeight_() {
+    directAbsoluteHeightCaptured_ = false;
+    directAbsoluteBaseY_ = 0.0f;
 }
 
 // ── Picker helpers ────────────────────────────────────────────────────────────
@@ -666,7 +835,7 @@ bool BasePainterInputControl::PlaceTypeAt_(const int32_t screenX, const int32_t 
     if (settings_.snapPointsToGrid) {
         targetPosition = SnapWorldToGrid_(targetPosition);
     }
-    targetPosition.fY += settings_.deltaYMeters;
+    targetPosition = ResolveDirectPosition_(targetPosition);
 
     const bool placed = PlaceAtWorld_(targetPosition, settings_.rotation, CurrentDirectTypeID_());
     if (placed) {
@@ -684,7 +853,7 @@ void BasePainterInputControl::ExecuteLinePlacement_() {
     std::vector<cS3DVector3> linePoints;
     linePoints.reserve(collectedPoints_.size());
     for (const auto& cp : collectedPoints_) {
-        linePoints.push_back(cp.worldPos);
+        linePoints.push_back(ResolveSketchPoint_(cp));
     }
 
     std::unique_ptr<WeightedPicker> picker;
@@ -703,6 +872,7 @@ void BasePainterInputControl::ExecuteLinePlacement_() {
         settings_.randomOffset,
         GetTerrain_(),
         settings_.randomSeed,
+        ShouldUseCustomSketchHeights_() ? LineHeightSamplingMode::PreserveInputY : LineHeightSamplingMode::Terrain,
         picker.get(),
         singleTypeID);
 
@@ -710,7 +880,7 @@ void BasePainterInputControl::ExecuteLinePlacement_() {
     currentUndoGroup_.props.clear();
     size_t placedCount = 0;
     for (auto placement : placements) {
-        placement.position.fY += settings_.deltaYMeters;
+        placement.position.fY += GetActiveVerticalOffset_();
         SnapPlacementToGrid_(placement);
         if (PlaceAtWorld_(placement.position, placement.rotation, placement.itemId)) {
             ++placedCount;
@@ -735,7 +905,12 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
     std::vector<cS3DVector3> polygonVertices;
     polygonVertices.reserve(collectedPoints_.size());
     for (const auto& cp : collectedPoints_) {
-        polygonVertices.push_back(cp.worldPos);
+        polygonVertices.push_back(ResolveSketchPoint_(cp));
+    }
+
+    if (ShouldUseCustomSketchHeights_() && !PolygonPlacer::CanTriangulate(polygonVertices)) {
+        LOG_WARN("Polygon sketch could not be triangulated for custom node heights");
+        return;
     }
 
     std::unique_ptr<WeightedPicker> picker;
@@ -753,6 +928,9 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
         settings_.randomRotation,
         GetTerrain_(),
         settings_.randomSeed,
+        ShouldUseCustomSketchHeights_()
+            ? PolygonHeightSamplingMode::InterpolateVertices
+            : PolygonHeightSamplingMode::Terrain,
         picker.get(),
         singleTypeID);
 
@@ -760,7 +938,7 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
     currentUndoGroup_.props.clear();
     size_t placedCount = 0;
     for (auto placement : placements) {
-        placement.position.fY += settings_.deltaYMeters;
+        placement.position.fY += GetActiveVerticalOffset_();
         SnapPlacementToGrid_(placement);
         if (PlaceAtWorld_(placement.position, placement.rotation, placement.itemId)) {
             ++placedCount;
@@ -806,8 +984,8 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
         }
 
         PaintOverlay::PreviewPlacement previewPlacement;
-        previewPlacement.placement.position = overlayCursor;
-        previewPlacement.placement.position.fY += settings_.deltaYMeters;
+        previewPlacement.placement.position =
+            (!cursorValid_ && usePreviewAnchor) ? overlayCursor : ResolveDirectPosition_(overlayCursor);
         previewPlacement.placement.rotation = settings_.rotation;
         previewPlacement.placement.itemId = CurrentDirectTypeID_();
 
@@ -822,15 +1000,14 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
         return;
     }
 
-    std::vector<cS3DVector3> points;
-    points.reserve(collectedPoints_.size());
-    for (const auto& cp : collectedPoints_) {
-        points.push_back(cp.worldPos);
-    }
+    std::vector<cS3DVector3> points = GetResolvedCollectedPoints();
+    std::vector<cS3DVector3> terrainAnchors = GetCollectedPointTerrainAnchors();
 
     std::vector<cS3DVector3> previewPoints = points;
+    std::vector<cS3DVector3> previewTerrainAnchors = terrainAnchors;
     if (cursorValid_) {
-        previewPoints.push_back(currentCursorWorld_);
+        previewPoints.push_back(ResolveCursorSketchPoint_());
+        previewTerrainAnchors.push_back(currentCursorWorld_);
     }
 
     std::unique_ptr<WeightedPicker> picker;
@@ -854,6 +1031,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
                 settings_.randomOffset,
                 GetTerrain_(),
                 settings_.randomSeed,
+                ShouldUseCustomSketchHeights_() ? LineHeightSamplingMode::PreserveInputY : LineHeightSamplingMode::Terrain,
                 picker.get(),
                 singleTypeID,
                 kMaxPreviewPlacements);
@@ -861,15 +1039,33 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
             for (const auto& placement : placements) {
                 PaintOverlay::PreviewPlacement pp;
                 pp.placement = placement;
-                pp.placement.position.fY += settings_.deltaYMeters;
+                pp.placement.position.fY += GetActiveVerticalOffset_();
                 SnapPlacementToGrid_(pp.placement);
                 PopulatePreviewBounds_(pp, pp.placement.itemId);
                 pp.valid = IsDirectPreviewPlacementValid_(pp.placement);
                 plannedPlacements.push_back(pp);
             }
         }
+        else if (points.empty() && cursorValid_) {
+            PaintOverlay::PreviewPlacement pp;
+            pp.placement.position = ResolveCursorSketchPoint_();
+            pp.placement.position.fY += GetActiveVerticalOffset_();
+            pp.placement.rotation = settings_.rotation;
+            pp.placement.itemId = typeToPaint_;
+            PopulatePreviewBounds_(pp, pp.placement.itemId);
+            pp.valid = IsDirectPreviewPlacementValid_(pp.placement);
+            plannedPlacements.push_back(pp);
+        }
 
-        overlay_.BuildLinePreview(points, currentCursorWorld_, cursorValid_, GetTerrain_(), settings_, plannedPlacements);
+        const cS3DVector3 cursorPoint = cursorValid_ ? ResolveCursorSketchPoint_() : currentCursorWorld_;
+        overlay_.BuildLinePreview(points,
+                                  terrainAnchors,
+                                  cursorPoint,
+                                  currentCursorWorld_,
+                                  cursorValid_,
+                                  GetTerrain_(),
+                                  settings_,
+                                  plannedPlacements);
         return;
     }
 
@@ -885,6 +1081,9 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
             settings_.randomRotation,
             GetTerrain_(),
             settings_.randomSeed,
+            ShouldUseCustomSketchHeights_()
+                ? PolygonHeightSamplingMode::InterpolateVertices
+                : PolygonHeightSamplingMode::Terrain,
             picker.get(),
             singleTypeID,
             kMaxPreviewPlacements);
@@ -892,7 +1091,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
         for (const auto& placement : placements) {
             PaintOverlay::PreviewPlacement pp;
             pp.placement = placement;
-            pp.placement.position.fY += settings_.deltaYMeters;
+            pp.placement.position.fY += GetActiveVerticalOffset_();
             SnapPlacementToGrid_(pp.placement);
             PopulatePreviewBounds_(pp, pp.placement.itemId);
             pp.valid = IsDirectPreviewPlacementValid_(pp.placement);
@@ -902,8 +1101,27 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
         polygonPreviewDirty_ = false;
     }
 
-    overlay_.BuildPolygonPreview(points, currentCursorWorld_, cursorValid_, GetTerrain_(), settings_,
-                                  cachedPolygonPlacements_);
+    std::vector<PaintOverlay::PreviewPlacement> polygonPlacements = cachedPolygonPlacements_;
+    if (points.empty() && cursorValid_) {
+        PaintOverlay::PreviewPlacement pp;
+        pp.placement.position = ResolveCursorSketchPoint_();
+        pp.placement.position.fY += GetActiveVerticalOffset_();
+        pp.placement.rotation = settings_.rotation;
+        pp.placement.itemId = typeToPaint_;
+        PopulatePreviewBounds_(pp, pp.placement.itemId);
+        pp.valid = IsDirectPreviewPlacementValid_(pp.placement);
+        polygonPlacements.push_back(pp);
+    }
+
+    const cS3DVector3 cursorPoint = cursorValid_ ? ResolveCursorSketchPoint_() : currentCursorWorld_;
+    overlay_.BuildPolygonPreview(points,
+                                 terrainAnchors,
+                                 cursorPoint,
+                                 currentCursorWorld_,
+                                 cursorValid_,
+                                 GetTerrain_(),
+                                 settings_,
+                                 polygonPlacements);
 }
 
 size_t BasePainterInputControl::PendingPlacementCount_() const {

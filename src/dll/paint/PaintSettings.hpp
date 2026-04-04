@@ -17,11 +17,18 @@ enum class PreviewMode {
     Hidden = 3
 };
 
+enum class SketchHeightMode {
+    Terrain = 0,
+    Custom = 1
+};
+
 struct PropPaintSettings {
     PaintMode mode = PaintMode::Direct;
     PreviewMode previewMode = PreviewMode::Combined;
+    SketchHeightMode sketchHeightMode = SketchHeightMode::Terrain;
     int32_t rotation = 0;
     float deltaYMeters = 0.0f;
+    float sketchCaptureOffsetMeters = 0.0f;
     float spacingMeters = 5.0f;
     float densityPer100Sqm = 1.0f;
     float gridStepMeters = 16.0f;

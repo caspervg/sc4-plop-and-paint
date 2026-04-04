@@ -32,6 +32,7 @@ protected:
     void PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement, uint32_t typeID) const override;
     [[nodiscard]] bool IsDirectPreviewPlacementValid_(const PlannedPaint& placement) const override;
     [[nodiscard]] bool ShouldForceDirectOverlay_() const override;
+    [[nodiscard]] bool SupportsVerticalAdjustment_() const override { return false; }
 
 private:
     [[nodiscard]] bool IsFloraPlacementValid_(uint32_t typeID,

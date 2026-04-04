@@ -541,9 +541,17 @@ void FamiliesPanelTab::RenderPaintOptionsPopup_() {
             ImGui::EndDisabled();
         }
         ImGui::SliderFloat("Grid step (m)", &pendingPaint_.settings.gridStepMeters, 1.0f, 16.0f, "%.1f");
-        ImGui::SliderFloat("Vertical offset (m)", &pendingPaint_.settings.deltaYMeters, 0.0f, 100.0f, "%.1f");
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Raises placed props above the terrain and preview grid.");
+        if (pendingPaint_.settings.mode == PaintMode::Line || pendingPaint_.settings.mode == PaintMode::Polygon) {
+            bool customNodeHeights = pendingPaint_.settings.sketchHeightMode == SketchHeightMode::Custom;
+            if (ImGui::Checkbox("Custom node heights", &customNodeHeights)) {
+                pendingPaint_.settings.sketchHeightMode = customNodeHeights
+                    ? SketchHeightMode::Custom
+                    : SketchHeightMode::Terrain;
+            }
+        }
+        ImGui::TextDisabled("Use [ ] +/-1.0m, Shift+[ ] +/-5.0m, Shift+Alt+[ ] +/-0.1m.");
+        if (pendingPaint_.settings.mode == PaintMode::Direct) {
+            ImGui::TextDisabled("Press H in-game to capture the absolute reference height.");
         }
         static constexpr const char* kPreviewModeLabels[] = {
             "Outline only",

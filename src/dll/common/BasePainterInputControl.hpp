@@ -42,6 +42,14 @@ public:
     [[nodiscard]] bool HasPendingSketch() const;
     [[nodiscard]] bool HasPendingCancel() const { return cancelPending_; }
     [[nodiscard]] bool HasPendingPlacements() const;
+    [[nodiscard]] bool SupportsVerticalAdjustment() const;
+    [[nodiscard]] float GetSketchCaptureOffsetMeters() const;
+    [[nodiscard]] bool HasCustomSketchHeights() const;
+    [[nodiscard]] bool HasCapturedDirectAbsoluteHeight() const;
+    [[nodiscard]] float GetCapturedDirectAbsoluteHeight() const;
+    [[nodiscard]] bool TryGetCursorSketchPreview(cS3DVector3& terrainPos, cS3DVector3& resolvedPos) const;
+    [[nodiscard]] std::vector<cS3DVector3> GetResolvedCollectedPoints() const;
+    [[nodiscard]] std::vector<cS3DVector3> GetCollectedPointTerrainAnchors() const;
     void ProcessPendingActions();
     void DrawOverlay(IDirect3DDevice7* device);
 
@@ -50,6 +58,12 @@ public:
     void CommitPlacements();
 
 protected:
+    struct CollectedPoint {
+        cS3DVector3 terrainWorldPos;
+        float capturedWorldY = 0.0f;
+        float captureOffsetMeters = 0.0f;
+    };
+
     // Places one item in the world
     virtual bool PlaceAtWorld_(const cS3DVector3& pos, int32_t rotation, uint32_t typeID) = 0;
 
@@ -61,6 +75,7 @@ protected:
 
     // Returns true if a 3D model preview should be shown in Direct mode.
     [[nodiscard]] virtual bool ShouldShowModelPreview_() const { return false; }
+    [[nodiscard]] virtual bool SupportsVerticalAdjustment_() const { return true; }
 
     // Returns true if a preview occupant is currently alive in the city.
     [[nodiscard]] virtual bool HasActivePreviewOccupant_() const { return false; }
@@ -107,8 +122,16 @@ protected:
     [[nodiscard]] cISTETerrain* GetTerrain_() const;
     [[nodiscard]] float GetGridStepMeters_() const;
     [[nodiscard]] cS3DVector3 SnapWorldToGrid_(const cS3DVector3& position) const;
+    [[nodiscard]] cS3DVector3 SnapXZToGridPreserveY_(const cS3DVector3& position) const;
     void SnapPlacementToGrid_(PlannedPaint& placement) const;
     void ClearCollectedPoints_();
+    [[nodiscard]] cS3DVector3 ResolveSketchPoint_(const CollectedPoint& point) const;
+    [[nodiscard]] cS3DVector3 ResolveCursorSketchPoint_() const;
+    [[nodiscard]] bool ShouldUseCustomSketchHeights_() const;
+    [[nodiscard]] float GetActiveVerticalOffset_() const;
+    [[nodiscard]] cS3DVector3 ResolveDirectPosition_(const cS3DVector3& terrainPosition) const;
+    void CaptureDirectAbsoluteHeight_();
+    void ClearDirectAbsoluteHeight_();
 
     // Shared state
     cRZAutoRefCount<cISC4City> city_;
@@ -176,14 +199,13 @@ private:
     UndoGroup currentUndoGroup_{};
     bool batchingPlacements_{false};
 
-    struct CollectedPoint {
-        cS3DVector3 worldPos;
-    };
     std::vector<CollectedPoint> collectedPoints_{};
 
     PaintOverlay overlay_{};
     std::vector<PaintOverlay::PreviewPlacement> cachedPolygonPlacements_{};
     bool polygonPreviewDirty_{true};
+    bool directAbsoluteHeightCaptured_{false};
+    float directAbsoluteBaseY_{0.0f};
 
     bool cancelPending_{false};
 };
