@@ -81,10 +81,14 @@ If you hover a prop name and it belongs to built-in families, the tooltip shows 
 
 Strip mode:
 
+- Use the `City`, `Lot`, and `Street` checkboxes to choose which prop sources are active
+- The stripper works on the union of the checked sources
 - `Strip props`: enters prop removal mode
 - `Stop stripping`: exits strip mode from the tab
-- In strip mode, click props in the city to delete them one by one
-- `Ctrl+Z` restores the most recently removed prop
+- If no source checkbox is enabled, `Strip props` is disabled
+- In strip mode, move the cursor over a prop within the preview radius and left-click to delete it
+- Press `B` to toggle brush mode and hold the left mouse button to strip everything inside the preview radius
+- `Ctrl+Z` restores the most recently removed city, lot, or street prop
 - `Esc` or right-click exits strip mode
 
 ![Props tab](images/props-cropped.jpg)
@@ -428,7 +432,7 @@ This is useful for themed sets like street furniture, industrial clutter, plaza 
 When painting or stripping, you do not need to stop and start over for small corrections:
 
 1. While painting, use `Ctrl+Z` to remove the most recent group, or `Ctrl+Backspace` to trim the last prop from that group.
-2. While stripping, use `Ctrl+Z` to restore the most recently removed prop.
+2. While stripping, use `Ctrl+Z` to restore the most recently removed city, lot, or street prop.
 3. Use `Esc` if you want to abandon the current paint batch or leave strip mode.
 
 This makes it practical to work iteratively instead of treating each pass as all-or-nothing.
