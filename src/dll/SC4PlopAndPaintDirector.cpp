@@ -760,6 +760,11 @@ bool SC4PlopAndPaintDirector::StartPropStripping() {
         }
     }
 
+    if (propStripperControl_->GetEnabledSources() == PropStripperInputControl::SourceFlagNone) {
+        LOG_WARN("Cannot start prop stripping: no prop sources enabled!");
+        return false;
+    }
+
     propStripperControl_->SetCity(pCity_);
     propStripperControl_->SetWindow(pView3D_->AsIGZWin());
     propStripperControl_->SetOnCancel([this]() {
@@ -800,7 +805,7 @@ bool SC4PlopAndPaintDirector::IsPropStripping() const {
     return propStripping_;
 }
 
-void SC4PlopAndPaintDirector::SetPropStripperTarget(const PropStripperInputControl::TargetKind targetKind) {
+void SC4PlopAndPaintDirector::SetPropStripperSources(const uint32_t sourceFlags) {
     if (!propStripperControl_) {
         auto* control = new PropStripperInputControl();
         propStripperControl_ = control;
@@ -811,15 +816,15 @@ void SC4PlopAndPaintDirector::SetPropStripperTarget(const PropStripperInputContr
         }
     }
 
-    propStripperControl_->SetTargetKind(targetKind);
+    propStripperControl_->SetEnabledSources(sourceFlags);
 }
 
-PropStripperInputControl::TargetKind SC4PlopAndPaintDirector::GetPropStripperTarget() const {
+uint32_t SC4PlopAndPaintDirector::GetPropStripperSources() const {
     if (!propStripperControl_) {
-        return PropStripperInputControl::TargetKind::City;
+        return PropStripperInputControl::SourceFlagCity;
     }
 
-    return propStripperControl_->GetTargetKind();
+    return propStripperControl_->GetEnabledSources();
 }
 
 BasePainterInputControl* SC4PlopAndPaintDirector::GetActivePainterControl() const {

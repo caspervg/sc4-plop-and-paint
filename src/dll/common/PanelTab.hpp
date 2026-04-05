@@ -56,20 +56,31 @@ protected:
             return;
         }
 
-        static constexpr const char* kPropStripperTargets[] = {
-            "City",
-            "Lot",
-            "Street"
-        };
-
         ImGui::SameLine();
-        int targetIndex = static_cast<int>(director_->GetPropStripperTarget());
-        ImGui::SetNextItemWidth(90.0f);
-        if (ImGui::Combo("##PropStripTarget", &targetIndex, kPropStripperTargets, IM_ARRAYSIZE(kPropStripperTargets))) {
-            director_->SetPropStripperTarget(static_cast<PropStripperInputControl::TargetKind>(targetIndex));
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Choose which prop bucket the stripper queries around the cursor.");
+        uint32_t sourceFlags = director_->GetPropStripperSources();
+        bool cityEnabled = (sourceFlags & PropStripperInputControl::SourceFlagCity) != 0;
+        bool lotEnabled = (sourceFlags & PropStripperInputControl::SourceFlagLot) != 0;
+        bool streetEnabled = (sourceFlags & PropStripperInputControl::SourceFlagStreet) != 0;
+        bool sourceChanged = false;
+
+        sourceChanged = ImGui::Checkbox("City##PropStripCity", &cityEnabled) || sourceChanged;
+        ImGui::SameLine(0.0f, 6.0f);
+        sourceChanged = ImGui::Checkbox("Lot##PropStripLot", &lotEnabled) || sourceChanged;
+        ImGui::SameLine(0.0f, 6.0f);
+        sourceChanged = ImGui::Checkbox("Street##PropStripStreet", &streetEnabled) || sourceChanged;
+
+        if (sourceChanged) {
+            uint32_t newFlags = PropStripperInputControl::SourceFlagNone;
+            if (cityEnabled) {
+                newFlags |= PropStripperInputControl::SourceFlagCity;
+            }
+            if (lotEnabled) {
+                newFlags |= PropStripperInputControl::SourceFlagLot;
+            }
+            if (streetEnabled) {
+                newFlags |= PropStripperInputControl::SourceFlagStreet;
+            }
+            director_->SetPropStripperSources(newFlags);
         }
 
         if (director_->IsPropStripping()) {
@@ -80,12 +91,24 @@ protected:
         }
         else {
             ImGui::SameLine();
+            const bool hasAnySource = cityEnabled || lotEnabled || streetEnabled;
+            if (!hasAnySource) {
+                ImGui::BeginDisabled();
+            }
             if (ImGui::SmallButton("Strip props")) {
                 ReleaseImGuiInputCapture_();
                 director_->StartPropStripping();
             }
+            if (!hasAnySource) {
+                ImGui::EndDisabled();
+            }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Click props to remove them one by one.\nPress B to toggle brush mode.\nHold left mouse in brush mode to strip within the preview radius.\nCtrl+Z restores city props only.\nESC stops stripping.");
+                if (hasAnySource) {
+                    ImGui::SetTooltip("Click props to remove them one by one.\nPress B to toggle brush mode.\nHold left mouse in brush mode to strip within the preview radius.\nCtrl+Z restores removed city, lot, and street props.\nESC stops stripping.");
+                }
+                else {
+                    ImGui::SetTooltip("Enable at least one prop source to start stripping.");
+                }
             }
         }
     }

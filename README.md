@@ -47,7 +47,7 @@ For the full player guide, including tab-by-tab controls, paint and strip hotkey
 Quick summary:
 
 - `Buildings & Lots` is for browsing and plopping lots, including growables you want to place manually
-- `Props` is for browsing props, painting a single prop, and removing placed props with strip mode
+- `Props` is for browsing props, painting a single prop, and removing placed city, lot, and street props with strip mode
 - `Prop Families` is for building weighted prop palettes and painting with them in direct, line, or polygon mode
 - `Flora` is for browsing flora exemplars, painting one flora type, and favoriting individual flora
 - `Flora Collections` is for painting flora families and multi-stage chains derived from the cache
@@ -57,7 +57,7 @@ If you just want the basics:
 
 1. Load a city and open the panel with the toggle shortcut (packaged default: `O`)
 2. Use `Paint` from `Props` or `Flora`, `Paint family` from `Prop Families`, or `Paint` from `Flora Collections`
-3. Choose a mode and options, then press `Start`
+3. For prop stripping, use the `Props` tab checkboxes to choose `City`, `Lot`, and/or `Street`, then press `Strip props`
 4. Use `Enter` to generate and commit placements, `Ctrl+Z` / `Ctrl+Backspace` to undo, and `Esc` to cancel
 
 ## Configuration
