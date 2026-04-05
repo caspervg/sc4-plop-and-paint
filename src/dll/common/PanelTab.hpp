@@ -56,6 +56,22 @@ protected:
             return;
         }
 
+        static constexpr const char* kPropStripperTargets[] = {
+            "City",
+            "Lot",
+            "Street"
+        };
+
+        ImGui::SameLine();
+        int targetIndex = static_cast<int>(director_->GetPropStripperTarget());
+        ImGui::SetNextItemWidth(90.0f);
+        if (ImGui::Combo("##PropStripTarget", &targetIndex, kPropStripperTargets, IM_ARRAYSIZE(kPropStripperTargets))) {
+            director_->SetPropStripperTarget(static_cast<PropStripperInputControl::TargetKind>(targetIndex));
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Choose which prop bucket the stripper queries around the cursor.");
+        }
+
         if (director_->IsPropStripping()) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Stop stripping")) {
@@ -69,7 +85,7 @@ protected:
                 director_->StartPropStripping();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Click props in the city to remove them one by one.\nPress B to toggle brush mode.\nHold left mouse in brush mode to strip within the preview radius.\nCtrl+Z to undo, ESC to stop.");
+                ImGui::SetTooltip("Click props to remove them one by one.\nPress B to toggle brush mode.\nHold left mouse in brush mode to strip within the preview radius.\nCtrl+Z restores city props only.\nESC stops stripping.");
             }
         }
     }
