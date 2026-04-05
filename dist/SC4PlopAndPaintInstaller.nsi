@@ -73,11 +73,45 @@ Page Custom ConfigureSummaryPage
 Function .onInit
   SetShellVarContext current
   Call DetectDefaultGameRoot
+  Push $GameRoot
+  Call NormalizeDirPath
+  Pop $GameRoot
   StrCpy $SC4PluginsDir "$DOCUMENTS\SimCity 4\Plugins"
   StrCpy $CacheLocale "English"
   StrCpy $CacheRenderThumbs "0"
   StrCpy $CacheBuildNow "1"
   StrCpy $CacheThumbnailSize "44"
+FunctionEnd
+
+Function NormalizeDirPath
+  Exch $0
+  Push $1
+  Push $2
+
+  ; Preserve drive roots such as C:\ while trimming trailing separators elsewhere.
+  StrCpy $1 "$0" 3
+normalize_dir_loop:
+  StrLen $2 $0
+  ${If} $2 <= 0
+    Goto normalize_dir_done
+  ${EndIf}
+
+  StrCpy $2 $0 1 -1
+  ${If} $2 != "\"
+    Goto normalize_dir_done
+  ${EndIf}
+
+  ${If} $0 == $1
+    Goto normalize_dir_done
+  ${EndIf}
+
+  StrCpy $0 $0 -1
+  Goto normalize_dir_loop
+
+normalize_dir_done:
+  Pop $2
+  Pop $1
+  Exch $0
 FunctionEnd
 
 Function DetectDefaultGameRoot
@@ -265,6 +299,9 @@ Function OnBrowseGameRoot
   Pop $0
   ${If} $0 != error
     StrCpy $GameRoot $0
+    Push $GameRoot
+    Call NormalizeDirPath
+    Pop $GameRoot
     ${NSD_SetText} $HGameRoot $GameRoot
   ${EndIf}
 FunctionEnd
@@ -275,6 +312,9 @@ Function OnBrowsePluginsDir
   Pop $0
   ${If} $0 != error
     StrCpy $SC4PluginsDir $0
+    Push $SC4PluginsDir
+    Call NormalizeDirPath
+    Pop $SC4PluginsDir
     ${NSD_SetText} $HPluginsDir $SC4PluginsDir
   ${EndIf}
 FunctionEnd
@@ -329,6 +369,12 @@ FunctionEnd
 Function ConfigurePathsPageLeave
   ${NSD_GetText} $HGameRoot $GameRoot
   ${NSD_GetText} $HPluginsDir $SC4PluginsDir
+  Push $GameRoot
+  Call NormalizeDirPath
+  Pop $GameRoot
+  Push $SC4PluginsDir
+  Call NormalizeDirPath
+  Pop $SC4PluginsDir
 
   ${If} $GameRoot == ""
     MessageBox MB_OK|MB_ICONEXCLAMATION "Game root cannot be empty."
