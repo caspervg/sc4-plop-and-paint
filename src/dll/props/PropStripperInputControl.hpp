@@ -14,6 +14,12 @@ class cISTETerrain;
 
 class PropStripperInputControl : public cSC4BaseViewInputControl {
 public:
+    enum class TargetKind {
+        City,
+        Lot,
+        Street
+    };
+
     PropStripperInputControl();
     ~PropStripperInputControl() override;
 
@@ -31,6 +37,8 @@ public:
 
     void SetCity(cISC4City* pCity);
     void SetOnCancel(std::function<void()> onCancel);
+    void SetTargetKind(TargetKind targetKind);
+    [[nodiscard]] TargetKind GetTargetKind() const noexcept;
     void UndoLastDeletion();
     void ProcessPendingActions();
     void DrawOverlay(IDirect3DDevice7* device);
@@ -42,8 +50,11 @@ private:
     };
 
     bool UpdateCursorWorldFromScreen_(int32_t screenX, int32_t screenZ);
+    bool TryGetCursorCell_(int& cellX, int& cellZ) const;
     void PickNearestProp_();
     void DeletePropsInBrush_();
+    void CollectCandidateProps_(SC4List<cISC4Occupant*>& candidates) const;
+    bool TryRemoveProp_(cISC4Occupant* occupant, uint32_t propType) const;
     void SetHoveredProp_(cISC4Occupant* occupant);
     void ClearHoveredProp_();
     void DeleteHoveredProp_();
@@ -63,6 +74,7 @@ private:
     bool active_ = false;
     bool cancelPending_ = false;
     bool leftMouseDown_ = false;
+    TargetKind targetKind_{TargetKind::City};
     StripMode stripMode_{StripMode::Single};
     cS3DVector3 currentCursorWorld_{};
     bool cursorValid_ = false;

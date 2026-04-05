@@ -79,6 +79,8 @@ public:
     bool StartPropStripping();
     void StopPropStripping();
     [[nodiscard]] bool IsPropStripping() const;
+    void SetPropStripperTarget(PropStripperInputControl::TargetKind targetKind);
+    [[nodiscard]] PropStripperInputControl::TargetKind GetPropStripperTarget() const;
     [[nodiscard]] BasePainterInputControl* GetActivePainterControl() const;
     [[nodiscard]] const RecentPaintHistory& GetRecentPaintHistory() const;
     bool ActivateRecentPaint(size_t index);

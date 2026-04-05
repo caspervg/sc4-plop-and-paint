@@ -800,6 +800,28 @@ bool SC4PlopAndPaintDirector::IsPropStripping() const {
     return propStripping_;
 }
 
+void SC4PlopAndPaintDirector::SetPropStripperTarget(const PropStripperInputControl::TargetKind targetKind) {
+    if (!propStripperControl_) {
+        auto* control = new PropStripperInputControl();
+        propStripperControl_ = control;
+        if (!propStripperControl_ || !propStripperControl_->Init()) {
+            LOG_ERROR("Failed to initialize PropStripperInputControl");
+            propStripperControl_.Reset();
+            return;
+        }
+    }
+
+    propStripperControl_->SetTargetKind(targetKind);
+}
+
+PropStripperInputControl::TargetKind SC4PlopAndPaintDirector::GetPropStripperTarget() const {
+    if (!propStripperControl_) {
+        return PropStripperInputControl::TargetKind::City;
+    }
+
+    return propStripperControl_->GetTargetKind();
+}
+
 BasePainterInputControl* SC4PlopAndPaintDirector::GetActivePainterControl() const {
     if (!pView3D_) {
         return nullptr;
