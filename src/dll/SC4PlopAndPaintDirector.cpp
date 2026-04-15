@@ -22,6 +22,7 @@
 #include "props/PropStripperInputControl.hpp"
 #include "public/S3DCameraServiceIds.h"
 #include "public/cIGZS3DCameraService.h"
+#include "terrain/TerrainDecalHook.hpp"
 #include "utils/Logger.h"
 #include "utils/Settings.h"
 
@@ -39,17 +40,12 @@ namespace {
     constexpr auto kKeyConfigInstance = 0x5CBCFBF8u;
 }
 
-SC4PlopAndPaintDirector::SC4PlopAndPaintDirector()
-    : imguiService_(nullptr)
-      , drawService_(nullptr)
-      , pView3D_(nullptr)
-      , panelRegistered_(false) {}
+SC4PlopAndPaintDirector::SC4PlopAndPaintDirector() :
+    imguiService_(nullptr), drawService_(nullptr), pView3D_(nullptr), panelRegistered_(false) {}
 
 SC4PlopAndPaintDirector::~SC4PlopAndPaintDirector() = default;
 
-uint32_t SC4PlopAndPaintDirector::GetDirectorID() const {
-    return kSC4AdvancedLotPlopDirectorID;
-}
+uint32_t SC4PlopAndPaintDirector::GetDirectorID() const { return kSC4AdvancedLotPlopDirectorID; }
 
 bool SC4PlopAndPaintDirector::OnStart(cIGZCOM* pCOM) {
     cRZMessage2COMDirector::OnStart(pCOM);
@@ -82,8 +78,22 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
 
     LOG_INFO("SC4AdvancedLotPlopDirector initialized");
     LOG_INFO("Using settings file: {}", settingsPath.string());
-    LOG_INFO("Applied logging settings: level={}, file={}",
-             spdlog::level::to_string_view(settings.GetLogLevel()), settings.GetLogToFile());
+    LOG_INFO("Applied logging settings: level={}, file={}", spdlog::level::to_string_view(settings.GetLogLevel()),
+             settings.GetLogToFile());
+
+    terrainDecalHook_ = std::make_unique<TerrainDecal::TerrainDecalHook>(
+        TerrainDecal::TerrainDecalHook::Options{
+            .installEnabled = true,
+            .enableExperimentalRenderer = true,
+            .logInterceptedDraws = false,
+        });
+    if (terrainDecalHook_->Install()) {
+        LOG_INFO("Terrain decal hook installed");
+    }
+    else {
+        LOG_INFO("Terrain decal hook not installed: {}", terrainDecalHook_->GetLastError());
+        terrainDecalHook_.reset();
+    }
 
     cIGZMessageServer2Ptr pMS2;
     if (pMS2) {
@@ -93,8 +103,9 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         LOG_INFO("Registered for city messages");
     }
 
-    if (mpFrameWork && mpFrameWork->GetSystemService(kImGuiServiceID, GZIID_cIGZImGuiService,
-                                                     reinterpret_cast<void**>(&imguiService_))) {
+    if (mpFrameWork &&
+        mpFrameWork->GetSystemService(kImGuiServiceID, GZIID_cIGZImGuiService,
+                                      reinterpret_cast<void**>(&imguiService_))) {
         LOG_INFO("Acquired ImGui service");
 
         if (mpFrameWork->GetSystemService(kS3DCameraServiceID, GZIID_cIGZS3DCameraService,
@@ -109,11 +120,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
             mpFrameWork->GetSystemService(kDrawServiceID, GZIID_cIGZDrawService,
                                           reinterpret_cast<void**>(&drawService_))) {
             LOG_INFO("Acquired draw service");
-            if (!drawService_->RegisterDrawPassCallback(
-                DrawServicePass::PreDynamic,
-                &DrawOverlayCallback_,
-                this,
-                &drawCallbackToken_)) {
+            if (!drawService_->RegisterDrawPassCallback(DrawServicePass::PreDynamic, &DrawOverlayCallback_, this,
+                                                        &drawCallbackToken_)) {
                 LOG_WARN("Failed to register draw pass callback");
             }
         }
@@ -124,9 +132,9 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
             LOG_WARN("Draw service not available");
         }
 
-        lotRepository_       = std::make_unique<LotRepository>();
-        propRepository_      = std::make_unique<PropRepository>();
-        floraRepository_     = std::make_unique<FloraRepository>();
+        lotRepository_ = std::make_unique<LotRepository>();
+        propRepository_ = std::make_unique<PropRepository>();
+        floraRepository_ = std::make_unique<FloraRepository>();
         favoritesRepository_ = std::make_unique<FavoritesRepository>(*propRepository_);
 
         lotRepository_->Load();
@@ -134,17 +142,11 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         floraRepository_->Load();
         favoritesRepository_->Load();
 
-        panel_ = std::make_unique<PlopAndPaintPanel>(
-            this,
-            lotRepository_.get(),
-            propRepository_.get(),
-            floraRepository_.get(),
-            favoritesRepository_.get(),
-            imguiService_);
+        panel_ = std::make_unique<PlopAndPaintPanel>(this, lotRepository_.get(), propRepository_.get(),
+                                                     floraRepository_.get(), favoritesRepository_.get(), imguiService_);
 
-        const ImGuiPanelDesc desc = ImGuiPanelAdapter<PlopAndPaintPanel>::MakeDesc(
-            panel_.get(), kLotPlopPanelId, 100, true
-        );
+        const ImGuiPanelDesc desc =
+            ImGuiPanelAdapter<PlopAndPaintPanel>::MakeDesc(panel_.get(), kLotPlopPanelId, 100, true);
 
         if (imguiService_->RegisterPanel(desc)) {
             panelRegistered_ = true;
@@ -154,9 +156,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         }
 
         statusPanel_ = std::make_unique<PaintStatusPanel>();
-        const ImGuiPanelDesc statusDesc = ImGuiPanelAdapter<PaintStatusPanel>::MakeDesc(
-            statusPanel_.get(), kStatusPanelId, 101, true
-        );
+        const ImGuiPanelDesc statusDesc =
+            ImGuiPanelAdapter<PaintStatusPanel>::MakeDesc(statusPanel_.get(), kStatusPanelId, 101, true);
         if (imguiService_->RegisterPanel(statusDesc)) {
             statusPanelRegistered_ = true;
             LOG_INFO("Registered status panel");
@@ -173,6 +174,11 @@ bool SC4PlopAndPaintDirector::PreAppShutdown() { return true; }
 
 bool SC4PlopAndPaintDirector::PostAppShutdown() {
     UnregisterLotPlopShortcut_();
+
+    if (terrainDecalHook_) {
+        terrainDecalHook_->Uninstall();
+        terrainDecalHook_.reset();
+    }
 
     if (pMS2_) {
         pMS2_->RemoveNotification(this, kSC4MessagePostCityInit);
@@ -261,13 +267,17 @@ bool SC4PlopAndPaintDirector::OnInstall() { return true; }
 bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     const auto pStandardMsg = static_cast<cIGZMessage2Standard*>(pMsg);
     switch (pStandardMsg->GetType()) {
-    case kSC4MessagePostCityInit: PostCityInit_(pStandardMsg);
+    case kSC4MessagePostCityInit:
+        PostCityInit_(pStandardMsg);
         break;
-    case kSC4MessagePreCityShutdown: PreCityShutdown_(pStandardMsg);
+    case kSC4MessagePreCityShutdown:
+        PreCityShutdown_(pStandardMsg);
         break;
-    case kToggleLotPlopWindowShortcutID: ToggleLotPlopPanel_();
+    case kToggleLotPlopWindowShortcutID:
+        ToggleLotPlopPanel_();
         break;
-    default: break;
+    default:
+        break;
     }
     return true;
 }
@@ -287,10 +297,12 @@ void SC4PlopAndPaintDirector::TriggerLotPlop(uint32_t lotInstanceId) const {
     cIGZCommandParameterSet* pCmd1 = nullptr;
     cIGZCommandParameterSet* pCmd2 = nullptr;
 
-    if (!pCmdServer->CreateCommandParameterSet(&pCmd1) || !pCmd1 ||
-        !pCmdServer->CreateCommandParameterSet(&pCmd2) || !pCmd2) {
-        if (pCmd1) pCmd1->Release();
-        if (pCmd2) pCmd2->Release();
+    if (!pCmdServer->CreateCommandParameterSet(&pCmd1) || !pCmd1 || !pCmdServer->CreateCommandParameterSet(&pCmd2) ||
+        !pCmd2) {
+        if (pCmd1)
+            pCmd1->Release();
+        if (pCmd2)
+            pCmd2->Release();
         LOG_ERROR("Failed to create command parameter sets");
         return;
     }
@@ -316,7 +328,7 @@ void SC4PlopAndPaintDirector::TriggerLotPlop(uint32_t lotInstanceId) const {
 }
 
 bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaintSettings& settings,
-                                                   const std::string& name) {
+                                                const std::string& name) {
     if (!pCity_ || !pView3D_) {
         LOG_WARN("Cannot start prop painting: city or view not available");
         return false;
@@ -342,8 +354,7 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
     propPainterControl_->SetCameraService(cameraService_);
     propPainterControl_->SetPropRepository(propRepository_.get());
     propPainterControl_->SetOnCancel([this]() {
-        if (pView3D_ && propPainterControl_ &&
-            pView3D_->GetCurrentViewInputControl() == propPainterControl_) {
+        if (pView3D_ && propPainterControl_ && pView3D_->GetCurrentViewInputControl() == propPainterControl_) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
         propPainting_ = false;
@@ -354,9 +365,8 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
     });
 
     propPainterControl_->SetPropToPaint(propId, settings, name);
-    if (!pView3D_->SetCurrentViewInputControl(
-        propPainterControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!pView3D_->SetCurrentViewInputControl(propPainterControl_,
+                                              cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set prop painter as current view input control");
         return false;
     }
@@ -400,13 +410,10 @@ void SC4PlopAndPaintDirector::StopPropPainting() {
     LOG_INFO("Stopped prop painting");
 }
 
-bool SC4PlopAndPaintDirector::IsPropPainting() const {
-    return propPainting_;
-}
+bool SC4PlopAndPaintDirector::IsPropPainting() const { return propPainting_; }
 
-bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
-                                                   const PropPaintSettings& settings,
-                                                   const std::string& name) {
+bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId, const PropPaintSettings& settings,
+                                                 const std::string& name) {
     if (!pCity_ || !pView3D_) {
         LOG_WARN("Cannot start flora painting: city or view not available");
         return false;
@@ -427,8 +434,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
     floraPlacerControl_->SetCameraService(cameraService_);
     floraPlacerControl_->SetFloraRepository(floraRepository_.get());
     floraPlacerControl_->SetOnCancel([this]() {
-        if (pView3D_ && floraPlacerControl_ &&
-            pView3D_->GetCurrentViewInputControl() == floraPlacerControl_) {
+        if (pView3D_ && floraPlacerControl_ && pView3D_->GetCurrentViewInputControl() == floraPlacerControl_) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
         floraPainting_ = false;
@@ -439,9 +445,8 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
     });
 
     floraPlacerControl_->SetFloraToPaint(floraTypeId, settings, name);
-    if (!pView3D_->SetCurrentViewInputControl(
-        floraPlacerControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!pView3D_->SetCurrentViewInputControl(floraPlacerControl_,
+                                              cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set flora placer as current view input control");
         return false;
     }
@@ -473,9 +478,7 @@ void SC4PlopAndPaintDirector::StopFloraPainting() {
     LOG_INFO("Stopped flora painting");
 }
 
-bool SC4PlopAndPaintDirector::IsFloraPainting() const {
-    return floraPainting_;
-}
+bool SC4PlopAndPaintDirector::IsFloraPainting() const { return floraPainting_; }
 
 bool SC4PlopAndPaintDirector::StartPropStripping() {
     if (!pCity_ || !pView3D_) {
@@ -500,17 +503,15 @@ bool SC4PlopAndPaintDirector::StartPropStripping() {
     propStripperControl_->SetCity(pCity_);
     propStripperControl_->SetWindow(pView3D_->AsIGZWin());
     propStripperControl_->SetOnCancel([this]() {
-        if (pView3D_ && propStripperControl_ &&
-            pView3D_->GetCurrentViewInputControl() == propStripperControl_) {
+        if (pView3D_ && propStripperControl_ && pView3D_->GetCurrentViewInputControl() == propStripperControl_) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
         propStripping_ = false;
         LOG_INFO("Stopped prop stripping");
     });
 
-    if (!pView3D_->SetCurrentViewInputControl(
-        propStripperControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!pView3D_->SetCurrentViewInputControl(propStripperControl_,
+                                              cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set prop stripper as current view input control");
         return false;
     }
@@ -530,28 +531,137 @@ void SC4PlopAndPaintDirector::StopPropStripping() {
     LOG_INFO("Stopped prop stripping");
 }
 
-bool SC4PlopAndPaintDirector::IsPropStripping() const {
-    return propStripping_;
+bool SC4PlopAndPaintDirector::IsPropStripping() const { return propStripping_; }
+
+bool SC4PlopAndPaintDirector::GetDefaultShowGridOverlay() const noexcept { return defaultShowGridOverlay_; }
+
+bool SC4PlopAndPaintDirector::GetDefaultSnapPointsToGrid() const noexcept { return defaultSnapPointsToGrid_; }
+
+bool SC4PlopAndPaintDirector::GetDefaultSnapPlacementsToGrid() const noexcept { return defaultSnapPlacementsToGrid_; }
+
+float SC4PlopAndPaintDirector::GetDefaultGridStepMeters() const noexcept { return defaultGridStepMeters_; }
+
+PreviewMode SC4PlopAndPaintDirector::GetDefaultPropPreviewMode() const noexcept { return defaultPropPreviewMode_; }
+
+void SC4PlopAndPaintDirector::SetLotPlopPanelVisible(const bool visible) {
+    if (!imguiService_ || !panelRegistered_ || !panel_) {
+        return;
+    }
+
+    panelVisible_ = visible;
+    panel_->SetOpen(visible);
 }
 
-bool SC4PlopAndPaintDirector::GetDefaultShowGridOverlay() const noexcept {
-    return defaultShowGridOverlay_;
+void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandardMsg) {
+    pCity_ = static_cast<cISC4City*>(pStandardMsg->GetVoid1());
+
+    cISC4AppPtr pSC4App;
+    if (pSC4App) {
+        cIGZWin* pMainWindow = pSC4App->GetMainWindow();
+        if (pMainWindow) {
+            cIGZWin* pWinSC4App = pMainWindow->GetChildWindowFromID(kGZWin_WinSC4App);
+            if (pWinSC4App) {
+                if (pWinSC4App->GetChildAs(kGZWin_SC4View3DWin, kGZIID_cISC4View3DWin,
+                                           reinterpret_cast<void**>(&pView3D_))) {
+                    LOG_INFO("Acquired View3D interface");
+                    RegisterLotPlopShortcut_();
+                }
+            }
+        }
+    }
 }
 
-bool SC4PlopAndPaintDirector::GetDefaultSnapPointsToGrid() const noexcept {
-    return defaultSnapPointsToGrid_;
+void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
+    SetLotPlopPanelVisible(false);
+    StopPropStripping();
+    StopPropPainting();
+    StopFloraPainting();
+    if (propStripperControl_) {
+        propStripperControl_->SetCity(nullptr);
+    }
+    if (propPainterControl_) {
+        propPainterControl_->SetCity(nullptr);
+    }
+    if (floraPlacerControl_) {
+        floraPlacerControl_->SetCity(nullptr);
+    }
+    pCity_ = nullptr;
+    if (pView3D_) {
+        pView3D_->Release();
+        pView3D_ = nullptr;
+    }
+    UnregisterLotPlopShortcut_();
+    LOG_INFO("City shutdown - released resources");
 }
 
-bool SC4PlopAndPaintDirector::GetDefaultSnapPlacementsToGrid() const noexcept {
-    return defaultSnapPlacementsToGrid_;
+void SC4PlopAndPaintDirector::ToggleLotPlopPanel_() { SetLotPlopPanelVisible(!panelVisible_); }
+
+bool SC4PlopAndPaintDirector::RegisterLotPlopShortcut_() {
+    if (shortcutRegistered_) {
+        return true;
+    }
+    if (!pView3D_) {
+        LOG_WARN("Cannot register lot plop shortcut: View3D not available");
+        return false;
+    }
+    if (!pMS2_) {
+        LOG_WARN("Cannot register lot plop shortcut: message server not available");
+        return false;
+    }
+
+    cIGZPersistResourceManagerPtr pRM;
+    if (!pRM) {
+        LOG_WARN("Cannot register lot plop shortcut: resource manager unavailable");
+        return false;
+    }
+
+    cRZAutoRefCount<cIGZWinKeyAcceleratorRes> acceleratorRes;
+    const cGZPersistResourceKey key(kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
+    if (!pRM->GetPrivateResource(key, kGZIID_cIGZWinKeyAcceleratorRes, acceleratorRes.AsPPVoid(), 0, nullptr)) {
+        LOG_WARN("Failed to load key config resource 0x{:08X}/0x{:08X}/0x{:08X}", kKeyConfigType, kKeyConfigGroup,
+                 kKeyConfigInstance);
+        return false;
+    }
+
+    auto* accelerator = pView3D_->GetKeyAccelerator();
+    if (!accelerator) {
+        LOG_WARN("Cannot register lot plop shortcut: key accelerator not available");
+        return false;
+    }
+
+    if (!acceleratorRes->RegisterResources(accelerator)) {
+        LOG_WARN("Failed to register key accelerator resources");
+        return false;
+    }
+
+    if (!pMS2_->AddNotification(this, kToggleLotPlopWindowShortcutID)) {
+        LOG_WARN("Failed to register shortcut notification 0x{:08X}", kToggleLotPlopWindowShortcutID);
+        return false;
+    }
+
+    shortcutRegistered_ = true;
+    return true;
 }
 
-float SC4PlopAndPaintDirector::GetDefaultGridStepMeters() const noexcept {
-    return defaultGridStepMeters_;
+void SC4PlopAndPaintDirector::UnregisterLotPlopShortcut_() {
+    if (!shortcutRegistered_) {
+        return;
+    }
+
+    if (pMS2_) {
+        pMS2_->RemoveNotification(this, kToggleLotPlopWindowShortcutID);
+    }
+    shortcutRegistered_ = false;
 }
 
-PreviewMode SC4PlopAndPaintDirector::GetDefaultPropPreviewMode() const noexcept {
-    return defaultPropPreviewMode_;
+std::filesystem::path SC4PlopAndPaintDirector::GetUserPluginsPath_() {
+    try {
+        const auto modulePath = wil::GetModuleFileNameW(wil::GetModuleInstanceHandle());
+        return std::filesystem::path(modulePath.get()).parent_path();
+    }
+    catch (const wil::ResultException&) {
+        return {};
+    }
 }
 
 void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, const bool begin, void* pThis) {
@@ -603,129 +713,4 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     }
     device->Release();
     dd->Release();
-}
-
-void SC4PlopAndPaintDirector::SetLotPlopPanelVisible(const bool visible) {
-    if (!imguiService_ || !panelRegistered_ || !panel_) {
-        return;
-    }
-
-    panelVisible_ = visible;
-    panel_->SetOpen(visible);
-}
-
-void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandardMsg) {
-    pCity_ = static_cast<cISC4City*>(pStandardMsg->GetVoid1());
-
-    cISC4AppPtr pSC4App;
-    if (pSC4App) {
-        cIGZWin* pMainWindow = pSC4App->GetMainWindow();
-        if (pMainWindow) {
-            cIGZWin* pWinSC4App = pMainWindow->GetChildWindowFromID(kGZWin_WinSC4App);
-            if (pWinSC4App) {
-                if (pWinSC4App->GetChildAs(
-                    kGZWin_SC4View3DWin, kGZIID_cISC4View3DWin, reinterpret_cast<void**>(&pView3D_))) {
-                    LOG_INFO("Acquired View3D interface");
-                    RegisterLotPlopShortcut_();
-                }
-            }
-        }
-    }
-}
-
-void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
-    SetLotPlopPanelVisible(false);
-    StopPropStripping();
-    StopPropPainting();
-    StopFloraPainting();
-    if (propStripperControl_) {
-        propStripperControl_->SetCity(nullptr);
-    }
-    if (propPainterControl_) {
-        propPainterControl_->SetCity(nullptr);
-    }
-    if (floraPlacerControl_) {
-        floraPlacerControl_->SetCity(nullptr);
-    }
-    pCity_ = nullptr;
-    if (pView3D_) {
-        pView3D_->Release();
-        pView3D_ = nullptr;
-    }
-    UnregisterLotPlopShortcut_();
-    LOG_INFO("City shutdown - released resources");
-}
-
-void SC4PlopAndPaintDirector::ToggleLotPlopPanel_() {
-    SetLotPlopPanelVisible(!panelVisible_);
-}
-
-bool SC4PlopAndPaintDirector::RegisterLotPlopShortcut_() {
-    if (shortcutRegistered_) {
-        return true;
-    }
-    if (!pView3D_) {
-        LOG_WARN("Cannot register lot plop shortcut: View3D not available");
-        return false;
-    }
-    if (!pMS2_) {
-        LOG_WARN("Cannot register lot plop shortcut: message server not available");
-        return false;
-    }
-
-    cIGZPersistResourceManagerPtr pRM;
-    if (!pRM) {
-        LOG_WARN("Cannot register lot plop shortcut: resource manager unavailable");
-        return false;
-    }
-
-    cRZAutoRefCount<cIGZWinKeyAcceleratorRes> acceleratorRes;
-    const cGZPersistResourceKey key(kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
-    if (!pRM->GetPrivateResource(key, kGZIID_cIGZWinKeyAcceleratorRes,
-                                 acceleratorRes.AsPPVoid(), 0, nullptr)) {
-        LOG_WARN("Failed to load key config resource 0x{:08X}/0x{:08X}/0x{:08X}",
-                 kKeyConfigType, kKeyConfigGroup, kKeyConfigInstance);
-        return false;
-    }
-
-    auto* accelerator = pView3D_->GetKeyAccelerator();
-    if (!accelerator) {
-        LOG_WARN("Cannot register lot plop shortcut: key accelerator not available");
-        return false;
-    }
-
-    if (!acceleratorRes->RegisterResources(accelerator)) {
-        LOG_WARN("Failed to register key accelerator resources");
-        return false;
-    }
-
-    if (!pMS2_->AddNotification(this, kToggleLotPlopWindowShortcutID)) {
-        LOG_WARN("Failed to register shortcut notification 0x{:08X}",
-                 kToggleLotPlopWindowShortcutID);
-        return false;
-    }
-
-    shortcutRegistered_ = true;
-    return true;
-}
-
-void SC4PlopAndPaintDirector::UnregisterLotPlopShortcut_() {
-    if (!shortcutRegistered_) {
-        return;
-    }
-
-    if (pMS2_) {
-        pMS2_->RemoveNotification(this, kToggleLotPlopWindowShortcutID);
-    }
-    shortcutRegistered_ = false;
-}
-
-std::filesystem::path SC4PlopAndPaintDirector::GetUserPluginsPath_() {
-    try {
-        const auto modulePath = wil::GetModuleFileNameW(wil::GetModuleInstanceHandle());
-        return std::filesystem::path(modulePath.get()).parent_path();
-    }
-    catch (const wil::ResultException&) {
-        return {};
-    }
 }

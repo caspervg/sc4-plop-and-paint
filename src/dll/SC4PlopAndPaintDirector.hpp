@@ -27,6 +27,7 @@
 #include "public/ImGuiServiceIds.h"
 #include "public/cIGZDrawService.h"
 #include "public/cIGZImGuiService.h"
+#include "terrain/TerrainDecalHook.hpp"
 
 class PlopAndPaintPanel;
 class FloraRepository;
@@ -110,6 +111,7 @@ private:
     std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};
     uint32_t drawCallbackToken_{0};
+    std::unique_ptr<TerrainDecal::TerrainDecalHook> terrainDecalHook_;
     PreviewMode defaultPropPreviewMode_ = PreviewMode::Outline;
     bool defaultShowGridOverlay_ = true;
     bool defaultSnapPointsToGrid_ = false;
