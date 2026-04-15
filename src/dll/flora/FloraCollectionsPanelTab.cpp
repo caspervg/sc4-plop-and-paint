@@ -105,6 +105,7 @@ void FloraCollectionsPanelTab::OnRender() {
             director_->StopFloraPainting();
         }
     }
+    RenderFloraStripperControls_();
 
     ImGui::Separator();
     if (ImGui::BeginChild("FloraCollectionsTableRegion", ImVec2(0, UI::familyTableHeight()), false)) {
@@ -217,14 +218,13 @@ void FloraCollectionsPanelTab::RenderCollectionsTable_(const std::vector<FloraRe
     if (!ImGui::BeginTable("FloraCollectionsTable", 5, tableFlags, ImVec2(0, 0))) {
         return;
     }
-
+    ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, UI::typeColumnWidth());
     ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableSetupColumn("Instance ID", ImGuiTableColumnFlags_WidthFixed, UI::instanceIdColumnWidth());
     ImGui::TableSetupColumn("Items", ImGuiTableColumnFlags_WidthFixed, UI::propsColumnWidth());
     ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, UI::familyActionColWidth());
     ImGui::TableHeadersRow();
-    ImGui::TableSetupScrollFreeze(0, 1);
 
     for (const size_t collectionIndex : filteredIndices) {
         const auto& collection = collections[collectionIndex];
@@ -309,15 +309,10 @@ void FloraCollectionsPanelTab::RenderSelectedCollectionPanel_(const std::vector<
                     thumbnailCache_.Request(key);
                 }
                 auto thumbId = thumbnailCache_.Get(key);
-                if (thumbId.has_value() && *thumbId != nullptr) {
-                    ImGui::Image(*thumbId, ImVec2(UI::kIconSize, UI::kIconSize));
-                }
-                else {
-                    ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
-                }
+                RenderThumbnail_(thumbId);
             }
             else {
-                ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
+                RenderThumbnail_(std::nullopt);
             }
 
             ImGui::TableNextColumn();
@@ -418,10 +413,6 @@ void FloraCollectionsPanelTab::RenderPaintModal_() {
         ImGui::EndDisabled();
     }
     ImGui::SliderFloat("Grid step (m)", &pendingPaint_.settings.gridStepMeters, 1.0f, 16.0f, "%.1f");
-    ImGui::SliderFloat("Vertical offset (m)", &pendingPaint_.settings.deltaYMeters, 0.0f, 100.0f, "%.1f");
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Raises placed flora above the terrain and preview grid.");
-    }
     static constexpr const char* kPreviewModeLabels[] = {
         "Outline only",
         "Full flora only",
@@ -452,7 +443,11 @@ void FloraCollectionsPanelTab::RenderPaintModal_() {
 
     if (ImGui::Button("Start")) {
         ReleaseImGuiInputCapture_();
-        director_->StartFloraPainting(pendingPaint_.typeId, pendingPaint_.settings, pendingPaint_.name);
+        const RecentPaintSource source{
+            .sourceKind = pendingPaint_.sourceKind,
+            .sourceId = pendingPaint_.sourceId
+        };
+        director_->StartFloraPainting(pendingPaint_.typeId, pendingPaint_.settings, pendingPaint_.name, source);
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
@@ -465,6 +460,10 @@ void FloraCollectionsPanelTab::RenderPaintModal_() {
 
 void FloraCollectionsPanelTab::QueuePaintForCollection_(const FloraRepository::FloraCollection& collection) {
     pendingPaint_.typeId = collection.palette.empty() ? 0 : collection.palette.front().propID.value();
+    pendingPaint_.sourceKind = collection.type == FloraRepository::CollectionType::Family
+        ? RecentPaintEntry::SourceKind::FloraFamily
+        : RecentPaintEntry::SourceKind::FloraChain;
+    pendingPaint_.sourceId = collection.id;
     pendingPaint_.name = collection.name;
     pendingPaint_.detail = collection.type == FloraRepository::CollectionType::Family
         ? "Randomly picks from the flora family members."

@@ -24,6 +24,8 @@ public:
     struct SortSpec {
         SortColumn column = SortColumn::Name;
         bool descending = false;
+
+        [[nodiscard]] bool operator==(const SortSpec& other) const = default;
     };
 
     std::string searchBuffer;

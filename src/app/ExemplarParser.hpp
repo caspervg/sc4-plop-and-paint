@@ -66,7 +66,7 @@ constexpr auto kPropRandomChance = "Prop Random Chance";
 constexpr auto kLotObjectIndexType = 0; // Rep 1: Object type (0 = building, 1 = prop, etc.)
 constexpr auto kLotObjectIndexObjectID = 11; // Rep 12: ObjectID (0xABBBBCCC format)
 constexpr auto kLotObjectIndexIID = 12; // Rep 13: IID (building exemplar) or Family ID (for growables)
-constexpr auto kRenderedThumbnailSize = 44u;
+constexpr auto kDefaultThumbnailSize = 44u;
 
 enum class ExemplarType {
     Building, // Exemplar Type 0x02
@@ -146,7 +146,8 @@ class ExemplarParser {
 public:
     explicit ExemplarParser(const PropertyMapper& mapper,
                             const DbpfIndexService* indexService = nullptr,
-                            bool renderThumbnails = false);
+                            bool renderThumbnails = false,
+                            uint32_t thumbnailSize = kDefaultThumbnailSize);
     ~ExemplarParser();
 
     [[nodiscard]] std::optional<ExemplarType> getExemplarType(const Exemplar::Record& exemplar) const;
@@ -192,6 +193,7 @@ private:
     const PropertyMapper& propertyMapper_;
     const DbpfIndexService* indexService_;
     std::unique_ptr<thumb::ThumbnailRenderer> thumbnailRenderer_;
+    uint32_t thumbnailSize_;
 
     // Cached property IDs (resolved once at construction)
     std::optional<uint32_t> pidExemplarType_;

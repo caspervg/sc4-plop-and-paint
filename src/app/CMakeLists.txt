@@ -43,6 +43,8 @@ if (WIN32)
     target_link_options(${APP_NAME} PRIVATE
         /FORCE:MULTIPLE
         /IGNORE:4006,4221
+        /MANIFEST:EMBED
+        /MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/SC4PlopAndPaintCli.exe.manifest
     )
 
     target_link_libraries(${APP_NAME} PRIVATE winmm opengl32 gdi32 user32)

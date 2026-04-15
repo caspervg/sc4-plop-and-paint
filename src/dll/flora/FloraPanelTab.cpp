@@ -72,6 +72,7 @@ void FloraPanelTab::OnRender() {
             director_->StopFloraPainting();
         }
     }
+    RenderFloraStripperControls_();
 
     if (ImGui::BeginChild("FloraTableRegion", ImVec2(0, 0), false)) {
         RenderIndividualFloraTable_(filteredFloraIndices);
@@ -176,7 +177,6 @@ void FloraPanelTab::RenderIndividualFloraTable_(const std::vector<size_t>& filte
                             ImGuiTableColumnFlags_NoSort,
                             UI::actionColumnWidth());
     ImGui::TableHeadersRow();
-    ImGui::TableSetupScrollFreeze(0, 1);
 
     const auto& items = flora_->GetFloraItems();
     std::vector<size_t> sortedIndices(filteredIndices.begin(), filteredIndices.end());
@@ -255,12 +255,7 @@ void FloraPanelTab::RenderIndividualFloraTable_(const std::vector<size_t>& filte
                               ImVec2(0, rowHeight));
             ImGui::SameLine();
             auto thumbId = thumbnailCache_.Get(key);
-            if (thumbId.has_value() && *thumbId != nullptr) {
-                ImGui::Image(*thumbId, ImVec2(UI::kIconSize, UI::kIconSize));
-            }
-            else {
-                ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
-            }
+            RenderThumbnail_(thumbId);
 
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(FloraDisplayName(f).c_str());
@@ -376,10 +371,6 @@ void FloraPanelTab::RenderPaintModal_() {
         ImGui::EndDisabled();
     }
     ImGui::SliderFloat("Grid step (m)", &pendingPaint_.settings.gridStepMeters, 1.0f, 16.0f, "%.1f");
-    ImGui::SliderFloat("Vertical offset (m)", &pendingPaint_.settings.deltaYMeters, 0.0f, 100.0f, "%.1f");
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Raises placed flora above the terrain and preview grid.");
-    }
     static constexpr const char* kPreviewModeLabels[] = {
         "Outline only",
         "Full flora only",

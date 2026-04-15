@@ -32,6 +32,8 @@ private:
 
     void RenderFilterUI_();
     void RenderTable_();
+    void RebuildPropViewsCache_();
+    void EnsureFilteredPropsCache_();
 
     void RenderTableInternal_(const std::vector<PropView>& filteredProps,
                               const std::unordered_set<uint64_t>& favorites);
@@ -61,4 +63,8 @@ private:
     std::vector<PropFilterHelper::SortSpec> sortSpecs_ = {
         {PropFilterHelper::SortColumn::Name, false}
     };
+    std::vector<PropView> allPropViewsCache_{};
+    std::vector<PropView> filteredPropsCache_{};
+    size_t cachedPropCount_{0};
+    bool filteredPropsDirty_{true};
 };

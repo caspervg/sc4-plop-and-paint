@@ -26,6 +26,7 @@ TABLE OF CONTENTS
 16. ctre - Compile Time Regular Expressions (Apache 2.0)
 17. raylib (zlib/libpng)
 18. GLFW (zlib/libpng)
+19. Fira Mono (SIL Open Font License 1.1)
 
 ===============================================================================
 1. SC4 Render Services
@@ -176,3 +177,10 @@ freely, subject to the following restrictions:
      be misrepresented as being the original software.
 
   3. This notice may not be removed or altered from any source distribution.
+
+===============================================================================
+19. Fira Mono
+    https://fonts.google.com/specimen/Fira+Mono
+    License: SIL Open Font License 1.1
+    Full text: https://openfontlicense.org/open-font-license-official-text/
+===============================================================================

@@ -47,14 +47,18 @@ public:
                             bool drawPlacement = true);
 
     void BuildLinePreview(const std::vector<cS3DVector3>& points,
+                          const std::vector<cS3DVector3>& terrainAnchors,
                           const cS3DVector3& cursorPos,
+                          const cS3DVector3& cursorTerrainPos,
                           bool cursorValid,
                           cISTETerrain* terrain,
                           const PropPaintSettings& settings,
                           const std::vector<PreviewPlacement>& plannedPlacements);
 
     void BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
+                             const std::vector<cS3DVector3>& terrainAnchors,
                              const cS3DVector3& cursorPos,
+                             const cS3DVector3& cursorTerrainPos,
                              bool cursorValid,
                              cISTETerrain* terrain,
                              const PropPaintSettings& settings,

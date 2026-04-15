@@ -1,11 +1,20 @@
 #include "PropertyMapper.hpp"
 
+#include <fstream>
+
 #include "rfl/xml/load.hpp"
+#include "rfl/xml/read.hpp"
 #include "spdlog/spdlog.h"
 
 bool PropertyMapper::loadFromXml(const std::filesystem::path& xmlPath) {
     try {
-        auto result = rfl::xml::load<ExemplarProperties>(xmlPath.string());
+        std::ifstream file(xmlPath, std::ios::binary);
+        if (!file.is_open()) {
+            spdlog::error("Failed to open properties XML: {}", xmlPath.string());
+            return false;
+        }
+
+        auto result = rfl::xml::read<ExemplarProperties>(file);
 
         if (!result) {
             spdlog::error("Failed to parse properties XML: {}", result.error().what());

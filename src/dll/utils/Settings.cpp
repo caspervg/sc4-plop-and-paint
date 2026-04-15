@@ -3,8 +3,12 @@
 
 #include "mini/ini.h"
 
+#include "../common/Constants.hpp"
+
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <exception>
 #include <string>
 
@@ -17,6 +21,12 @@ namespace {
     constexpr bool kDefaultSnapPointsToGrid = false;
     constexpr bool kDefaultSnapPlacementsToGrid = false;
     constexpr float kDefaultGridStepMeters = 16.0f;
+    constexpr float kDefaultThumbnailDisplaySize = 44.0f;
+    constexpr std::array<uint8_t, 4> kDefaultThumbnailBackgroundColor = {0x42, 0x50, 0x66, 0xFF};
+    constexpr std::array<uint8_t, 4> kDefaultThumbnailBorderColor = {0x5B, 0x6B, 0x84, 0xFF};
+    constexpr bool kDefaultEnableRecentPaints = true;
+    constexpr size_t kDefaultRecentPaintMaxItems = 8;
+    constexpr auto kDefaultPaintSwitchPolicy = PaintSwitchPolicy::KeepPending;
 
     const std::string kSectionName = "SC4PlopAndPaint";
 
@@ -82,12 +92,93 @@ namespace {
         try {
             size_t parsedChars = 0;
             const float parsed = std::stof(value, &parsedChars);
-            valid = parsedChars == value.size();
+            valid = parsedChars == value.size() && std::isfinite(parsed);
             return parsed;
         }
         catch (...) {
             valid = false;
             return 0.0f;
+        }
+    }
+
+    size_t ParseSizeT(const std::string& value, bool& valid) {
+        try {
+            size_t parsedChars = 0;
+            const auto parsed = std::stoul(value, &parsedChars);
+            valid = parsedChars == value.size();
+            return valid ? static_cast<size_t>(parsed) : 0;
+        }
+        catch (...) {
+            valid = false;
+            return 0;
+        }
+    }
+
+    PaintSwitchPolicy ParsePaintSwitchPolicy(const std::string& value, bool& valid) {
+        const std::string normalized = ToLower(value);
+
+        if (normalized == "discard") {
+            valid = true;
+            return PaintSwitchPolicy::Discard;
+        }
+        if (normalized == "commit") {
+            valid = true;
+            return PaintSwitchPolicy::Commit;
+        }
+        if (normalized == "keep") {
+            valid = true;
+            return PaintSwitchPolicy::KeepPending;
+        }
+
+        valid = false;
+        return kDefaultPaintSwitchPolicy;
+    }
+
+    std::array<uint8_t, 4> ParseHexColor(const std::string& value, bool& valid) {
+        std::string normalized;
+        normalized.reserve(value.size());
+
+        for (const unsigned char c : value) {
+            if (!std::isspace(c)) {
+                normalized.push_back(static_cast<char>(c));
+            }
+        }
+
+        if (!normalized.empty() && normalized.front() == '#') {
+            normalized.erase(normalized.begin());
+        }
+
+        if (normalized.empty()) {
+            valid = true;
+            return {0, 0, 0, 0};
+        }
+
+        if (normalized.size() != 6 && normalized.size() != 8) {
+            valid = false;
+            return kDefaultThumbnailBackgroundColor;
+        }
+
+        if (!std::ranges::all_of(normalized, [](const unsigned char c) { return std::isxdigit(c) != 0; })) {
+            valid = false;
+            return kDefaultThumbnailBackgroundColor;
+        }
+
+        try {
+            const auto parseComponent = [&normalized](const size_t offset) {
+                return static_cast<uint8_t>(std::stoul(normalized.substr(offset, 2), nullptr, 16));
+            };
+
+            valid = true;
+            return {
+                parseComponent(0),
+                parseComponent(2),
+                parseComponent(4),
+                normalized.size() == 8 ? parseComponent(6) : static_cast<uint8_t>(255)
+            };
+        }
+        catch (...) {
+            valid = false;
+            return kDefaultThumbnailBackgroundColor;
         }
     }
 
@@ -101,7 +192,13 @@ Settings::Settings()
     , defaultShowGridOverlay_(kDefaultShowGridOverlay)
     , defaultSnapPointsToGrid_(kDefaultSnapPointsToGrid)
     , defaultSnapPlacementsToGrid_(kDefaultSnapPlacementsToGrid)
-    , defaultGridStepMeters_(kDefaultGridStepMeters) {}
+    , defaultGridStepMeters_(kDefaultGridStepMeters)
+    , thumbnailDisplaySize_(kDefaultThumbnailDisplaySize)
+    , thumbnailBackgroundColor_(kDefaultThumbnailBackgroundColor)
+    , thumbnailBorderColor_(kDefaultThumbnailBorderColor)
+    , enableRecentPaints_(kDefaultEnableRecentPaints)
+    , recentPaintMaxItems_(kDefaultRecentPaintMaxItems)
+    , paintSwitchPolicy_(kDefaultPaintSwitchPolicy) {}
 
 void Settings::Load(const std::filesystem::path& settingsFilePath) {
     // Reset to defaults
@@ -213,6 +310,82 @@ void Settings::Load(const std::filesystem::path& settingsFilePath) {
                 defaultGridStepMeters_ = parsed;
             }
         }
+
+        if (section.has("ThumbnailDisplaySize")) {
+            bool valid = false;
+            const std::string text = section.get("ThumbnailDisplaySize");
+            const float parsed = ParseFloat(text, valid);
+            if (!valid || parsed < UI::kMinIconSize || parsed > UI::kMaxIconSize) {
+                thumbnailDisplaySize_ = kDefaultThumbnailDisplaySize;
+                LOG_ERROR("Invalid ThumbnailDisplaySize value '{}' in {}. Using default 44.0.", text,
+                          settingsFilePath.string());
+            }
+            else {
+                thumbnailDisplaySize_ = parsed;
+            }
+        }
+
+        if (section.has("ThumbnailBackgroundColor")) {
+            bool valid = false;
+            const std::string text = section.get("ThumbnailBackgroundColor");
+            thumbnailBackgroundColor_ = ParseHexColor(text, valid);
+            if (!valid) {
+                thumbnailBackgroundColor_ = kDefaultThumbnailBackgroundColor;
+                LOG_ERROR(
+                    "Invalid ThumbnailBackgroundColor value '{}' in {}. Using default 425066.",
+                    text,
+                    settingsFilePath.string());
+            }
+        }
+
+        if (section.has("ThumbnailBorderColor")) {
+            bool valid = false;
+            const std::string text = section.get("ThumbnailBorderColor");
+            thumbnailBorderColor_ = ParseHexColor(text, valid);
+            if (!valid) {
+                thumbnailBorderColor_ = kDefaultThumbnailBorderColor;
+                LOG_ERROR(
+                    "Invalid ThumbnailBorderColor value '{}' in {}. Using default 5B6B84.",
+                    text,
+                    settingsFilePath.string());
+            }
+        }
+
+        if (section.has("EnableRecentPaints")) {
+            bool valid = false;
+            const std::string text = section.get("EnableRecentPaints");
+            enableRecentPaints_ = ParseBool(text, valid);
+            if (!valid) {
+                enableRecentPaints_ = kDefaultEnableRecentPaints;
+                LOG_ERROR("Invalid EnableRecentPaints value '{}' in {}. Using default true.", text,
+                          settingsFilePath.string());
+            }
+        }
+
+        if (section.has("RecentPaintMaxItems")) {
+            bool valid = false;
+            const std::string text = section.get("RecentPaintMaxItems");
+            const size_t parsed = ParseSizeT(text, valid);
+            if (!valid || parsed < 1 || parsed > 16) {
+                recentPaintMaxItems_ = kDefaultRecentPaintMaxItems;
+                LOG_ERROR("Invalid RecentPaintMaxItems value '{}' in {}. Using default 8.", text,
+                          settingsFilePath.string());
+            }
+            else {
+                recentPaintMaxItems_ = parsed;
+            }
+        }
+
+        if (section.has("PaintSwitchPolicy")) {
+            bool valid = false;
+            const std::string text = section.get("PaintSwitchPolicy");
+            paintSwitchPolicy_ = ParsePaintSwitchPolicy(text, valid);
+            if (!valid) {
+                paintSwitchPolicy_ = kDefaultPaintSwitchPolicy;
+                LOG_ERROR("Invalid PaintSwitchPolicy value '{}' in {}. Using default keep.", text,
+                          settingsFilePath.string());
+            }
+        }
     }
     catch (const std::exception& e) {
         LOG_ERROR("Error reading settings file {}: {}", settingsFilePath.string(), e.what());
@@ -228,3 +401,9 @@ bool Settings::GetDefaultShowGridOverlay() const noexcept { return defaultShowGr
 bool Settings::GetDefaultSnapPointsToGrid() const noexcept { return defaultSnapPointsToGrid_; }
 bool Settings::GetDefaultSnapPlacementsToGrid() const noexcept { return defaultSnapPlacementsToGrid_; }
 float Settings::GetDefaultGridStepMeters() const noexcept { return defaultGridStepMeters_; }
+float Settings::GetThumbnailDisplaySize() const noexcept { return thumbnailDisplaySize_; }
+std::array<uint8_t, 4> Settings::GetThumbnailBackgroundColor() const noexcept { return thumbnailBackgroundColor_; }
+std::array<uint8_t, 4> Settings::GetThumbnailBorderColor() const noexcept { return thumbnailBorderColor_; }
+bool Settings::GetEnableRecentPaints() const noexcept { return enableRecentPaints_; }
+size_t Settings::GetRecentPaintMaxItems() const noexcept { return recentPaintMaxItems_; }
+PaintSwitchPolicy Settings::GetPaintSwitchPolicy() const noexcept { return paintSwitchPolicy_; }

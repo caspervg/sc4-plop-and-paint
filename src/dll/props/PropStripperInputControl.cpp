@@ -2,18 +2,32 @@
 
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 #include <windows.h>
 
-#include "../utils/Logger.h"
-#include "SC4List.h"
-#include "SC4Rect.h"
 #include "cISC4PropOccupant.h"
 #include "cISTETerrain.h"
+#include "SC4List.h"
+#include "SC4Rect.h"
+#include "../utils/Logger.h"
 
 namespace {
     constexpr auto kPropStripperControlID = 0x3B7C4E1Fu;
     constexpr float kPickRadiusMeters = 3.0f;
     constexpr uint32_t kHoverHighlight = 0x9u;
+
+    const char* SourceKindToString(const PropStripperInputControl::SourceKind sourceKind) {
+        switch (sourceKind) {
+        case PropStripperInputControl::SourceKind::City:
+            return "city";
+        case PropStripperInputControl::SourceKind::Lot:
+            return "lot";
+        case PropStripperInputControl::SourceKind::Street:
+            return "street";
+        }
+
+        return "unknown";
+    }
 }
 
 PropStripperInputControl::PropStripperInputControl()
@@ -47,11 +61,26 @@ bool PropStripperInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t /
     if (!active_ || !IsOnTop()) {
         return false;
     }
+    if (stripMode_ == StripMode::Brush) {
+        leftMouseDown_ = true;
+        if (!cursorValid_) {
+            return false;
+        }
+        DeletePropsInBrush_();
+        BuildOverlay_();
+        return true;
+    }
+
     if (!cursorValid_ || !hoveredOccupant_) {
         return false;
     }
     DeleteHoveredProp_();
     return true;
+}
+
+bool PropStripperInputControl::OnMouseUpL(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
+    leftMouseDown_ = false;
+    return active_ && IsOnTop();
 }
 
 bool PropStripperInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
@@ -69,7 +98,15 @@ bool PropStripperInputControl::OnMouseMove(const int32_t x, const int32_t z, con
         return false;
     }
     UpdateCursorWorldFromScreen_(x, z);
-    PickNearestProp_();
+    if (stripMode_ == StripMode::Brush) {
+        ClearHoveredProp_();
+        if (leftMouseDown_) {
+            DeletePropsInBrush_();
+        }
+    }
+    else {
+        PickNearestProp_();
+    }
     BuildOverlay_();
     return true;
 }
@@ -91,6 +128,21 @@ bool PropStripperInputControl::OnKeyDown(const int32_t vkCode, const uint32_t mo
         return true;
     }
 
+    if (vkCode == 'B') {
+        stripMode_ = stripMode_ == StripMode::Single ? StripMode::Brush : StripMode::Single;
+        leftMouseDown_ = false;
+        if (stripMode_ == StripMode::Brush) {
+            ClearHoveredProp_();
+            LOG_INFO("PropStripperInputControl: Switched to brush mode");
+        }
+        else {
+            PickNearestProp_();
+            LOG_INFO("PropStripperInputControl: Switched to single mode");
+        }
+        BuildOverlay_();
+        return true;
+    }
+
     return false;
 }
 
@@ -106,6 +158,7 @@ void PropStripperInputControl::Activate() {
 
 void PropStripperInputControl::Deactivate() {
     active_ = false;
+    leftMouseDown_ = false;
     ProcessPendingActions();
     ClearHoveredProp_();
     overlay_.Clear();
@@ -127,6 +180,36 @@ void PropStripperInputControl::SetCity(cISC4City* pCity) {
 
 void PropStripperInputControl::SetOnCancel(std::function<void()> onCancel) {
     onCancel_ = std::move(onCancel);
+}
+
+void PropStripperInputControl::SetEnabledSources(const uint32_t sourceFlags) {
+    const uint32_t sanitizedFlags = sourceFlags & (SourceFlagCity | SourceFlagLot | SourceFlagStreet);
+    if (enabledSources_ == sanitizedFlags) {
+        return;
+    }
+
+    ClearHoveredProp_();
+    leftMouseDown_ = false;
+
+    enabledSources_ = sanitizedFlags;
+    LOG_INFO("PropStripperInputControl: enabled source flags set to 0x{:X}", enabledSources_);
+}
+
+uint32_t PropStripperInputControl::GetEnabledSources() const noexcept {
+    return enabledSources_;
+}
+
+bool PropStripperInputControl::HasEnabledSource(const SourceKind source) const noexcept {
+    switch (source) {
+    case SourceKind::City:
+        return (enabledSources_ & SourceFlagCity) != 0;
+    case SourceKind::Lot:
+        return (enabledSources_ & SourceFlagLot) != 0;
+    case SourceKind::Street:
+        return (enabledSources_ & SourceFlagStreet) != 0;
+    }
+
+    return false;
 }
 
 void PropStripperInputControl::UndoLastDeletion() {
@@ -169,13 +252,27 @@ void PropStripperInputControl::UndoLastDeletion() {
         return;
     }
 
-    if (!propManager_->AddCityProp(occRef)) {
-        LOG_WARN("PropStripperInputControl: Failed to add restored prop to city");
+    bool restored = false;
+    switch (info.source) {
+    case SourceKind::City:
+        restored = propManager_->AddCityProp(occRef);
+        break;
+    case SourceKind::Lot:
+        restored = propManager_->AddLotProp(info.propType, pos, info.orientation) != nullptr;
+        break;
+    case SourceKind::Street:
+        restored = propManager_->AddStreetProp(info.propType, pos, info.orientation) != nullptr;
+        break;
+    }
+
+    if (!restored) {
+        LOG_WARN("PropStripperInputControl: Failed to restore {} prop 0x{:08X}",
+                 SourceKindToString(info.source), info.propType);
         return;
     }
 
-    LOG_INFO("PropStripperInputControl: Restored prop 0x{:08X} at ({:.2f}, {:.2f}, {:.2f}), {} undo(s) remaining",
-             info.propType, pos.fX, pos.fY, pos.fZ, undoStack_.size());
+    LOG_INFO("PropStripperInputControl: Restored {} prop 0x{:08X} at ({:.2f}, {:.2f}, {:.2f}), {} undo(s) remaining",
+             SourceKindToString(info.source), info.propType, pos.fX, pos.fY, pos.fZ, undoStack_.size());
 }
 
 void PropStripperInputControl::ProcessPendingActions() {
@@ -203,52 +300,184 @@ bool PropStripperInputControl::UpdateCursorWorldFromScreen_(const int32_t screen
     return true;
 }
 
+bool PropStripperInputControl::TryGetCursorCell_(int& cellX, int& cellZ) const {
+    if (!city_ || !cursorValid_) {
+        return false;
+    }
+
+    return city_->PositionToCell(currentCursorWorld_.fX, currentCursorWorld_.fZ, cellX, cellZ) != 0;
+}
+
+void PropStripperInputControl::AppendCandidateProps_(std::vector<CollectedProp>& candidates, const SourceKind source) const {
+    if (!propManager_ || !cursorValid_) {
+        return;
+    }
+
+    SC4List<cISC4Occupant*> rawCandidates;
+    switch (source) {
+    case SourceKind::City: {
+        const SC4Rect<float> rect(
+            currentCursorWorld_.fX - kPickRadiusMeters,
+            currentCursorWorld_.fZ - kPickRadiusMeters,
+            currentCursorWorld_.fX + kPickRadiusMeters,
+            currentCursorWorld_.fZ + kPickRadiusMeters);
+
+        propManager_->GetCityProps(rawCandidates, rect);
+        break;
+    }
+    case SourceKind::Lot:
+    case SourceKind::Street: {
+        int cellX = 0;
+        int cellZ = 0;
+        if (!TryGetCursorCell_(cellX, cellZ)) {
+            return;
+        }
+
+        if (source == SourceKind::Lot) {
+            propManager_->GetLotProps(rawCandidates, cellX, cellZ);
+        }
+        else {
+            propManager_->GetStreetProps(rawCandidates, cellX, cellZ);
+        }
+        break;
+    }
+    }
+
+    for (cISC4Occupant* occupant : rawCandidates) {
+        if (!occupant) {
+            continue;
+        }
+
+        cISC4PropOccupant* propOccupant = nullptr;
+        if (!occupant->QueryInterface(GZIID_cISC4PropOccupant, reinterpret_cast<void**>(&propOccupant)) || !propOccupant) {
+            continue;
+        }
+
+        cS3DVector3 pos{};
+        if (!occupant->GetPosition(&pos)) {
+            propOccupant->Release();
+            continue;
+        }
+
+        candidates.push_back({
+            .occupant = occupant,
+            .source = source,
+            .position = pos,
+            .propType = propOccupant->GetPropType(),
+            .orientation = propOccupant->GetOrientation()
+        });
+        propOccupant->Release();
+    }
+}
+
+void PropStripperInputControl::CollectCandidateProps_(std::vector<CollectedProp>& candidates) const {
+    candidates.clear();
+    if (!propManager_ || !cursorValid_) {
+        return;
+    }
+
+    if (HasEnabledSource(SourceKind::City)) {
+        AppendCandidateProps_(candidates, SourceKind::City);
+    }
+    if (HasEnabledSource(SourceKind::Lot)) {
+        AppendCandidateProps_(candidates, SourceKind::Lot);
+    }
+    if (HasEnabledSource(SourceKind::Street)) {
+        AppendCandidateProps_(candidates, SourceKind::Street);
+    }
+
+    std::unordered_set<cISC4Occupant*> seen;
+    auto it = candidates.begin();
+    while (it != candidates.end()) {
+        if (!it->occupant || !seen.insert(it->occupant).second) {
+            it = candidates.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
+}
+
+bool PropStripperInputControl::TryRemoveProp_(cISC4Occupant* const occupant, const uint32_t propType, const SourceKind source) const {
+    if (!propManager_ || !occupant) {
+        return false;
+    }
+
+    if (propManager_->RemovePropA(occupant)) {
+        return true;
+    }
+
+    LOG_WARN("PropStripperInputControl: RemovePropA failed for {} prop 0x{:08X}",
+             SourceKindToString(source), propType);
+    return false;
+}
+
 void PropStripperInputControl::PickNearestProp_() {
     if (!cursorValid_ || !propManager_) {
         ClearHoveredProp_();
         return;
     }
 
-    const SC4Rect<float> rect(
-        currentCursorWorld_.fX - kPickRadiusMeters,
-        currentCursorWorld_.fZ - kPickRadiusMeters,
-        currentCursorWorld_.fX + kPickRadiusMeters,
-        currentCursorWorld_.fZ + kPickRadiusMeters);
+    std::vector<CollectedProp> candidates;
+    CollectCandidateProps_(candidates);
 
-    SC4List<cISC4Occupant*> candidates;
-    propManager_->GetCityProps(candidates, rect);
-
-    cISC4Occupant* nearest = nullptr;
+    cISC4Occupant* nearestOccupant = nullptr;
     float nearestDistSq = std::numeric_limits<float>::max();
 
-    for (cISC4Occupant* occupant : candidates) {
-        if (!occupant) {
-            continue;
-        }
-
-        // Confirm it's a prop occupant (and not a building, transit element, etc.)
-        cISC4PropOccupant* propOccupant = nullptr;
-        if (!occupant->QueryInterface(GZIID_cISC4PropOccupant, reinterpret_cast<void**>(&propOccupant))) {
-            continue;
-        }
-        propOccupant->Release();
-
-        cS3DVector3 pos{};
-        if (!occupant->GetPosition(&pos)) {
-            continue;
-        }
-
-        const float dx = pos.fX - currentCursorWorld_.fX;
-        const float dz = pos.fZ - currentCursorWorld_.fZ;
+    for (const auto& candidate : candidates) {
+        const float dx = candidate.position.fX - currentCursorWorld_.fX;
+        const float dz = candidate.position.fZ - currentCursorWorld_.fZ;
         const float distSq = dx * dx + dz * dz;
 
         if (distSq < nearestDistSq) {
             nearestDistSq = distSq;
-            nearest = occupant;
+            nearestOccupant = candidate.occupant;
         }
     }
 
-    SetHoveredProp_(nearest);
+    if (nearestDistSq <= (kPickRadiusMeters * kPickRadiusMeters)) {
+        SetHoveredProp_(nearestOccupant);
+    }
+    else {
+        ClearHoveredProp_();
+    }
+}
+
+void PropStripperInputControl::DeletePropsInBrush_() {
+    if (!cursorValid_ || !propManager_) {
+        return;
+    }
+
+    std::vector<CollectedProp> candidates;
+    CollectCandidateProps_(candidates);
+
+    size_t removedCount = 0;
+    for (const auto& candidate : candidates) {
+        if (!candidate.occupant) {
+            continue;
+        }
+
+        cRZAutoRefCount<cISC4Occupant> occupantRef(candidate.occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
+        const float dx = candidate.position.fX - currentCursorWorld_.fX;
+        const float dz = candidate.position.fZ - currentCursorWorld_.fZ;
+        if ((dx * dx + dz * dz) > (kPickRadiusMeters * kPickRadiusMeters)) {
+            continue;
+        }
+
+        occupantRef->SetHighlight(0x0, true);
+
+        if (!TryRemoveProp_(occupantRef, candidate.propType, candidate.source)) {
+            continue;
+        }
+
+        undoStack_.push_back({candidate.source, candidate.propType, candidate.position, candidate.orientation});
+        ++removedCount;
+    }
+
+    if (removedCount > 0) {
+        LOG_INFO("PropStripperInputControl: Brush removed {} prop(s), {} undo(s) available",
+                 removedCount, undoStack_.size());
+    }
 }
 
 void PropStripperInputControl::SetHoveredProp_(cISC4Occupant* newOccupant) {
@@ -322,15 +551,24 @@ void PropStripperInputControl::DeleteHoveredProp_() {
 
     hoveredOccupant_->SetHighlight(0x0, true);
 
-    if (!propManager_->RemovePropA(hoveredOccupant_)) {
-        LOG_WARN("PropStripperInputControl: Failed to remove prop 0x{:08X}", propType);
+    SourceKind source = SourceKind::City;
+    std::vector<CollectedProp> candidates;
+    CollectCandidateProps_(candidates);
+    for (const auto& candidate : candidates) {
+        if (candidate.occupant == hoveredOccupant_) {
+            source = candidate.source;
+            break;
+        }
+    }
+
+    if (!TryRemoveProp_(hoveredOccupant_, propType, source)) {
         hoveredOccupant_.Reset();
         return;
     }
 
-    undoStack_.push_back({propType, pos, orientation});
-    LOG_INFO("PropStripperInputControl: Removed prop 0x{:08X} at ({:.2f}, {:.2f}, {:.2f}), {} undo(s) available",
-             propType, pos.fX, pos.fY, pos.fZ, undoStack_.size());
+    undoStack_.push_back({source, propType, pos, orientation});
+    LOG_INFO("PropStripperInputControl: Removed {} prop 0x{:08X} at ({:.2f}, {:.2f}, {:.2f}), {} undo(s) available",
+             SourceKindToString(source), propType, pos.fX, pos.fY, pos.fZ, undoStack_.size());
 
     hoveredOccupant_.Reset();
 }

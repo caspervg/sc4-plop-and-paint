@@ -54,6 +54,8 @@ private:
 
     struct PendingFamilyPaintState {
         uint32_t fallbackPropId = 0;
+        RecentPaintEntry::SourceKind sourceKind{RecentPaintEntry::SourceKind::PropAutoFamily};
+        uint64_t sourceId = 0;
         std::string familyName;
         PropPaintSettings settings{};
         bool open = false;

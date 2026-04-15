@@ -4,6 +4,18 @@
 
 #include "../common/Utils.hpp"
 
+namespace {
+    std::string_view PropDisplayNameForSort_(const Prop& prop) {
+        if (!prop.visibleName.empty()) {
+            return prop.visibleName;
+        }
+        if (!prop.exemplarName.empty()) {
+            return prop.exemplarName;
+        }
+        return "<unnamed prop>";
+    }
+}
+
 bool PropFilterHelper::PassesFilters(const PropView& view) const {
     return PassesTextFilter_(view) &&
            PassesSizeFilter_(view) &&
@@ -24,7 +36,7 @@ std::vector<PropView> PropFilterHelper::ApplyFiltersAndSort(
         }
     }
 
-    const auto compareStrings = [](const std::string& lhs, const std::string& rhs) {
+    const auto compareStrings = [](const std::string_view lhs, const std::string_view rhs) {
         if (lhs < rhs) return -1;
         if (lhs > rhs) return 1;
         return 0;
@@ -51,7 +63,7 @@ std::vector<PropView> PropFilterHelper::ApplyFiltersAndSort(
             int cmp = 0;
             switch (spec.column) {
                 case SortColumn::Name:
-                    cmp = compareStrings(a.prop->visibleName, b.prop->visibleName);
+                    cmp = compareStrings(PropDisplayNameForSort_(*a.prop), PropDisplayNameForSort_(*b.prop));
                     break;
                 case SortColumn::Size: {
                     const auto volumeA = a.prop->width * a.prop->height * a.prop->depth;

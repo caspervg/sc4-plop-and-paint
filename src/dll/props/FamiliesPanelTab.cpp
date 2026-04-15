@@ -148,6 +148,7 @@ void FamiliesPanelTab::OnRender() {
             director_->StopPropPainting();
         }
     }
+    RenderPropStripperControls_();
 
     ImGui::SameLine();
     if (ImGui::SmallButton("New family")) {
@@ -164,13 +165,13 @@ void FamiliesPanelTab::OnRender() {
 
     if (ImGui::BeginChild("FamilyTableRegion", ImVec2(0, UI::familyTableHeight()), false)) {
         if (ImGui::BeginTable("FamiliesTable", 5, familyTableFlags, ImVec2(0, 0))) {
+            ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, UI::typeColumnWidth());
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn("Instance ID", ImGuiTableColumnFlags_WidthFixed, UI::instanceIdColumnWidth());
             ImGui::TableSetupColumn("Props", ImGuiTableColumnFlags_WidthFixed, UI::propsColumnWidth());
             ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, UI::familyActionColWidth());
             ImGui::TableHeadersRow();
-            ImGui::TableSetupScrollFreeze(0, 1);
 
             for (const auto& row : filteredFamilies) {
                 const bool selected = row.combinedIndex == selectedFamilyIndex_;
@@ -261,6 +262,7 @@ void FamiliesPanelTab::OnRender() {
         if (ImGui::BeginTable("FamilyEntries", selectedIsAuto ? 3 : 4,
                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
                               ImVec2(0, UI::familyEntriesHeight()))) {
+            ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableSetupColumn("##icon", ImGuiTableColumnFlags_WidthFixed, UI::iconColumnWidth());
             ImGui::TableSetupColumn("Prop", ImGuiTableColumnFlags_WidthStretch);
             if (!selectedIsAuto) {
@@ -268,7 +270,6 @@ void FamiliesPanelTab::OnRender() {
             }
             ImGui::TableSetupColumn("##remove", ImGuiTableColumnFlags_WidthFixed, selectedIsAuto ? 0.0f : UI::removeColumnWidth());
             ImGui::TableHeadersRow();
-            ImGui::TableSetupScrollFreeze(0, 1);
 
             // We need a mutable reference for weight editing / removal (user families only)
             int removeIndex = -1;
@@ -286,15 +287,10 @@ void FamiliesPanelTab::OnRender() {
                         thumbnailCache_.Request(key);
                     }
                     auto thumbTextureId = thumbnailCache_.Get(key);
-                    if (thumbTextureId.has_value() && *thumbTextureId != nullptr) {
-                        ImGui::Image(*thumbTextureId, ImVec2(UI::kIconSize, UI::kIconSize));
-                    }
-                    else {
-                        ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
-                    }
+                    RenderThumbnail_(thumbTextureId);
                 }
                 else {
-                    ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
+                    RenderThumbnail_(std::nullopt);
                 }
 
                 ImGui::TableNextColumn();
@@ -477,7 +473,23 @@ void FamiliesPanelTab::QueuePaintForSelectedFamily_() {
         return;
     }
 
+    const bool isAutoFamily = IsSelectedAutoFamily_();
+    uint64_t sourceId = 0;
+    RecentPaintEntry::SourceKind sourceKind = RecentPaintEntry::SourceKind::PropAutoFamily;
+    if (isAutoFamily) {
+        const auto& autoFamilyIds = props_->GetAutoFamilyIds();
+        if (selectedFamilyIndex_ < autoFamilyIds.size()) {
+            sourceId = autoFamilyIds[selectedFamilyIndex_];
+        }
+    }
+    else {
+        sourceKind = RecentPaintEntry::SourceKind::PropUserFamily;
+        sourceId = family->persistentId.has_value() ? family->persistentId->value() : 0;
+    }
+
     pendingPaint_.fallbackPropId = family->entries.front().propID.value();
+    pendingPaint_.sourceKind = sourceKind;
+    pendingPaint_.sourceId = sourceId;
     pendingPaint_.familyName = family->name;
     pendingPaint_.settings = familyPaintDefaults_;
     pendingPaint_.settings.activePalette = family->entries;
@@ -529,9 +541,17 @@ void FamiliesPanelTab::RenderPaintOptionsPopup_() {
             ImGui::EndDisabled();
         }
         ImGui::SliderFloat("Grid step (m)", &pendingPaint_.settings.gridStepMeters, 1.0f, 16.0f, "%.1f");
-        ImGui::SliderFloat("Vertical offset (m)", &pendingPaint_.settings.deltaYMeters, 0.0f, 100.0f, "%.1f");
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Raises placed props above the terrain and preview grid.");
+        if (pendingPaint_.settings.mode == PaintMode::Line || pendingPaint_.settings.mode == PaintMode::Polygon) {
+            bool customNodeHeights = pendingPaint_.settings.sketchHeightMode == SketchHeightMode::Custom;
+            if (ImGui::Checkbox("Custom node heights", &customNodeHeights)) {
+                pendingPaint_.settings.sketchHeightMode = customNodeHeights
+                    ? SketchHeightMode::Custom
+                    : SketchHeightMode::Terrain;
+            }
+        }
+        ImGui::TextDisabled("Use [ ] +/-1.0m, Shift+[ ] +/-5.0m, Shift+Alt+[ ] +/-0.1m.");
+        if (pendingPaint_.settings.mode == PaintMode::Direct) {
+            ImGui::TextDisabled("Press H in-game to capture the absolute reference height.");
         }
         static constexpr const char* kPreviewModeLabels[] = {
             "Outline only",
@@ -590,10 +610,6 @@ bool FamiliesPanelTab::StartPaintingWithSelectedFamily_() {
 
     ReleaseImGuiInputCapture_();
 
-    if (director_->IsPropPainting()) {
-        director_->StopPropPainting();
-    }
-
     PropPaintSettings settings = pendingPaint_.settings;
     if (settings.randomSeed == 0) {
         settings.randomSeed = static_cast<uint32_t>(
@@ -604,7 +620,11 @@ bool FamiliesPanelTab::StartPaintingWithSelectedFamily_() {
     familyPaintDefaults_.activePalette.clear();
     familyPaintDefaults_.randomSeed = 0;
 
-    return director_->StartPropPainting(pendingPaint_.fallbackPropId, settings, pendingPaint_.familyName);
+    const RecentPaintSource source{
+        .sourceKind = pendingPaint_.sourceKind,
+        .sourceId = pendingPaint_.sourceId
+    };
+    return director_->StartPropPainting(pendingPaint_.fallbackPropId, settings, pendingPaint_.familyName, source);
 }
 
 const PropFamily* FamiliesPanelTab::GetSelectedFamily_() const {

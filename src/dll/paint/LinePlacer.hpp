@@ -8,6 +8,11 @@
 class cISTETerrain;
 class WeightedPicker;
 
+enum class LineHeightSamplingMode {
+    Terrain = 0,
+    PreserveInputY = 1
+};
+
 class LinePlacer {
 public:
     static std::vector<PlannedPaint> ComputePlacements(
@@ -19,6 +24,7 @@ public:
         float randomOffset,
         cISTETerrain* terrain,
         uint32_t seed,
+        LineHeightSamplingMode heightSamplingMode = LineHeightSamplingMode::Terrain,
         WeightedPicker* picker = nullptr,
         uint32_t singlePropID = 0,
         size_t maxPlacements = static_cast<size_t>(-1));

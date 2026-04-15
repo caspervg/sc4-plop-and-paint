@@ -4,6 +4,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <ranges>
 #include <utility>
 #include <vector>
@@ -45,6 +46,20 @@ namespace ThumbnailBin {
                 commonHeight = static_cast<uint16_t>(variant.height);
             },
             entries[0].second);
+
+        for (const auto& thumbnail : entries | std::views::values) {
+            rfl::visit(
+                [&](const auto& variant) {
+                    if (variant.width != commonWidth || variant.height != commonHeight) {
+                        throw std::runtime_error("ThumbnailBin::Write requires uniform thumbnail dimensions");
+                    }
+                    const size_t expectedSize = static_cast<size_t>(commonWidth) * commonHeight * 4;
+                    if (variant.data.size() != expectedSize) {
+                        throw std::runtime_error("ThumbnailBin::Write received malformed RGBA thumbnail data");
+                    }
+                },
+                thumbnail);
+        }
 
         // Sort by gi_key so the reader can easily binary-search.
         std::ranges::sort(entries, [](const auto& a, const auto& b) { return a.first < b.first; });

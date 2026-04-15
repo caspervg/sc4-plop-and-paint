@@ -10,21 +10,23 @@ This guide is written for players, not developers. It covers the full in-game fl
 2. Start SimCity 4 and load a city.
 3. Press the panel toggle shortcut to open the `Advanced Plopping & Painting` window. The packaged default is `O`.
 
-If the panel opens but the lists are empty, `Buildings & Lots` is missing `lot_configs.cbor`, or `Props` / `Families` are missing `props.cbor`.
+If the panel opens but the lists are empty, `Buildings & Lots` is missing `lots.cbor`, `Props` / `Prop Families` are missing `props.cbor`, or `Flora` / `Flora Collections` are missing `flora.cbor`.
 
 The main window can be closed either with the same toggle shortcut or with the window close button.
 
 ## The main window
 
-The window has three tabs:
+The window has five tabs:
 
 - `Buildings & Lots`: browse buildings and plop lots
 - `Props`: browse props, paint a single prop, and remove placed props
-- `Families`: manage built-in and custom prop families, then paint with a weighted random palette
+- `Prop Families`: manage built-in and custom prop families, then paint with a weighted random palette
+- `Flora`: browse individual flora items and paint one flora type at a time
+- `Flora Collections`: paint flora families and multi-stage chains built from the loaded flora data
 
 ![Main window](images/main-window-cropped.jpg)
 
-The main panel with all three tabs available in a loaded city.
+The main panel with all tabs available in a loaded city.
 
 ## Buildings & Lots
 
@@ -79,10 +81,14 @@ If you hover a prop name and it belongs to built-in families, the tooltip shows 
 
 Strip mode:
 
+- Use the `City`, `Lot`, and `Street` checkboxes to choose which prop sources are active
+- The stripper works on the union of the checked sources
 - `Strip props`: enters prop removal mode
 - `Stop stripping`: exits strip mode from the tab
-- In strip mode, click props in the city to delete them one by one
-- `Ctrl+Z` restores the most recently removed prop
+- If no source checkbox is enabled, `Strip props` is disabled
+- In strip mode, move the cursor over a prop within the preview radius and left-click to delete it
+- Press `B` to toggle brush mode and hold the left mouse button to strip everything inside the preview radius
+- `Ctrl+Z` restores the most recently removed city, lot, or street prop
 - `Esc` or right-click exits strip mode
 
 ![Props tab](images/props-cropped.jpg)
@@ -93,7 +99,7 @@ The props browser, including `Paint`, favorites, family assignment, and strip mo
 
 Strip mode highlights props in the city so you can remove them one by one and undo mistakes.
 
-## Families
+## Prop Families
 
 This tab combines built-in families from the cache with your own custom families.
 
@@ -125,6 +131,50 @@ Built-in families cannot be edited.
 
 Custom families let you manage weighted prop palettes before painting with them.
 
+## Flora
+
+This tab is for individual flora items.
+
+Filters:
+
+- `Search flora...`
+- `Favorites only`
+- `Clear filters`
+
+Per-flora actions:
+
+- `Paint`: start painting that flora item
+- `Star` / `Unstar`: manage flora favorites
+
+Important behavior:
+
+- Search also matches flora group and instance IDs in `0x...` form
+- Flora painting uses the same paint popup and the same direct, line, and polygon modes as prop painting
+- While flora painting is active, the tab shows `Stop painting`
+
+## Flora Collections
+
+This tab is for derived flora collections. These collections are read-only and are built automatically from loaded flora data.
+
+Collection types:
+
+- `Families`: flora families
+- `Multi-stage`: flora chains
+
+Filters:
+
+- `Search collection name...`
+- `Filter IID (0x...)`
+- Type: `All types`, `Families`, `Multi-stage`
+- `Favorites only`
+- `Clear filters`
+
+Important behavior:
+
+- `Favorites only` shows only collections that contain at least one favorited flora item
+- Double-clicking a collection row or pressing `Paint` opens the flora paint options for that collection
+- Selecting a collection shows its members below, including thumbnails, IDs, and favorite buttons for the individual flora entries
+
 ## Favorites
 
 Favorites are there to reduce repeated searching.
@@ -133,15 +183,17 @@ In `Buildings & Lots`, press `Star` on a lot to save it and `Unstar` to remove i
 
 In `Props`, `Star`, `Unstar`, and `Favorites only` work the same way for props.
 
+In `Flora`, `Star`, `Unstar`, and `Favorites only` work the same way for individual flora. In `Flora Collections`, `Favorites only` filters collections by whether they contain any flora you have favorited.
+
 Favorites are stored by the plugin and persist between sessions.
 
 ## Creating and managing your own families
 
 Custom families are your own weighted random prop palettes.
 
-To create one, open `Families`, press `New family`, enter a name, and press `Create`. The new family starts empty.
+To create one, open `Prop Families`, press `New family`, enter a name, and press `Create`. The new family starts empty.
 
-The fastest way to add props to a family is from the `Props` tab: find a prop, press `Fam`, and choose the destination family from the popup. Once a family has members, return to `Families` to review and edit it.
+The fastest way to add props to a family is from the `Props` tab: find a prop, press `Fam`, and choose the destination family from the popup. Once a family has members, return to `Prop Families` to review and edit it.
 
 When a custom family is selected, you can delete it, change each entry's weight, and remove individual entries with the `x` button. Higher weights make an entry more likely to be chosen during family painting.
 
@@ -149,7 +201,7 @@ Built-in families (i.e. provided by Maxis or custom content creators) are read-o
 
 ## Starting paint mode
 
-Painting can be started from the `Props` tab for a single fixed prop or from the `Families` tab for a weighted random family. Before the tool activates, a popup lets you choose the paint settings.
+Painting can be started from the `Props` tab for a single fixed prop, from the `Prop Families` tab for a weighted random prop family, from the `Flora` tab for a single flora type, or from `Flora Collections` for a flora family or multi-stage chain. Before the tool activates, a popup lets you choose the paint settings.
 
 Common options:
 
@@ -173,7 +225,9 @@ Polygon notes:
 - `Density variation` ranges from `0.0` to `1.0`
 - `Density variation` controls how uniform or patchy the fill looks: `0` is more even, `1` creates more clusters and gaps
 
-When painting with a family, each placed prop is chosen from that family using its saved weights.
+When painting with a prop family, each placed prop is chosen from that family using its saved weights.
+
+When painting flora, placements use flora exemplars instead of prop occupants, but the painting flow and hotkeys are intentionally kept close to prop painting.
 
 ![Paint options](images/paint-options-cropped.jpg)
 
@@ -212,6 +266,10 @@ While paint mode is active:
 - `Enter`: place the current line or polygon batch, or commit pending placements
 - `Esc` or right-click: cancel all pending placements and leave paint mode
 
+Flora-specific note:
+
+- Depending on the flora type and in-game placement rules, some preview positions may be rejected and will not place
+
 Mode-specific hotkeys:
 
 - Line mode: `-` / `+` decrease or increase spacing by `0.5m`
@@ -248,7 +306,7 @@ That means even in direct mode there are usually two stages: you click to place 
 
 **Paint a row of props**
 
-1. Start from `Props` or `Families`.
+1. Start from `Props`, `Prop Families`, `Flora`, or `Flora Collections`.
 2. Choose `Paint along line`.
 3. Press `Start`.
 4. Click each control point along the line.
@@ -257,7 +315,7 @@ That means even in direct mode there are usually two stages: you click to place 
 
 **Paint a filled area**
 
-1. Start from `Props` or `Families`.
+1. Start from `Props`, `Prop Families`, `Flora`, or `Flora Collections`.
 2. Choose `Paint inside polygon`.
 3. Set `Density`, `Density variation`, and any other options you want.
 4. Press `Start`.
@@ -267,7 +325,7 @@ That means even in direct mode there are usually two stages: you click to place 
 
 **Paint a random family**
 
-1. Open `Families`.
+1. Open `Prop Families`.
 2. Select or create a family.
 3. Adjust the family weights if needed.
 4. Press `Paint family`.
@@ -301,7 +359,7 @@ This makes it easier to use growable-content lots intentionally in custom cities
 
 The browsing tabs can also be used as a discovery tool:
 
-1. Open `Buildings & Lots`, `Props`, or `Families`.
+1. Open `Buildings & Lots`, `Props`, `Prop Families`, `Flora`, or `Flora Collections`.
 2. Search loosely by theme, size, or category instead of by exact name.
 3. Browse thumbnails, family tooltips, and filtered lists.
 4. Use `Star` to save anything you want to come back to later.
@@ -312,7 +370,7 @@ This is useful when you have a large Plugins collection and want to rediscover b
 
 Use `Paint along line` when you want a clean repeated sequence along a street, path, or lot edge:
 
-1. Start from `Props` or `Families`.
+1. Start from `Props`, `Prop Families`, `Flora`, or `Flora Collections`.
 2. Choose `Paint along line`.
 3. Set `Spacing`, `Align to path direction`, and optional `Lateral jitter`.
 4. Click the control points along the route.
@@ -324,7 +382,7 @@ This works well for fences, bollards, lamps, benches, and other evenly spaced pr
 
 Line paint is also useful for transportation detailing where orientation and spacing matter:
 
-1. Start from `Props` for one repeated asset, or `Families` for a small themed set.
+1. Start from `Props` / `Flora` for one repeated asset, or `Prop Families` / `Flora Collections` for a small themed set.
 2. Choose `Paint along line`.
 3. Turn on `Align to path direction`.
 4. Adjust `Spacing` until the preview matches the rhythm you want.
@@ -337,7 +395,7 @@ This is a good fit for roadside signs, gantry-adjacent details, retaining props,
 
 Use `Paint inside polygon` when you want to cover an area instead of drawing a single line:
 
-1. Start from `Props` for one repeated prop, or `Families` for a mixed palette.
+1. Start from `Props` / `Flora` for one repeated item, or `Prop Families` / `Flora Collections` for a mixed palette.
 2. Set `Density` for overall coverage.
 3. Set `Density variation` higher if you want more natural clumps and gaps.
 4. Click the polygon outline.
@@ -352,7 +410,7 @@ Custom families and polygon fill work well for cargo-heavy scenes:
 1. Create a family for containers, pallets, crates, drums, or similar props.
 2. Add matching entries from the `Props` tab with `Fam`.
 3. Raise the `Weight` of the props you want to dominate the mix.
-4. Start painting from `Families` with `Paint inside polygon`.
+4. Start painting from `Prop Families` with `Paint inside polygon`.
 5. Tune `Density` and `Density variation` until the preview looks believable.
 6. Fill warehouse yards, loading areas, docks, or fenced industrial corners.
 
@@ -362,7 +420,7 @@ This is an efficient way to create busy-looking industry and port spaces without
 
 If you often place the same style of clutter together, create a custom family:
 
-1. Create a family in `Families`.
+1. Create a family in `Prop Families`.
 2. Add matching props from the `Props` tab with `Fam`.
 3. Increase the `Weight` of the props you want to appear more often.
 4. Paint with that family in direct, line, or polygon mode.
@@ -374,11 +432,27 @@ This is useful for themed sets like street furniture, industrial clutter, plaza 
 When painting or stripping, you do not need to stop and start over for small corrections:
 
 1. While painting, use `Ctrl+Z` to remove the most recent group, or `Ctrl+Backspace` to trim the last prop from that group.
-2. While stripping, use `Ctrl+Z` to restore the most recently removed prop.
+2. While stripping, use `Ctrl+Z` to restore the most recently removed city, lot, or street prop.
 3. Use `Esc` if you want to abandon the current paint batch or leave strip mode.
 
 This makes it practical to work iteratively instead of treating each pass as all-or-nothing.
 
 ## Stopping paint mode
 
-Press `Esc` to cancel pending placements and leave paint mode immediately. If you reopen the panel while painting, the `Props` and `Families` tabs also show a `Stop painting` button.
+## INI options
+
+The packaged `SC4PlopAndPaint.ini` controls several runtime defaults.
+
+Relevant options:
+
+- `EnableDrawOverlay`: disables the overlay preview if needed
+- `DefaultPropPreviewMode`: `outline`, `full`, or `combined`
+- `DefaultShowGridOverlay`, `DefaultSnapPointsToGrid`, `DefaultSnapPlacementsToGrid`, `DefaultGridStepMeters`: default paint popup values
+- `ThumbnailDisplaySize`: thumbnail size in the UI (`22` to `176`)
+- `ThumbnailBackgroundColor` and `ThumbnailBorderColor`: thumbnail slot colors shown behind transparent thumbnails
+
+Thumbnail color options accept `RRGGBB` or `RRGGBBAA`. Set either one to an empty value to make it transparent.
+
+## Stopping paint mode
+
+Press `Esc` to cancel pending placements and leave paint mode immediately. If you reopen the panel while painting, the `Props`, `Prop Families`, `Flora`, and `Flora Collections` tabs also show a `Stop painting` button.

@@ -14,6 +14,8 @@ public:
 
     void Load();
     void Save() const;
+    [[nodiscard]] const std::vector<RecentPaintEntryData>& GetRecentPaintsData() const;
+    void SetRecentPaintsData(std::vector<RecentPaintEntryData> data);
 
     // Lot favorites
     [[nodiscard]] bool IsLotFavorite(uint32_t lotInstanceId) const;
@@ -47,11 +49,13 @@ public:
 private:
     static std::filesystem::path GetPluginsPath_();
     static std::string BuildDefaultFamilyName_(const std::string& baseName);
+    [[nodiscard]] uint64_t GenerateNextUserFamilyId_() const;
 
     const PropRepository& props_;
     std::unordered_set<uint32_t> favoriteLotIds_;
     std::unordered_set<uint64_t> favoritePropIds_;
     std::unordered_set<uint64_t> favoriteFloraIds_;
     std::vector<PropFamily> userFamilies_;
+    std::vector<RecentPaintEntryData> recentPaintsCache_;
     size_t activeUserFamilyIndex_{0};
 };

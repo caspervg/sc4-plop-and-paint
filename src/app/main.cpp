@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -42,6 +43,8 @@ namespace fs = std::filesystem;
 namespace {
     constexpr uint32_t kTypeIdExemplar = 0x6534284Au;
     constexpr uint32_t kTypeIdCohort = 0x05342861u;
+    constexpr uint32_t kMinThumbnailSize = kDefaultThumbnailSize / 2;
+    constexpr uint32_t kMaxThumbnailSize = kDefaultThumbnailSize * 4;
 
     const char* GetFirstEnvironmentValue(std::initializer_list<const char*> names) {
         for (const char* name : names) {
@@ -50,6 +53,110 @@ namespace {
             }
         }
         return nullptr;
+    }
+
+    struct RgbaImage {
+        std::vector<std::byte> pixels;
+        uint32_t width = 0;
+        uint32_t height = 0;
+    };
+
+    RgbaImage ResizeRgbaImage(const RgbaImage& source, const uint32_t targetWidth, const uint32_t targetHeight) {
+        if (source.width == 0 || source.height == 0 || source.pixels.empty() || targetWidth == 0 || targetHeight == 0) {
+            return {};
+        }
+
+        if (source.width == targetWidth && source.height == targetHeight) {
+            return source;
+        }
+
+        RgbaImage resized;
+        resized.width = targetWidth;
+        resized.height = targetHeight;
+        resized.pixels.resize(static_cast<size_t>(targetWidth) * targetHeight * 4);
+
+        const float scaleX = static_cast<float>(source.width) / static_cast<float>(targetWidth);
+        const float scaleY = static_cast<float>(source.height) / static_cast<float>(targetHeight);
+
+        for (uint32_t y = 0; y < targetHeight; ++y) {
+            const uint32_t srcY = std::min(static_cast<uint32_t>(y * scaleY), source.height - 1);
+            for (uint32_t x = 0; x < targetWidth; ++x) {
+                const uint32_t srcX = std::min(static_cast<uint32_t>(x * scaleX), source.width - 1);
+                const size_t srcIndex = (static_cast<size_t>(srcY) * source.width + srcX) * 4;
+                const size_t dstIndex = (static_cast<size_t>(y) * targetWidth + x) * 4;
+                for (size_t c = 0; c < 4; ++c) {
+                    resized.pixels[dstIndex + c] = source.pixels[srcIndex + c];
+                }
+            }
+        }
+
+        return resized;
+    }
+
+    Thumbnail NormalizeThumbnailToSquare(const Thumbnail& thumbnail, const uint32_t targetSize) {
+        return rfl::visit(
+            [targetSize](const auto& variant) -> Thumbnail {
+                using Variant = std::decay_t<decltype(variant)>;
+
+                RgbaImage source;
+                source.width = variant.width;
+                source.height = variant.height;
+                source.pixels.resize(variant.data.size());
+                std::memcpy(source.pixels.data(), variant.data.data(), variant.data.size());
+
+                if (source.width == 0 || source.height == 0) {
+                    Variant normalized;
+                    normalized.width = targetSize;
+                    normalized.height = targetSize;
+                    normalized.data = rfl::Bytestring(std::vector<std::byte>(static_cast<size_t>(targetSize) * targetSize * 4));
+                    return Thumbnail{std::move(normalized)};
+                }
+
+                RgbaImage content = source;
+                if constexpr (std::is_same_v<Variant, Icon>) {
+                    if (source.width != targetSize || source.height != targetSize) {
+                        const float scale = std::min(
+                            static_cast<float>(targetSize) / static_cast<float>(source.width),
+                            static_cast<float>(targetSize) / static_cast<float>(source.height));
+                        const uint32_t scaledWidth = std::max(1u, static_cast<uint32_t>(source.width * scale));
+                        const uint32_t scaledHeight = std::max(1u, static_cast<uint32_t>(source.height * scale));
+                        content = ResizeRgbaImage(source, scaledWidth, scaledHeight);
+                    }
+                }
+                else if (source.width > targetSize || source.height > targetSize) {
+                    const float scale = std::min(
+                        static_cast<float>(targetSize) / static_cast<float>(source.width),
+                        static_cast<float>(targetSize) / static_cast<float>(source.height));
+                    const uint32_t scaledWidth = std::max(1u, static_cast<uint32_t>(source.width * scale));
+                    const uint32_t scaledHeight = std::max(1u, static_cast<uint32_t>(source.height * scale));
+                    content = ResizeRgbaImage(source, scaledWidth, scaledHeight);
+                }
+
+                std::vector<std::byte> squarePixels(static_cast<size_t>(targetSize) * targetSize * 4, std::byte{0});
+                const uint32_t offsetX = (targetSize - content.width) / 2;
+                const uint32_t offsetY = (targetSize - content.height) / 2;
+
+                for (uint32_t y = 0; y < content.height; ++y) {
+                    const size_t srcOffset = static_cast<size_t>(y) * content.width * 4;
+                    const size_t dstOffset =
+                        (static_cast<size_t>(y + offsetY) * targetSize + offsetX) * 4;
+                    std::memcpy(squarePixels.data() + dstOffset, content.pixels.data() + srcOffset,
+                                static_cast<size_t>(content.width) * 4);
+                }
+
+                Variant normalized;
+                normalized.width = targetSize;
+                normalized.height = targetSize;
+                normalized.data = rfl::Bytestring(std::move(squarePixels));
+                return Thumbnail{std::move(normalized)};
+            },
+            thumbnail);
+    }
+
+    void NormalizeThumbnailEntries(std::vector<std::pair<uint64_t, Thumbnail>>& entries, const uint32_t targetSize) {
+        for (auto& [_, thumbnail] : entries) {
+            thumbnail = NormalizeThumbnailToSquare(thumbnail, targetSize);
+        }
     }
 
     PluginConfiguration GetDefaultPluginConfiguration() {
@@ -71,11 +178,34 @@ namespace {
         return config;
     }
 
+    bool IsDirectoryEmpty(const fs::path& directory) {
+        if (directory.empty()) {
+            return false;
+        }
+
+        std::error_code ec;
+        if (!fs::exists(directory, ec) || !fs::is_directory(directory, ec)) {
+            return false;
+        }
+
+        const fs::directory_iterator begin(directory, fs::directory_options::skip_permission_denied, ec);
+        if (ec) {
+            return false;
+        }
+
+        return begin == fs::directory_iterator();
+    }
+
     void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
                                  spdlog::logger& logger,
-                                 bool renderModelThumbnails) {
+                                 bool renderModelThumbnails,
+                                 const uint32_t thumbnailSize) {
         try {
             logger.info("Initializing plugin scanner...");
+
+            if (IsDirectoryEmpty(config.userPluginsRoot)) {
+                logger.warn("User Plugins folder is empty: {}", config.userPluginsRoot.string());
+            }
 
             // Create locator to discover plugin files
             PluginLocator locator(config);
@@ -142,7 +272,7 @@ namespace {
             uint32_t parseErrors = 0;
             std::set<uint32_t> missingBuildingIds;
 
-            ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails);
+            ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails, thumbnailSize);
             std::vector<Building> allBuildings;
             std::vector<Prop> allProps;
             std::vector<Flora> allFlora;
@@ -423,6 +553,7 @@ namespace {
                     }
                 }
                 if (!buildingThumbnails.empty()) {
+                    NormalizeThumbnailEntries(buildingThumbnails, thumbnailSize);
                     const auto binPath = config.userPluginsRoot / "lot_thumbnails.bin";
                     const auto count = buildingThumbnails.size();
                     ThumbnailBin::Write(binPath, std::move(buildingThumbnails));
@@ -464,6 +595,7 @@ namespace {
                     }
                 }
                 if (!propThumbnails.empty()) {
+                    NormalizeThumbnailEntries(propThumbnails, thumbnailSize);
                     const auto binPath = config.userPluginsRoot / "prop_thumbnails.bin";
                     const auto count = propThumbnails.size();
                     ThumbnailBin::Write(binPath, std::move(propThumbnails));
@@ -508,6 +640,7 @@ namespace {
                     }
                 }
                 if (!floraThumbnails.empty()) {
+                    NormalizeThumbnailEntries(floraThumbnails, thumbnailSize);
                     const auto binPath = config.userPluginsRoot / "flora_thumbnails.bin";
                     const auto count = floraThumbnails.size();
                     ThumbnailBin::Write(binPath, std::move(floraThumbnails));
@@ -568,6 +701,11 @@ int main(int argc, char* argv[]) {
                                                 {"locale"});
         args::Flag renderThumbnailsFlag(parser, "render-thumbnails", "Render 3D thumbnails for buildings without icons",
                                         {"render-thumbnails"});
+        args::ValueFlag<uint32_t> thumbnailSizeFlag(
+            parser,
+            "px",
+            "Square thumbnail size in pixels for cached thumbnails (22-176, default 44)",
+            {"thumbnail-size"});
 
         try {
             parser.ParseCLI(argc, argv);
@@ -592,6 +730,7 @@ int main(int argc, char* argv[]) {
 
         if (scanFlag) {
             auto config = GetDefaultPluginConfiguration();
+            uint32_t thumbnailSize = kDefaultThumbnailSize;
 
             // Override with command-line arguments if provided
             if (gameFlag) {
@@ -604,17 +743,26 @@ int main(int argc, char* argv[]) {
             if (pluginsFlag) {
                 config.userPluginsRoot = args::get(pluginsFlag);
             }
+            if (thumbnailSizeFlag) {
+                thumbnailSize = args::get(thumbnailSizeFlag);
+                if (thumbnailSize < kMinThumbnailSize || thumbnailSize > kMaxThumbnailSize) {
+                    logger->error("Invalid --thumbnail-size {}. Expected a value between {} and {}.",
+                                  thumbnailSize, kMinThumbnailSize, kMaxThumbnailSize);
+                    return 1;
+                }
+            }
 
             logger->info("Using plugin configuration:");
             logger->info("  Game Root: {}", config.gameRoot.string());
             logger->info("  Game Locale: {}", (config.gameRoot / config.localeDir).string());
             logger->info("  Game Plugins: {}", config.gamePluginsRoot.string());
             logger->info("  User Plugins: {}", config.userPluginsRoot.string());
+            logger->info("  Thumbnail Size: {} px", thumbnailSize);
 
             if (renderThumbnailsFlag) {
                 logger->info("3D thumbnail rendering enabled");
             }
-            ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag);
+            ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailSize);
             return 0;
         }
 

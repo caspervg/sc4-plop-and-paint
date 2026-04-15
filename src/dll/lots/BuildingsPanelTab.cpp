@@ -35,7 +35,7 @@ void BuildingsPanelTab::OnRender() {
     const auto& buildings = lots_->GetBuildings();
 
     if (buildings.empty()) {
-        ImGui::TextUnformatted("No buildings loaded. Please ensure lot_configs.cbor exists in the Plugins directory.");
+        ImGui::TextUnformatted("No buildings loaded. Please ensure lots.cbor exists in the Plugins directory.");
         return;
     }
 
@@ -182,6 +182,7 @@ void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
         ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("BuildingsTable", 4, tableFlags, ImVec2(0, tableHeight))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Thumb",
                                 ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort,
                                 UI::iconColumnWidth());
@@ -193,7 +194,6 @@ void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
         ImGui::TableSetupColumn("Lots",
                                 ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort,
                                 UI::lotsCountColumnWidth());
-        ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
 
         // Handle sorting
@@ -264,12 +264,12 @@ void BuildingsPanelTab::RenderLotsDetailTable_(const float tableHeight) {
         ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("LotsDetailTable", 4, tableFlags, ImVec2(0, tableHeight))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide);
         ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, UI::lotSizeColumnWidth());
         ImGui::TableSetupColumn("Stage", ImGuiTableColumnFlags_WidthFixed, UI::lotStageColumnWidth());
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort,
                                 UI::actionColumnWidth());
-        ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
 
         for (const auto& lot : selectedBuilding_->lots) {
@@ -302,11 +302,7 @@ void BuildingsPanelTab::RenderBuildingRow_(const Building& building, const bool 
     }
     ImGui::SameLine();
     auto thumbTextureId = thumbnailCache_.Get(key);
-    if (thumbTextureId.has_value() && *thumbTextureId != nullptr) {
-        ImGui::Image(*thumbTextureId, ImVec2(UI::kIconSize, UI::kIconSize));
-    } else {
-        ImGui::Dummy(ImVec2(UI::kIconSize, UI::kIconSize));
-    }
+    RenderThumbnail_(thumbTextureId);
 
     // Name column
     ImGui::TableNextColumn();

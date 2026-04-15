@@ -10,9 +10,15 @@ on:
 
 env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  DLL_ARTIFACT_NAME: SC4PlopAndPaint-dll-${{ github.sha }}
+  CLI_ARTIFACT_NAME: SC4PlopAndPaint-cli-${{ github.sha }}
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  build-dll:
     runs-on: windows-latest
 
     steps:
@@ -41,35 +47,114 @@ jobs:
           ./vendor/vcpkg/bootstrap-vcpkg.bat
           echo "VCPKG_ROOT=${{ github.workspace }}/vendor/vcpkg" >> $env:GITHUB_ENV
 
-      # sc4-imgui-service (32-bit) - only imgui is needed for this package
-      - name: Build sc4-imgui-service
-        working-directory: vendor/sc4-imgui-service
+      - name: Build sc4-render-services
+        working-directory: vendor/sc4-render-services
         run: |
           cmake -B build -G "Visual Studio 17 2022" -A Win32
-          cmake --build build --config Release --target imgui
+          cmake --build build --config Release --target imgui --parallel
 
-      # Main DLL (32-bit for SC4)
       - name: Build DLL
         run: |
           cmake --preset vs2022-win32-release
-          cmake --build --preset vs2022-win32-release-build --target SC4PlopAndPaint
+          cmake --build --preset vs2022-win32-release-build --target SC4PlopAndPaint --parallel
 
-      # CL app (64-bit)
+      - name: Upload raw DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DLL_ARTIFACT_NAME }}
+          compression-level: 0
+          path: |
+            cmake-build-release-visual-studio/src/dll/Release/SC4PlopAndPaint.dll
+
+  build-cli:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Fetch full vcpkg history
+        shell: powershell
+        run: |
+          $isShallow = (git -C vendor/vcpkg rev-parse --is-shallow-repository).Trim()
+          if ($isShallow -eq "true") {
+            git -C vendor/vcpkg fetch --unshallow
+          }
+
+      - name: Bootstrap vcpkg
+        run: |
+          ./vendor/vcpkg/bootstrap-vcpkg.bat
+          echo "VCPKG_ROOT=${{ github.workspace }}/vendor/vcpkg" >> $env:GITHUB_ENV
+
       - name: Build CLI
         run: |
           cmake --preset vs2022-x64-release
-          cmake --build --preset vs2022-x64-release-build --target SC4PlopAndPaintCli
+          cmake --build --preset vs2022-x64-release-build --target SC4PlopAndPaintCli --parallel
 
-      - name: Package
+      - name: Smoke test CLI --version
+        shell: powershell
+        run: |
+          $cliPath = Join-Path "${{ github.workspace }}" "cmake-build-release-visual-studio-x64\src\app\Release\SC4PlopAndPaintCli.exe"
+          if (-not (Test-Path $cliPath)) {
+            throw "CLI smoke test failed: missing executable at $cliPath"
+          }
+
+          & $cliPath --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "CLI smoke test failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Upload raw CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CLI_ARTIFACT_NAME }}
+          compression-level: 0
+          path: |
+            cmake-build-release-visual-studio-x64/src/app/Release/SC4PlopAndPaintCli.exe
+
+  package-installer:
+    needs: [build-dll, build-cli]
+    runs-on: windows-latest
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Download DLL artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.DLL_ARTIFACT_NAME }}
+          path: artifacts/dll
+
+      - name: Download CLI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.CLI_ARTIFACT_NAME }}
+          path: artifacts/cli
+
+      - name: Assemble package
         shell: bash
         run: |
           mkdir -p dist-package
 
-          cp cmake-build-release-visual-studio/src/dll/Release/SC4PlopAndPaint.dll dist-package/SC4PlopAndPaint.dll
-          cp cmake-build-release-visual-studio-x64/src/app/Release/SC4PlopAndPaintCli.exe dist-package/_SC4PlopAndPaintCacheBuilder.exe
+          cp artifacts/dll/SC4PlopAndPaint.dll dist-package/SC4PlopAndPaint.dll
+          cp artifacts/cli/SC4PlopAndPaintCli.exe dist-package/_SC4PlopAndPaintCacheBuilder.exe
 
           cp dist/README.txt dist-package/
-          cp dist/RUN_CACHE_BUILDER.ps1 dist-package/
+          cp dist/RUN_CACHE_BUILDER.cmd dist-package/
           cp LICENSE.txt dist-package/
           cp dist/THIRD_PARTY_NOTICES.txt dist-package/
           cp dist/SC4PlopAndPaintInstaller.nsi dist-package/
@@ -113,10 +198,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: SC4PlopAndPaint-${{ github.ref_name || github.sha }}
+          compression-level: 0
           path: dist-package/
 
   release:
-    needs: build
+    needs: package-installer
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:

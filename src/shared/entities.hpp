@@ -113,6 +113,7 @@ struct PropFamily {
     std::string name;
     std::vector<FamilyEntry> entries;
     float densityVariation = 0.0f;
+    std::optional<rfl::Hex<uint64_t>> persistentId;
 };
 
 struct Flora {
@@ -148,11 +149,22 @@ struct TabFavorites {
     std::vector<rfl::Hex<uint64_t>> items;
 };
 
+struct RecentPaintEntryData {
+    uint8_t sourceKind = 0;
+    rfl::Hex<uint64_t> sourceId;
+    uint8_t kind = 0;
+    rfl::Hex<uint32_t> typeId;
+    rfl::Hex<uint64_t> thumbnailKey;
+    std::string name;
+    std::vector<FamilyEntry> palette;
+};
+
 struct AllFavorites {
-    uint32_t version = 3;
+    uint32_t version = 4;
     TabFavorites lots;
     std::optional<TabFavorites> props;
     std::optional<TabFavorites> flora;
     std::optional<std::vector<PropFamily>> families;
+    std::optional<std::vector<RecentPaintEntryData>> recentPaints;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

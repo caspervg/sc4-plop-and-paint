@@ -26,6 +26,8 @@ public:
 private:
     struct PendingPaintState {
         uint32_t typeId{0};
+        RecentPaintEntry::SourceKind sourceKind{RecentPaintEntry::SourceKind::FloraFamily};
+        uint64_t sourceId{0};
         std::string name;
         std::string detail;
         PropPaintSettings settings{};

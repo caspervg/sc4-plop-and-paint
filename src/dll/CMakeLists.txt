@@ -106,6 +106,7 @@ if(WIN32)
         "C:/Program Files (x86)/Steam/steamapps/common/SimCity 4 Deluxe"
         "C:/Program Files/Steam/steamapps/common/SimCity 4 Deluxe"
         "C:/Program Files (x86)/GOG Galaxy/Games/SimCity 4 Deluxe Edition"
+        "C:/GOG Games/SimCity 4 Deluxe Edition"
     )
 
     foreach(SC4_PATH ${SC4_INSTALL_PATHS})

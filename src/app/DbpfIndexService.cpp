@@ -187,7 +187,7 @@ DBPF::Reader* DbpfIndexService::getReader(const std::filesystem::path& filePath)
 
     // Create a new reader and load the file
     auto reader = std::make_unique<DBPF::Reader>();
-    if (!reader->LoadFile(filePath.string())) {
+    if (!reader->LoadFile(filePath)) {
         return nullptr;
     }
 
@@ -222,7 +222,7 @@ void DbpfIndexService::worker_() {
 
             try {
                 auto reader = std::make_unique<DBPF::Reader>();
-                if (!reader->LoadFile(filePath.string())) {
+                if (!reader->LoadFile(filePath)) {
                     spdlog::warn("Failed to load {}, not a DBPF file?", filePath.string());
                     ++errorCount_;
                     ++processedFiles_;

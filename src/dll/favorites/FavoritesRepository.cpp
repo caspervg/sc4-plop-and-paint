@@ -20,6 +20,7 @@ void FavoritesRepository::Load() {
     favoritePropIds_.clear();
     favoriteFloraIds_.clear();
     userFamilies_.clear();
+    recentPaintsCache_.clear();
     activeUserFamilyIndex_ = 0;
 
     try {
@@ -50,6 +51,9 @@ void FavoritesRepository::Load() {
                 userFamilies_ = *result->families;
                 for (auto& family : userFamilies_) {
                     family.densityVariation = std::clamp(family.densityVariation, 0.0f, 1.0f);
+                    if (!family.persistentId.has_value()) {
+                        family.persistentId = rfl::Hex<uint64_t>(GenerateNextUserFamilyId_());
+                    }
                     std::erase_if(family.entries, [this](const FamilyEntry& entry) {
                         return props_.FindPropByInstanceId(entry.propID.value()) == nullptr;
                     });
@@ -57,6 +61,9 @@ void FavoritesRepository::Load() {
                         entry.weight = std::max(0.1f, entry.weight);
                     }
                 }
+            }
+            if (result->recentPaints) {
+                recentPaintsCache_ = *result->recentPaints;
             }
 
             LOG_INFO("Loaded {} favorite lots, {} user families from {}",
@@ -77,7 +84,7 @@ void FavoritesRepository::Save() const {
         const auto cborPath = pluginsPath / "favorites.cbor";
 
         AllFavorites allFavorites;
-        allFavorites.version = 3;
+        allFavorites.version = 4;
 
         for (const uint32_t id : favoriteLotIds_) {
             allFavorites.lots.items.emplace_back(id);
@@ -109,6 +116,9 @@ void FavoritesRepository::Save() const {
             allFavorites.flora = std::nullopt;
         }
         allFavorites.families = userFamilies_.empty() ? std::nullopt : std::make_optional(userFamilies_);
+        allFavorites.recentPaints = recentPaintsCache_.empty()
+            ? std::nullopt
+            : std::make_optional(recentPaintsCache_);
 
         if (const auto saveResult = rfl::cbor::save(cborPath.string(), allFavorites)) {
             LOG_INFO("Saved {} favorite lots, {} user families to {}",
@@ -121,6 +131,14 @@ void FavoritesRepository::Save() const {
     catch (const std::exception& e) {
         LOG_ERROR("Error saving favorites: {}", e.what());
     }
+}
+
+const std::vector<RecentPaintEntryData>& FavoritesRepository::GetRecentPaintsData() const {
+    return recentPaintsCache_;
+}
+
+void FavoritesRepository::SetRecentPaintsData(std::vector<RecentPaintEntryData> data) {
+    recentPaintsCache_ = std::move(data);
 }
 
 bool FavoritesRepository::IsLotFavorite(const uint32_t lotInstanceId) const {
@@ -223,6 +241,7 @@ bool FavoritesRepository::CreateUserFamily(const std::string& name) {
     }
     PropFamily family;
     family.name = name;
+    family.persistentId = rfl::Hex<uint64_t>(GenerateNextUserFamilyId_());
     userFamilies_.push_back(std::move(family));
     activeUserFamilyIndex_ = userFamilies_.size() - 1;
     Save();
@@ -333,6 +352,7 @@ bool FavoritesRepository::AddPropFamilyToNewUserFamily(const uint32_t familyID) 
 
     PropFamily family;
     family.name = std::move(candidateName);
+    family.persistentId = rfl::Hex<uint64_t>(GenerateNextUserFamilyId_());
     family.entries.reserve(uniquePropIds.size());
     for (const uint32_t propId : uniquePropIds) {
         family.entries.push_back(FamilyEntry{rfl::Hex<uint32_t>(propId), 1.0f});
@@ -359,4 +379,14 @@ std::string FavoritesRepository::BuildDefaultFamilyName_(const std::string& base
     std::string name = baseName.empty() ? std::string("Family") : baseName;
     name += " mix";
     return name;
+}
+
+uint64_t FavoritesRepository::GenerateNextUserFamilyId_() const {
+    uint64_t nextId = 1;
+    for (const auto& family : userFamilies_) {
+        if (family.persistentId.has_value()) {
+            nextId = std::max(nextId, family.persistentId->value() + 1);
+        }
+    }
+    return nextId;
 }

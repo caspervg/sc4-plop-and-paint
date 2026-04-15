@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <entities.hpp>
 #include <rfl/cbor.hpp>
 #include <vector>
@@ -8,6 +9,7 @@
 inline bool operator==(const Lot& lhs, const Lot& rhs);
 inline bool operator==(const FamilyEntry& lhs, const FamilyEntry& rhs);
 inline bool operator==(const PropFamily& lhs, const PropFamily& rhs);
+inline bool operator==(const RecentPaintEntryData& lhs, const RecentPaintEntryData& rhs);
 inline bool operator==(const PropTimeOfDay& lhs, const PropTimeOfDay& rhs);
 inline bool operator==(const SimulatorDateStart& lhs, const SimulatorDateStart& rhs);
 inline bool operator==(const Prop& lhs, const Prop& rhs);
@@ -56,9 +58,23 @@ inline bool operator==(const FamilyEntry& lhs, const FamilyEntry& rhs) {
 
 // Helper function to compare PropFamily structs
 inline bool operator==(const PropFamily& lhs, const PropFamily& rhs) {
+    const bool samePersistentId =
+        lhs.persistentId.has_value() == rhs.persistentId.has_value() &&
+        (!lhs.persistentId.has_value() || lhs.persistentId->value() == rhs.persistentId->value());
     return lhs.name == rhs.name &&
            lhs.entries == rhs.entries &&
-           lhs.densityVariation == rhs.densityVariation;
+           lhs.densityVariation == rhs.densityVariation &&
+           samePersistentId;
+}
+
+inline bool operator==(const RecentPaintEntryData& lhs, const RecentPaintEntryData& rhs) {
+    return lhs.sourceKind == rhs.sourceKind &&
+           lhs.sourceId.value() == rhs.sourceId.value() &&
+           lhs.kind == rhs.kind &&
+           lhs.typeId.value() == rhs.typeId.value() &&
+           lhs.thumbnailKey.value() == rhs.thumbnailKey.value() &&
+           lhs.name == rhs.name &&
+           lhs.palette == rhs.palette;
 }
 
 inline bool operator==(const PropTimeOfDay& lhs, const PropTimeOfDay& rhs) {
@@ -72,6 +88,10 @@ inline bool operator==(const SimulatorDateStart& lhs, const SimulatorDateStart& 
 }
 
 inline bool operator==(const Prop& lhs, const Prop& rhs) {
+    const bool sameFamilyIds =
+        lhs.familyIds.size() == rhs.familyIds.size() &&
+        std::equal(lhs.familyIds.begin(), lhs.familyIds.end(), rhs.familyIds.begin(),
+            [](const auto& left, const auto& right) { return left.value() == right.value(); });
     return lhs.groupId.value() == rhs.groupId.value() &&
            lhs.instanceId.value() == rhs.instanceId.value() &&
            lhs.exemplarName == rhs.exemplarName &&
@@ -85,7 +105,7 @@ inline bool operator==(const Prop& lhs, const Prop& rhs) {
            lhs.maxY == rhs.maxY &&
            lhs.minZ == rhs.minZ &&
            lhs.maxZ == rhs.maxZ &&
-           lhs.familyIds == rhs.familyIds &&
+           sameFamilyIds &&
            lhs.nighttimeStateChange == rhs.nighttimeStateChange &&
            lhs.timeOfDay == rhs.timeOfDay &&
            lhs.simulatorDateStart == rhs.simulatorDateStart &&
@@ -111,6 +131,7 @@ inline bool operator==(const AllFavorites& lhs, const AllFavorites& rhs) {
            lhs.props == rhs.props &&
            lhs.flora == rhs.flora &&
            lhs.families == rhs.families &&
+           lhs.recentPaints == rhs.recentPaints &&
            lhs.lastModified.str() == rhs.lastModified.str();
 }
 
@@ -387,7 +408,22 @@ TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites
                     FamilyEntry{.propID = rfl::Hex<uint32_t>(0x01020304), .weight = 1.0f},
                     FamilyEntry{.propID = rfl::Hex<uint32_t>(0x05060708), .weight = 2.5f}
                 },
-                .densityVariation = 0.35f
+                .densityVariation = 0.35f,
+                .persistentId = rfl::Hex<uint64_t>(0xABCDEF01ULL)
+            }
+        },
+        .recentPaints = std::vector<RecentPaintEntryData>{
+            RecentPaintEntryData{
+                .sourceKind = 2,
+                .sourceId = rfl::Hex<uint64_t>(0xABCDEF01ULL),
+                .kind = 0,
+                .typeId = rfl::Hex<uint32_t>(0x01020304),
+                .thumbnailKey = rfl::Hex<uint64_t>(0x1111222233334444ULL),
+                .name = "Street Furniture",
+                .palette = {
+                    FamilyEntry{.propID = rfl::Hex<uint32_t>(0x01020304), .weight = 1.0f},
+                    FamilyEntry{.propID = rfl::Hex<uint32_t>(0x05060708), .weight = 2.5f}
+                }
             }
         },
         .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">("2026-01-20T15:45:30")
@@ -410,6 +446,12 @@ TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites
     REQUIRE(deserialized->families->size() == 1);
     REQUIRE((*deserialized->families)[0].name == "Street Furniture");
     REQUIRE((*deserialized->families)[0].entries.size() == 2);
+    REQUIRE((*deserialized->families)[0].persistentId.has_value());
+    REQUIRE((*deserialized->families)[0].persistentId->value() == 0xABCDEF01ULL);
+    REQUIRE(deserialized->recentPaints.has_value());
+    REQUIRE(deserialized->recentPaints->size() == 1);
+    REQUIRE((*deserialized->recentPaints)[0].sourceId.value() == 0xABCDEF01ULL);
+    REQUIRE((*deserialized->recentPaints)[0].palette.size() == 2);
 }
 
 TEST_CASE("AllFavorites CBOR empty favorites", "[cbor][favorites][edge-case]") {
