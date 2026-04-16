@@ -1,11 +1,8 @@
 #pragma once
 
 #include <cstddef>
-#include <vector>
-
-#include "TerrainDecalExamples.hpp"
-#include "TerrainDecalSymbols.hpp"
 #include "cRZRect.h"
+#include "TerrainDecalSymbols.hpp"
 
 class SC4DrawContext;
 class cISTETerrain;
@@ -24,7 +21,6 @@ namespace TerrainDecal
     struct RendererOptions
     {
         bool enableClippedRendering = false;
-        bool logInterceptedDraws = false;
     };
 
     struct DrawRequest
@@ -37,7 +33,6 @@ namespace TerrainDecal
         const HookAddresses* addresses = nullptr;
         cISTETerrain* terrain = nullptr;
         cISTETerrainView* terrainView = nullptr;
-        const float* effectiveTexTransform = nullptr;
     };
 
     class ClippedTerrainDecalRenderer final
@@ -49,11 +44,8 @@ namespace TerrainDecal
         [[nodiscard]] const RendererOptions& GetOptions() const noexcept;
 
         [[nodiscard]] DrawResult Draw(const DrawRequest& request);
-        [[nodiscard]] DrawResult DrawCommands(const DrawRequest& request,
-                                             const std::vector<ClippedDecalDrawCommand>& commands);
 
     private:
         RendererOptions options_;
-        bool loggedNotImplemented_ = false;
     };
 }

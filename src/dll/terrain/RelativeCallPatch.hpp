@@ -6,11 +6,11 @@
 
 namespace TerrainDecal
 {
-    class X86RelativeCallPatch final
+    class RelativeCallPatch final
     {
     public:
-        X86RelativeCallPatch() = default;
-        X86RelativeCallPatch(std::string_view name, uintptr_t callSiteAddress, void* hookFn);
+        RelativeCallPatch() = default;
+        RelativeCallPatch(std::string_view name, uintptr_t callSiteAddress, void* hookFn);
 
         void Configure(std::string_view name, uintptr_t callSiteAddress, void* hookFn);
 

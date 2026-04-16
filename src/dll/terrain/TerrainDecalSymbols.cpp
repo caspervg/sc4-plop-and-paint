@@ -6,13 +6,11 @@ namespace TerrainDecal
     {
         switch (gameVersion) {
         case 641:
-            // Observed in the currently loaded Windows x86 1.1.641 executable.
             return HookAddresses{
                 .gameVersion = 641,
                 .drawDecals = 0x00736790u,
                 .drawRect = 0x00735720u,
                 .drawRectCallSite = 0x00736B88u,
-                .drawDecalsSetTexTransform4CallSite = 0x00736B7Cu,
                 .setVertexBuffer = 0x007D2970u,
                 .drawPrims = 0x007D2990u,
                 .drawPrimsIndexed = 0x007D29C0u,

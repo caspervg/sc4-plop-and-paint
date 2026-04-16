@@ -189,7 +189,6 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         TerrainDecal::TerrainDecalHook::Options{
             .installEnabled = true,
             .enableExperimentalRenderer = true,
-            .logInterceptedDraws = true,
         });
     if (terrainDecalHook_->Install()) {
         LOG_INFO("Terrain decal hook installed");

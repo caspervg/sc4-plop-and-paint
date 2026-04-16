@@ -13,7 +13,6 @@ namespace TerrainDecal
         uintptr_t drawDecals = 0;
         uintptr_t drawRect = 0;
         uintptr_t drawRectCallSite = 0;
-        uintptr_t drawDecalsSetTexTransform4CallSite = 0;
         uintptr_t setVertexBuffer = 0;
         uintptr_t drawPrims = 0;
         uintptr_t drawPrimsIndexed = 0;

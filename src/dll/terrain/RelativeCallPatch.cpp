@@ -1,4 +1,4 @@
-#include "X86RelativeCallPatch.hpp"
+#include "RelativeCallPatch.hpp"
 
 #include <Windows.h>
 
@@ -14,14 +14,14 @@ namespace
 
 namespace TerrainDecal
 {
-    X86RelativeCallPatch::X86RelativeCallPatch(const std::string_view name,
-                                               const uintptr_t callSiteAddress,
-                                               void* hookFn)
+    RelativeCallPatch::RelativeCallPatch(const std::string_view name,
+                                         const uintptr_t callSiteAddress,
+                                         void* hookFn)
     {
         Configure(name, callSiteAddress, hookFn);
     }
 
-    void X86RelativeCallPatch::Configure(const std::string_view name, const uintptr_t callSiteAddress, void* hookFn)
+    void RelativeCallPatch::Configure(const std::string_view name, const uintptr_t callSiteAddress, void* hookFn)
     {
         name_ = name;
         callSiteAddress_ = callSiteAddress;
@@ -31,21 +31,7 @@ namespace TerrainDecal
         installed_ = false;
     }
 
-    bool X86RelativeCallPatch::ComputeRelativeCallTarget(const uintptr_t callSiteAddress,
-                                                         const uintptr_t targetAddress,
-                                                         int32_t& relOut)
-    {
-        const auto delta = static_cast<int64_t>(targetAddress) -
-                           static_cast<int64_t>(callSiteAddress + kCallInstructionLength);
-        if (delta < std::numeric_limits<int32_t>::min() || delta > std::numeric_limits<int32_t>::max()) {
-            return false;
-        }
-
-        relOut = static_cast<int32_t>(delta);
-        return true;
-    }
-
-    bool X86RelativeCallPatch::Install()
+    bool RelativeCallPatch::Install()
     {
         if (installed_) {
             return true;
@@ -86,7 +72,7 @@ namespace TerrainDecal
         return true;
     }
 
-    void X86RelativeCallPatch::Uninstall()
+    void RelativeCallPatch::Uninstall()
     {
         if (!installed_) {
             return;
@@ -103,19 +89,33 @@ namespace TerrainDecal
         installed_ = false;
     }
 
-    bool X86RelativeCallPatch::IsInstalled() const noexcept
+    bool RelativeCallPatch::IsInstalled() const noexcept
     {
         return installed_;
     }
 
-    uintptr_t X86RelativeCallPatch::GetOriginalTarget() const noexcept
+    uintptr_t RelativeCallPatch::GetOriginalTarget() const noexcept
     {
         return originalTarget_;
     }
 
-    uintptr_t X86RelativeCallPatch::GetCallSiteAddress() const noexcept
+    uintptr_t RelativeCallPatch::GetCallSiteAddress() const noexcept
     {
         return callSiteAddress_;
+    }
+
+    bool RelativeCallPatch::ComputeRelativeCallTarget(const uintptr_t callSiteAddress,
+                                                      const uintptr_t targetAddress,
+                                                      int32_t& relOut)
+    {
+        const auto delta = static_cast<int64_t>(targetAddress) -
+            static_cast<int64_t>(callSiteAddress + kCallInstructionLength);
+        if (delta < std::numeric_limits<int32_t>::min() || delta > std::numeric_limits<int32_t>::max()) {
+            return false;
+        }
+
+        relOut = static_cast<int32_t>(delta);
+        return true;
     }
 }
 

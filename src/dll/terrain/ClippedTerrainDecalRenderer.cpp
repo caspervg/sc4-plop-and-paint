@@ -5,17 +5,13 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 #include "cISTETerrain.h"
-#include "utils/Logger.h"
 
 namespace
 {
-    // Verified from x86 DrawPrims callers in the SC4 1.1.641 executable:
-    // DrawPrims(drawContext, primType, vertexFormat, vertexCount, vertexPtr)
-    // - DrawPlumbingInfo uses primType 0 for explicit 3/6-vertex triangle lists.
-    // - Signpost/quads use primType 6 with exactly 4 vertices per quad.
-    // Our clipped output is an explicit triangle list, so it should use primType 0.
+    // SC4 uses primType 0 for caller-supplied explicit triangles.
     constexpr uint32_t kPrimTypeTriangleList = 0;
     constexpr uint32_t kTerrainVertexFormat = 0x0B;
     constexpr float kClipEpsilon = 1.0e-5f;
@@ -36,59 +32,14 @@ namespace
         int vertexCount = 0;
     };
 
-    enum class TerrainCellLoadFailureReason
-    {
-        None,
-        MissingGlobals,
-        MissingPreparedRowsTable,
-        MissingPreparedRow,
-        MissingCellInfoRowsTable,
-        MissingCellInfoRow,
-        MissingTerrainVertices,
-        InvalidDimensions,
-        CellOutOfRange,
-        NegativeRowVertexIndex,
-        VertexRangeOutOfBounds,
-    };
-
-    [[nodiscard]] const char* ToString(const TerrainCellLoadFailureReason reason) noexcept
-    {
-        switch (reason) {
-        case TerrainCellLoadFailureReason::None:
-            return "none";
-        case TerrainCellLoadFailureReason::MissingGlobals:
-            return "missing_globals";
-        case TerrainCellLoadFailureReason::MissingPreparedRowsTable:
-            return "missing_prepared_rows_table";
-        case TerrainCellLoadFailureReason::MissingPreparedRow:
-            return "missing_prepared_row";
-        case TerrainCellLoadFailureReason::MissingCellInfoRowsTable:
-            return "missing_cell_info_rows_table";
-        case TerrainCellLoadFailureReason::MissingCellInfoRow:
-            return "missing_cell_info_row";
-        case TerrainCellLoadFailureReason::MissingTerrainVertices:
-            return "missing_terrain_vertices";
-        case TerrainCellLoadFailureReason::InvalidDimensions:
-            return "invalid_dimensions";
-        case TerrainCellLoadFailureReason::CellOutOfRange:
-            return "cell_out_of_range";
-        case TerrainCellLoadFailureReason::NegativeRowVertexIndex:
-            return "negative_row_vertex_index";
-        case TerrainCellLoadFailureReason::VertexRangeOutOfBounds:
-            return "vertex_range_out_of_bounds";
-        }
-
-        return "unknown";
-    }
-
     struct PackedTerrainVertex
     {
         float x;
         float y;
         float z;
         uint32_t diffuse;
-        float u;       // Verified live terrain UV at offset 0x10.
-        float v;       // Verified live terrain UV at offset 0x14.
+        float u;
+        float v;
         float extra0;
         float extra1;
     };
@@ -124,9 +75,6 @@ namespace
         uint32_t unknown2;
     };
 
-    // Note: the vendored sc4-render-services wrapper models DrawPrims differently.
-    // For this renderer we follow the verified game-binary caller pattern above,
-    // not the higher-level wrapper abstraction.
     using DrawPrimsFn = void(__thiscall*)(SC4DrawContext*, uint32_t, uint32_t, uint32_t, const void*);
 
     [[nodiscard]] OverlaySlotView ReadOverlaySlotView(const std::byte* slotBase)
@@ -325,47 +273,6 @@ namespace
         EmitTriangleFan(polygon, output);
     }
 
-    [[nodiscard]] float ComputePolygonAreaXZ(const std::vector<ClipVertex>& polygon) noexcept
-    {
-        if (polygon.size() < 3) {
-            return 0.0f;
-        }
-
-        float twiceArea = 0.0f;
-        for (size_t i = 0; i < polygon.size(); ++i) {
-            const auto& a = polygon[i].vertex;
-            const auto& b = polygon[(i + 1) % polygon.size()].vertex;
-            twiceArea += (a.x * b.z) - (b.x * a.z);
-        }
-
-        return std::fabs(twiceArea) * 0.5f;
-    }
-
-    [[nodiscard]] float ComputeClippedPolygonArea(const std::array<ClipVertex, 4>& vertices,
-                                                  const std::array<size_t, 4>& order,
-                                                  const bool clipU,
-                                                  const bool clipV) noexcept
-    {
-        std::vector<ClipVertex> polygon{
-            vertices[order[0]],
-            vertices[order[1]],
-            vertices[order[2]],
-            vertices[order[3]],
-        };
-
-        if (clipU) {
-            ClipPolygonAgainstPlane(polygon, true, true, 0.0f);
-            ClipPolygonAgainstPlane(polygon, true, false, 1.0f);
-        }
-
-        if (clipV) {
-            ClipPolygonAgainstPlane(polygon, false, true, 0.0f);
-            ClipPolygonAgainstPlane(polygon, false, false, 1.0f);
-        }
-
-        return ComputePolygonAreaXZ(polygon);
-    }
-
     [[nodiscard]] bool AllVerticesInside(const std::array<ClipVertex, 4>& vertices,
                                          const bool clipU,
                                          const bool clipV) noexcept
@@ -499,45 +406,18 @@ namespace
     [[nodiscard]] bool LoadTerrainCellVertices(const TerrainDecal::HookAddresses& addresses,
                                                const int cellX,
                                                const int cellZ,
-                                               std::array<PackedTerrainVertex, 4>& result,
-                                               TerrainCellLoadFailureReason* const failureReason = nullptr,
-                                               int* const rowVertexIndexOut = nullptr,
-                                               int* const baseIndexOut = nullptr)
+                                               std::array<PackedTerrainVertex, 4>& result)
     {
-        if (failureReason) {
-            *failureReason = TerrainCellLoadFailureReason::None;
-        }
-        if (rowVertexIndexOut) {
-            *rowVertexIndexOut = -1;
-        }
-        if (baseIndexOut) {
-            *baseIndexOut = -1;
-        }
-
         const TerrainGridDimensions dimensions = ReadTerrainGridDimensions(addresses);
         if (dimensions.cellCountX <= 0 || dimensions.cellCountZ <= 0 ||
             dimensions.vertexCountX <= 0 || dimensions.vertexCount <= 0) {
-            if (failureReason) {
-                *failureReason = TerrainCellLoadFailureReason::InvalidDimensions;
-            }
             return false;
         }
 
         if (cellX >= dimensions.cellCountX || cellZ >= dimensions.cellCountZ) {
-            if (failureReason) {
-                *failureReason = TerrainCellLoadFailureReason::CellOutOfRange;
-            }
             return false;
         }
 
-        // The live draw path uses the prepared per-row cell-quad buffers from DAT_00b4c6b0.
-        // Each terrain cell expands to 4 PackedTerrainVertex values (0x80 bytes).
-        const auto* const preparedRowsTable = GetPreparedCellVertexRowsTable(addresses.terrainPreparedCellVerticesRowsPtr);
-        if (!preparedRowsTable) {
-            if (failureReason) {
-                *failureReason = TerrainCellLoadFailureReason::MissingPreparedRowsTable;
-            }
-        }
         const auto* const preparedRow = GetPreparedCellVertexRow(addresses.terrainPreparedCellVerticesRowsPtr, cellZ);
         if (preparedRow) {
             const size_t rowOffset = static_cast<size_t>(cellX) * sizeof(PackedTerrainVertex) * 4;
@@ -550,22 +430,13 @@ namespace
             result[3] = preparedVertices[3];
             return true;
         }
-        if (preparedRowsTable && failureReason) {
-            *failureReason = TerrainCellLoadFailureReason::MissingPreparedRow;
-        }
 
         const auto* const vertices = GetTerrainVertexArray(addresses.terrainGridVerticesPtr);
         const auto* const rows = ReadRowTable(addresses.terrainCellInfoRowsPtr);
         if (!vertices) {
-            if (failureReason) {
-                *failureReason = TerrainCellLoadFailureReason::MissingTerrainVertices;
-            }
             return false;
         }
         if (!rows) {
-            if (failureReason) {
-                *failureReason = TerrainCellLoadFailureReason::MissingCellInfoRowsTable;
-            }
             return false;
         }
 
@@ -575,29 +446,12 @@ namespace
         if (row && cellX >= 0) {
             rowRelativeIndex = row[cellX].vertexIndex;
         }
-        else if (failureReason) {
-            *failureReason = TerrainCellLoadFailureReason::MissingCellInfoRow;
-        }
-        if (rowVertexIndexOut) {
-            *rowVertexIndexOut = rowRelativeIndex;
-        }
         if (rowRelativeIndex < 0) {
-            if (failureReason) {
-                *failureReason = TerrainCellLoadFailureReason::NegativeRowVertexIndex;
-            }
             return false;
         }
 
-        // Fallback: the cell info table stores a row-relative vertex index. The absolute vertex
-        // index is the row base plus that offset.
         const int baseIndex = cellZ * vertexCountX + rowRelativeIndex;
-        if (baseIndexOut) {
-            *baseIndexOut = baseIndex;
-        }
         if (baseIndex + vertexCountX + 1 >= dimensions.vertexCount) {
-            if (failureReason) {
-                *failureReason = TerrainCellLoadFailureReason::VertexRangeOutOfBounds;
-            }
             return false;
         }
 
@@ -606,8 +460,6 @@ namespace
         result[2] = vertices[baseIndex + vertexCountX + 1];
         result[3] = vertices[baseIndex + 1];
 
-        // Match the prepared-row builder (FUN_00756350): when cell info is available it
-        // overwrites the y dword of all four corners with the cell row's second field.
         if (row) {
             const float flatY = std::bit_cast<float>(row[cellX].flatYBits);
             result[0].y = flatY;
@@ -639,55 +491,22 @@ namespace TerrainDecal
 
     DrawResult ClippedTerrainDecalRenderer::Draw(const DrawRequest& request)
     {
-        if (options_.logInterceptedDraws && request.rect) {
-            LOG_DEBUG("TerrainDecalHook: intercepted decal rect x={} y={} w={} h={} manager={} slot={}",
-                      request.rect->nX,
-                      request.rect->nY,
-                      request.rect->nWidth,
-                      request.rect->nHeight,
-                      request.overlayManager,
-                      static_cast<const void*>(request.overlaySlotBase));
-        }
-
         if (!options_.enableClippedRendering) {
-            if (options_.logInterceptedDraws) {
-                LOG_INFO("TerrainDecalHook: falling through because clipped rendering is disabled");
-            }
             return DrawResult::FallThroughToVanilla;
         }
 
         if (!request.addresses || !request.terrain || !request.overlaySlotBase || !request.drawContext) {
-            if (options_.logInterceptedDraws) {
-                LOG_INFO("TerrainDecalHook: falling through because request data is incomplete "
-                         "(addresses={} terrain={} slot={} drawContext={})",
-                         request.addresses != nullptr,
-                         request.terrain != nullptr,
-                         request.overlaySlotBase != nullptr,
-                         request.drawContext != nullptr);
-            }
             return DrawResult::FallThroughToVanilla;
         }
 
         const OverlaySlotView slot = ReadOverlaySlotView(request.overlaySlotBase);
         if (slot.state != -1 || !slot.matrix) {
-            if (options_.logInterceptedDraws) {
-                LOG_INFO("TerrainDecalHook: falling through because overlay slot is unsupported "
-                         "(state={} matrix={} effectiveTexTransform={})",
-                         slot.state,
-                         static_cast<const void*>(slot.matrix),
-                         static_cast<const void*>(request.effectiveTexTransform));
-            }
             return DrawResult::FallThroughToVanilla;
         }
 
         const bool clipU = ShouldClipU(slot.flags);
         const bool clipV = ShouldClipV(slot.flags);
         if (!clipU && !clipV) {
-            if (options_.logInterceptedDraws) {
-                LOG_INFO("TerrainDecalHook: falling through because slot flags do not require clipping "
-                         "(flags=0x{:08X})",
-                         slot.flags);
-            }
             return DrawResult::FallThroughToVanilla;
         }
 
@@ -707,9 +526,6 @@ namespace TerrainDecal
 
         std::vector<PackedTerrainVertex> outputVertices;
         bool loadedAnyTerrainCells = false;
-        bool loggedFirstCellFailure = false;
-        bool loggedFirstProjectedQuad = false;
-        bool loggedCornerOrderProbe = false;
         const int cellCount = std::max(0, drawRect.right - drawRect.left) * std::max(0, drawRect.bottom - drawRect.top);
         outputVertices.reserve(static_cast<size_t>(cellCount) * 12);
 
@@ -717,41 +533,7 @@ namespace TerrainDecal
             for (int cellX = drawRect.left; cellX < drawRect.right; ++cellX) {
                 std::array<ClipVertex, 4> vertices{};
                 std::array<PackedTerrainVertex, 4> sourceVertices{};
-                TerrainCellLoadFailureReason failureReason = TerrainCellLoadFailureReason::None;
-                int rowVertexIndex = -1;
-                int baseIndex = -1;
-                if (!LoadTerrainCellVertices(
-                        *request.addresses, cellX, cellZ, sourceVertices, &failureReason, &rowVertexIndex, &baseIndex)) {
-                    if (options_.logInterceptedDraws && !loggedFirstCellFailure) {
-                        const TerrainGridDimensions dimensionsForLog = ReadTerrainGridDimensions(*request.addresses);
-                        const auto* const preparedRowsTable =
-                            GetPreparedCellVertexRowsTable(request.addresses->terrainPreparedCellVerticesRowsPtr);
-                        const auto* const preparedRow =
-                            GetPreparedCellVertexRow(request.addresses->terrainPreparedCellVerticesRowsPtr, cellZ);
-                        const auto* const cellInfoRowsTable = ReadRowTable(request.addresses->terrainCellInfoRowsPtr);
-                        const auto* const cellInfoRow = GetCellInfoRow(cellInfoRowsTable, cellZ);
-                        const auto* const terrainVertices =
-                            GetTerrainVertexArray(request.addresses->terrainGridVerticesPtr);
-                        LOG_INFO(
-                            "TerrainDecalHook: failed to load terrain cell x={} z={} reason={} rowVertexIndex={} "
-                            "baseIndex={} cellCountX={} cellCountZ={} vertexCountX={} vertexCount={} "
-                            "preparedRowsTable={} preparedRow={} cellInfoRowsTable={} cellInfoRow={} terrainVertices={}",
-                            cellX,
-                            cellZ,
-                            ToString(failureReason),
-                            rowVertexIndex,
-                            baseIndex,
-                            dimensionsForLog.cellCountX,
-                            dimensionsForLog.cellCountZ,
-                            dimensionsForLog.vertexCountX,
-                            dimensionsForLog.vertexCount,
-                            static_cast<const void*>(preparedRowsTable),
-                            static_cast<const void*>(preparedRow),
-                            static_cast<const void*>(cellInfoRowsTable),
-                            static_cast<const void*>(cellInfoRow),
-                            static_cast<const void*>(terrainVertices));
-                        loggedFirstCellFailure = true;
-                    }
+                if (!LoadTerrainCellVertices(*request.addresses, cellX, cellZ, sourceVertices)) {
                     continue;
                 }
 
@@ -763,100 +545,6 @@ namespace TerrainDecal
 
                 for (auto& vertex : vertices) {
                     EvaluateFootprintUv(slot.matrix, vertex);
-                }
-
-                if (options_.logInterceptedDraws && !loggedFirstProjectedQuad) {
-                    float minClipU = vertices[0].clipU;
-                    float maxClipU = vertices[0].clipU;
-                    float minClipV = vertices[0].clipV;
-                    float maxClipV = vertices[0].clipV;
-
-                    for (const auto& vertex : vertices) {
-                        minClipU = std::min(minClipU, vertex.clipU);
-                        maxClipU = std::max(maxClipU, vertex.clipU);
-                        minClipV = std::min(minClipV, vertex.clipV);
-                        maxClipV = std::max(maxClipV, vertex.clipV);
-                    }
-
-                    LOG_INFO(
-                        "TerrainDecalHook: projected quad sample cell=({}, {}) "
-                        "worldXZ=[({}, {}), ({}, {}), ({}, {}), ({}, {})] "
-                        "clipU=[{}, {}] clipV=[{}, {}] "
-                        "matrixRow0=[{}, {}, {}, {}] matrixRow1=[{}, {}, {}, {}] "
-                        "matrixRow2=[{}, {}, {}, {}] matrixRow3=[{}, {}, {}, {}]",
-                        cellX,
-                        cellZ,
-                        vertices[0].vertex.x,
-                        vertices[0].vertex.z,
-                        vertices[1].vertex.x,
-                        vertices[1].vertex.z,
-                        vertices[2].vertex.x,
-                        vertices[2].vertex.z,
-                        vertices[3].vertex.x,
-                        vertices[3].vertex.z,
-                        minClipU,
-                        maxClipU,
-                        minClipV,
-                        maxClipV,
-                        slot.matrix[0],
-                        slot.matrix[1],
-                        slot.matrix[2],
-                        slot.matrix[3],
-                        slot.matrix[4],
-                        slot.matrix[5],
-                        slot.matrix[6],
-                        slot.matrix[7],
-                        slot.matrix[8],
-                        slot.matrix[9],
-                        slot.matrix[10],
-                        slot.matrix[11],
-                        slot.matrix[12],
-                        slot.matrix[13],
-                        slot.matrix[14],
-                        slot.matrix[15]);
-                    loggedFirstProjectedQuad = true;
-                }
-
-                if (options_.logInterceptedDraws && !loggedCornerOrderProbe) {
-                    constexpr std::array<std::array<size_t, 4>, 4> kProbeOrders{{
-                        {0, 1, 2, 3},
-                        {0, 3, 2, 1},
-                        {1, 2, 3, 0},
-                        {3, 0, 1, 2},
-                    }};
-                    constexpr std::array<const char*, 4> kProbeLabels{
-                        "0123",
-                        "0321",
-                        "1230",
-                        "3012",
-                    };
-
-                    std::array<float, 4> areas{};
-                    float bestArea = -1.0f;
-                    const char* bestLabel = "";
-
-                    for (size_t i = 0; i < kProbeOrders.size(); ++i) {
-                        areas[i] = ComputeClippedPolygonArea(vertices, kProbeOrders[i], clipU, clipV);
-                        if (areas[i] > bestArea) {
-                            bestArea = areas[i];
-                            bestLabel = kProbeLabels[i];
-                        }
-                    }
-
-                    LOG_INFO("TerrainDecalHook: corner-order probe cell=({}, {}) best={} "
-                             "areas=[{}:{}, {}:{}, {}:{}, {}:{}]",
-                             cellX,
-                             cellZ,
-                             bestLabel,
-                             kProbeLabels[0],
-                             areas[0],
-                             kProbeLabels[1],
-                             areas[1],
-                             kProbeLabels[2],
-                             areas[2],
-                             kProbeLabels[3],
-                             areas[3]);
-                    loggedCornerOrderProbe = true;
                 }
 
                 if (!QuadMayIntersectClipBox(vertices, clipU, clipV)) {
@@ -881,37 +569,11 @@ namespace TerrainDecal
         }
 
         if (outputVertices.empty()) {
-            if (options_.logInterceptedDraws) {
-                LOG_INFO("TerrainDecalHook: custom renderer emitted no vertices for rect x={} y={} w={} h={} "
-                         "(loadedAnyTerrainCells={} clipU={} clipV={} flags=0x{:08X})",
-                         request.rect ? request.rect->nX : -1,
-                         request.rect ? request.rect->nY : -1,
-                         request.rect ? request.rect->nWidth : -1,
-                         request.rect ? request.rect->nHeight : -1,
-                         loadedAnyTerrainCells,
-                         clipU,
-                         clipV,
-                         slot.flags);
-            }
             if (!loadedAnyTerrainCells) {
-                LOG_INFO("Not loaded any terrain cells");
                 return DrawResult::FallThroughToVanilla;
             }
 
             return DrawResult::Handled;
-        }
-
-        if (options_.logInterceptedDraws) {
-            LOG_INFO("TerrainDecalHook: custom renderer emitted {} vertices for rect x={} y={} w={} h={} "
-                     "(clipU={} clipV={} flags=0x{:08X})",
-                     outputVertices.size(),
-                     request.rect ? request.rect->nX : -1,
-                     request.rect ? request.rect->nY : -1,
-                     request.rect ? request.rect->nWidth : -1,
-                     request.rect ? request.rect->nHeight : -1,
-                     clipU,
-                     clipV,
-                     slot.flags);
         }
 
         const auto drawPrims = reinterpret_cast<DrawPrimsFn>(request.addresses->drawPrims);
@@ -921,46 +583,6 @@ namespace TerrainDecal
                   static_cast<uint32_t>(outputVertices.size()),
                   outputVertices.data());
 
-        if (!loggedNotImplemented_) {
-            LOG_INFO("TerrainDecalHook: clipped terrain decal renderer is active");
-            loggedNotImplemented_ = true;
-        }
-
         return DrawResult::Handled;
-    }
-
-    DrawResult ClippedTerrainDecalRenderer::DrawCommands(const DrawRequest& request,
-                                                         const std::vector<ClippedDecalDrawCommand>& commands)
-    {
-        if (options_.logInterceptedDraws) {
-            LOG_DEBUG("TerrainDecalHook: received {} explicit clipped decal command(s) for manager={} rect={}",
-                      commands.size(),
-                      request.overlayManager,
-                      static_cast<const void*>(request.rect));
-        }
-
-        if (commands.empty()) {
-            return DrawResult::FallThroughToVanilla;
-        }
-
-        if (!loggedNotImplemented_) {
-            for (const auto& command : commands) {
-                LOG_INFO("TerrainDecalHook example: {} center=({}, {}) size=({}, {}) turns={} clipU={} clipV={}",
-                         command.footprint.label,
-                         command.footprint.centerXMeters,
-                         command.footprint.centerZMeters,
-                         command.footprint.widthMeters,
-                         command.footprint.heightMeters,
-                         command.footprint.rotationTurns,
-                         command.uvClip.clipU,
-                         command.uvClip.clipV);
-            }
-
-            LOG_INFO("TerrainDecalHook: DrawCommands is scaffolded for future clipped geometry emission; "
-                     "outside each command footprint, terrain must remain visible");
-            loggedNotImplemented_ = true;
-        }
-
-        return DrawResult::FallThroughToVanilla;
     }
 }
