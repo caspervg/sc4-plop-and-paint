@@ -26,6 +26,59 @@ namespace
         int bottom;
     };
 
+    struct TerrainGridDimensions
+    {
+        int cellCountX = 0;
+        int cellCountZ = 0;
+        int vertexCountX = 0;
+        int vertexCount = 0;
+    };
+
+    enum class TerrainCellLoadFailureReason
+    {
+        None,
+        MissingGlobals,
+        MissingPreparedRowsTable,
+        MissingPreparedRow,
+        MissingCellInfoRowsTable,
+        MissingCellInfoRow,
+        MissingTerrainVertices,
+        InvalidDimensions,
+        CellOutOfRange,
+        NegativeRowVertexIndex,
+        VertexRangeOutOfBounds,
+    };
+
+    [[nodiscard]] const char* ToString(const TerrainCellLoadFailureReason reason) noexcept
+    {
+        switch (reason) {
+        case TerrainCellLoadFailureReason::None:
+            return "none";
+        case TerrainCellLoadFailureReason::MissingGlobals:
+            return "missing_globals";
+        case TerrainCellLoadFailureReason::MissingPreparedRowsTable:
+            return "missing_prepared_rows_table";
+        case TerrainCellLoadFailureReason::MissingPreparedRow:
+            return "missing_prepared_row";
+        case TerrainCellLoadFailureReason::MissingCellInfoRowsTable:
+            return "missing_cell_info_rows_table";
+        case TerrainCellLoadFailureReason::MissingCellInfoRow:
+            return "missing_cell_info_row";
+        case TerrainCellLoadFailureReason::MissingTerrainVertices:
+            return "missing_terrain_vertices";
+        case TerrainCellLoadFailureReason::InvalidDimensions:
+            return "invalid_dimensions";
+        case TerrainCellLoadFailureReason::CellOutOfRange:
+            return "cell_out_of_range";
+        case TerrainCellLoadFailureReason::NegativeRowVertexIndex:
+            return "negative_row_vertex_index";
+        case TerrainCellLoadFailureReason::VertexRangeOutOfBounds:
+            return "vertex_range_out_of_bounds";
+        }
+
+        return "unknown";
+    }
+
     struct PackedTerrainVertex
     {
         float x;
@@ -149,22 +202,19 @@ namespace
         return out;
     }
 
-    void EvaluateDecalUv(const float* matrix, ClipVertex& vertex) noexcept
+    void EvaluateFootprintUv(const float* matrix, ClipVertex& vertex) noexcept
     {
         if (!matrix) {
             return;
         }
 
-        // The engine applies the decal transform to the terrain vertex texture coordinates,
-        // not directly to world-space position. Ghidra verification of the terrain UV update
-        // path (x86 FUN_00751c80) shows the live terrain vertex u/v fields are derived from the
-        // terrain grid and are the coordinates that should drive clipping here.
-        const float sourceU = vertex.vertex.u;
-        const float sourceV = vertex.vertex.v;
+        const float sourceX = vertex.vertex.x;
+        const float sourceY = vertex.vertex.y;
+        const float sourceZ = vertex.vertex.z;
 
-        const float u = sourceU * matrix[0] + sourceV * matrix[4] + matrix[12];
-        const float v = sourceU * matrix[1] + sourceV * matrix[5] + matrix[13];
-        const float w = sourceU * matrix[3] + sourceV * matrix[7] + matrix[15];
+        const float u = sourceX * matrix[0] + sourceY * matrix[4] + sourceZ * matrix[8] + matrix[12];
+        const float v = sourceX * matrix[1] + sourceY * matrix[5] + sourceZ * matrix[9] + matrix[13];
+        const float w = sourceX * matrix[3] + sourceY * matrix[7] + sourceZ * matrix[11] + matrix[15];
 
         if (std::fabs(w) > kClipEpsilon && std::fabs(w - 1.0f) > kClipEpsilon) {
             vertex.clipU = u / w;
@@ -255,13 +305,11 @@ namespace
         }
     }
 
-    void ClipAndEmitTriangle(const std::array<ClipVertex, 3>& triangle,
+    void ClipAndEmitPolygon(std::vector<ClipVertex> polygon,
                              const bool clipU,
                              const bool clipV,
                              std::vector<PackedTerrainVertex>& output)
     {
-        std::vector<ClipVertex> polygon(triangle.begin(), triangle.end());
-
         if (clipU) {
             ClipPolygonAgainstPlane(polygon, true, true, 0.0f);
             ClipPolygonAgainstPlane(polygon, true, false, 1.0f);
@@ -273,6 +321,47 @@ namespace
         }
 
         EmitTriangleFan(polygon, output);
+    }
+
+    [[nodiscard]] float ComputePolygonAreaXZ(const std::vector<ClipVertex>& polygon) noexcept
+    {
+        if (polygon.size() < 3) {
+            return 0.0f;
+        }
+
+        float twiceArea = 0.0f;
+        for (size_t i = 0; i < polygon.size(); ++i) {
+            const auto& a = polygon[i].vertex;
+            const auto& b = polygon[(i + 1) % polygon.size()].vertex;
+            twiceArea += (a.x * b.z) - (b.x * a.z);
+        }
+
+        return std::fabs(twiceArea) * 0.5f;
+    }
+
+    [[nodiscard]] float ComputeClippedPolygonArea(const std::array<ClipVertex, 4>& vertices,
+                                                  const std::array<size_t, 4>& order,
+                                                  const bool clipU,
+                                                  const bool clipV) noexcept
+    {
+        std::vector<ClipVertex> polygon{
+            vertices[order[0]],
+            vertices[order[1]],
+            vertices[order[2]],
+            vertices[order[3]],
+        };
+
+        if (clipU) {
+            ClipPolygonAgainstPlane(polygon, true, true, 0.0f);
+            ClipPolygonAgainstPlane(polygon, true, false, 1.0f);
+        }
+
+        if (clipV) {
+            ClipPolygonAgainstPlane(polygon, false, true, 0.0f);
+            ClipPolygonAgainstPlane(polygon, false, false, 1.0f);
+        }
+
+        return ComputePolygonAreaXZ(polygon);
     }
 
     [[nodiscard]] bool AllVerticesInside(const std::array<ClipVertex, 4>& vertices,
@@ -328,8 +417,7 @@ namespace
             return nullptr;
         }
 
-        const auto rowTable = *reinterpret_cast<const RowTableEntry* const*>(globalAddress);
-        return rowTable;
+        return *reinterpret_cast<const RowTableEntry* const*>(globalAddress);
     }
 
     [[nodiscard]] const PackedTerrainVertex* GetTerrainVertexArray(const uintptr_t globalAddress) noexcept
@@ -341,6 +429,29 @@ namespace
         return *reinterpret_cast<const PackedTerrainVertex* const*>(globalAddress);
     }
 
+    [[nodiscard]] const std::byte* GetPreparedCellVertexRow(const uintptr_t globalAddress, const int row) noexcept
+    {
+        if (globalAddress == 0 || row < 0) {
+            return nullptr;
+        }
+
+        const auto* const rows = *reinterpret_cast<const RowTableEntry* const*>(globalAddress);
+        if (!rows) {
+            return nullptr;
+        }
+
+        return reinterpret_cast<const std::byte*>(rows[row].data);
+    }
+
+    [[nodiscard]] const RowTableEntry* GetPreparedCellVertexRowsTable(const uintptr_t globalAddress) noexcept
+    {
+        if (globalAddress == 0) {
+            return nullptr;
+        }
+
+        return *reinterpret_cast<const RowTableEntry* const*>(globalAddress);
+    }
+
     [[nodiscard]] const CellInfoEntry* GetCellInfoRow(const RowTableEntry* rows, const int row) noexcept
     {
         if (!rows || row < 0) {
@@ -350,28 +461,143 @@ namespace
         return reinterpret_cast<const CellInfoEntry*>(rows[row].data);
     }
 
-    [[nodiscard]] bool LoadTerrainCellVertices(const HookAddresses& addresses,
+    [[nodiscard]] TerrainGridDimensions ReadTerrainGridDimensions(const TerrainDecal::HookAddresses& addresses) noexcept
+    {
+        TerrainGridDimensions result{};
+        if (addresses.terrainCellCountXPtr != 0) {
+            result.cellCountX = *reinterpret_cast<const int*>(addresses.terrainCellCountXPtr);
+        }
+
+        if (addresses.terrainCellCountZPtr != 0) {
+            result.cellCountZ = *reinterpret_cast<const int*>(addresses.terrainCellCountZPtr);
+        }
+
+        if (addresses.terrainVertexCountXPtr != 0) {
+            result.vertexCountX = *reinterpret_cast<const int*>(addresses.terrainVertexCountXPtr);
+        }
+
+        if (addresses.terrainVertexCountPtr != 0) {
+            result.vertexCount = *reinterpret_cast<const int*>(addresses.terrainVertexCountPtr);
+        }
+
+        return result;
+    }
+
+    [[nodiscard]] TerrainDrawRect ClampTerrainDrawRect(const TerrainDrawRect& rect,
+                                                       const TerrainGridDimensions& dimensions) noexcept
+    {
+        TerrainDrawRect result{};
+        result.left = std::clamp(rect.left, 0, std::max(0, dimensions.cellCountX));
+        result.top = std::clamp(rect.top, 0, std::max(0, dimensions.cellCountZ));
+        result.right = std::clamp(rect.right, result.left, std::max(0, dimensions.cellCountX));
+        result.bottom = std::clamp(rect.bottom, result.top, std::max(0, dimensions.cellCountZ));
+        return result;
+    }
+
+    [[nodiscard]] bool LoadTerrainCellVertices(const TerrainDecal::HookAddresses& addresses,
                                                const int cellX,
                                                const int cellZ,
-                                               std::array<PackedTerrainVertex, 4>& result)
+                                               std::array<PackedTerrainVertex, 4>& result,
+                                               TerrainCellLoadFailureReason* const failureReason = nullptr,
+                                               int* const rowVertexIndexOut = nullptr,
+                                               int* const baseIndexOut = nullptr)
     {
+        if (failureReason) {
+            *failureReason = TerrainCellLoadFailureReason::None;
+        }
+        if (rowVertexIndexOut) {
+            *rowVertexIndexOut = -1;
+        }
+        if (baseIndexOut) {
+            *baseIndexOut = -1;
+        }
+
+        const TerrainGridDimensions dimensions = ReadTerrainGridDimensions(addresses);
+        if (dimensions.cellCountX <= 0 || dimensions.cellCountZ <= 0 ||
+            dimensions.vertexCountX <= 0 || dimensions.vertexCount <= 0) {
+            if (failureReason) {
+                *failureReason = TerrainCellLoadFailureReason::InvalidDimensions;
+            }
+            return false;
+        }
+
+        if (cellX >= dimensions.cellCountX || cellZ >= dimensions.cellCountZ) {
+            if (failureReason) {
+                *failureReason = TerrainCellLoadFailureReason::CellOutOfRange;
+            }
+            return false;
+        }
+
+        // The live draw path uses the prepared per-row cell-quad buffers from DAT_00b4c6b0.
+        // Each terrain cell expands to 4 PackedTerrainVertex values (0x80 bytes).
+        const auto* const preparedRowsTable = GetPreparedCellVertexRowsTable(addresses.terrainPreparedCellVerticesRowsPtr);
+        if (!preparedRowsTable) {
+            if (failureReason) {
+                *failureReason = TerrainCellLoadFailureReason::MissingPreparedRowsTable;
+            }
+        }
+        const auto* const preparedRow = GetPreparedCellVertexRow(addresses.terrainPreparedCellVerticesRowsPtr, cellZ);
+        if (preparedRow) {
+            const size_t rowOffset = static_cast<size_t>(cellX) * sizeof(PackedTerrainVertex) * 4;
+            const auto* const preparedVertices =
+                reinterpret_cast<const PackedTerrainVertex*>(preparedRow + rowOffset);
+
+            result[0] = preparedVertices[0];
+            result[1] = preparedVertices[1];
+            result[2] = preparedVertices[2];
+            result[3] = preparedVertices[3];
+            return true;
+        }
+        if (preparedRowsTable && failureReason) {
+            *failureReason = TerrainCellLoadFailureReason::MissingPreparedRow;
+        }
+
         const auto* const vertices = GetTerrainVertexArray(addresses.terrainGridVerticesPtr);
         const auto* const rows = ReadRowTable(addresses.terrainCellInfoRowsPtr);
-        if (!vertices || !rows) {
+        if (!vertices) {
+            if (failureReason) {
+                *failureReason = TerrainCellLoadFailureReason::MissingTerrainVertices;
+            }
+            return false;
+        }
+        if (!rows) {
+            if (failureReason) {
+                *failureReason = TerrainCellLoadFailureReason::MissingCellInfoRowsTable;
+            }
             return false;
         }
 
+        const int vertexCountX = dimensions.vertexCountX;
+        int rowRelativeIndex = cellX;
         const auto* const row = GetCellInfoRow(rows, cellZ);
-        if (!row || cellX < 0) {
+        if (row && cellX >= 0) {
+            rowRelativeIndex = row[cellX].vertexIndex;
+        }
+        else if (failureReason) {
+            *failureReason = TerrainCellLoadFailureReason::MissingCellInfoRow;
+        }
+        if (rowVertexIndexOut) {
+            *rowVertexIndexOut = rowRelativeIndex;
+        }
+        if (rowRelativeIndex < 0) {
+            if (failureReason) {
+                *failureReason = TerrainCellLoadFailureReason::NegativeRowVertexIndex;
+            }
             return false;
         }
 
-        const int vertexCountX = *reinterpret_cast<const int*>(addresses.terrainVertexCountXPtr);
-        if (vertexCountX <= 0) {
+        // Fallback: the cell info table stores a row-relative vertex index. The absolute vertex
+        // index is the row base plus that offset.
+        const int baseIndex = cellZ * vertexCountX + rowRelativeIndex;
+        if (baseIndexOut) {
+            *baseIndexOut = baseIndex;
+        }
+        if (baseIndex + vertexCountX + 1 >= dimensions.vertexCount) {
+            if (failureReason) {
+                *failureReason = TerrainCellLoadFailureReason::VertexRangeOutOfBounds;
+            }
             return false;
         }
-
-        const int baseIndex = row[cellX].vertexIndex;
 
         result[0] = vertices[baseIndex];
         result[1] = vertices[baseIndex + vertexCountX];
@@ -411,21 +637,44 @@ namespace TerrainDecal
         }
 
         if (!options_.enableClippedRendering) {
+            if (options_.logInterceptedDraws) {
+                LOG_INFO("TerrainDecalHook: falling through because clipped rendering is disabled");
+            }
             return DrawResult::FallThroughToVanilla;
         }
 
         if (!request.addresses || !request.terrain || !request.overlaySlotBase || !request.drawContext) {
+            if (options_.logInterceptedDraws) {
+                LOG_INFO("TerrainDecalHook: falling through because request data is incomplete "
+                         "(addresses={} terrain={} slot={} drawContext={})",
+                         request.addresses != nullptr,
+                         request.terrain != nullptr,
+                         request.overlaySlotBase != nullptr,
+                         request.drawContext != nullptr);
+            }
             return DrawResult::FallThroughToVanilla;
         }
 
         const OverlaySlotView slot = ReadOverlaySlotView(request.overlaySlotBase);
         if (slot.state != -1 || !slot.matrix) {
+            if (options_.logInterceptedDraws) {
+                LOG_INFO("TerrainDecalHook: falling through because overlay slot is unsupported "
+                         "(state={} matrix={} effectiveTexTransform={})",
+                         slot.state,
+                         static_cast<const void*>(slot.matrix),
+                         static_cast<const void*>(request.effectiveTexTransform));
+            }
             return DrawResult::FallThroughToVanilla;
         }
 
         const bool clipU = ShouldClipU(slot.flags);
         const bool clipV = ShouldClipV(slot.flags);
         if (!clipU && !clipV) {
+            if (options_.logInterceptedDraws) {
+                LOG_INFO("TerrainDecalHook: falling through because slot flags do not require clipping "
+                         "(flags=0x{:08X})",
+                         slot.flags);
+            }
             return DrawResult::FallThroughToVanilla;
         }
 
@@ -433,57 +682,223 @@ namespace TerrainDecal
             return DrawResult::Handled;
         }
 
+        const TerrainGridDimensions dimensions = ReadTerrainGridDimensions(*request.addresses);
+        if (dimensions.cellCountX <= 0 || dimensions.cellCountZ <= 0) {
+            return DrawResult::Handled;
+        }
+
+        const TerrainDrawRect drawRect = ClampTerrainDrawRect(slot.rect, dimensions);
+        if (drawRect.left >= drawRect.right || drawRect.top >= drawRect.bottom) {
+            return DrawResult::Handled;
+        }
+
         std::vector<PackedTerrainVertex> outputVertices;
-        const int cellCount = std::max(0, slot.rect.right - slot.rect.left) * std::max(0, slot.rect.bottom - slot.rect.top);
+        bool loadedAnyTerrainCells = false;
+        bool loggedFirstCellFailure = false;
+        bool loggedFirstProjectedQuad = false;
+        bool loggedCornerOrderProbe = false;
+        const int cellCount = std::max(0, drawRect.right - drawRect.left) * std::max(0, drawRect.bottom - drawRect.top);
         outputVertices.reserve(static_cast<size_t>(cellCount) * 12);
 
-        for (int cellZ = slot.rect.top; cellZ < slot.rect.bottom; ++cellZ) {
-            for (int cellX = slot.rect.left; cellX < slot.rect.right; ++cellX) {
+        for (int cellZ = drawRect.top; cellZ < drawRect.bottom; ++cellZ) {
+            for (int cellX = drawRect.left; cellX < drawRect.right; ++cellX) {
                 std::array<ClipVertex, 4> vertices{};
                 std::array<PackedTerrainVertex, 4> sourceVertices{};
-                if (!LoadTerrainCellVertices(*request.addresses, cellX, cellZ, sourceVertices)) {
+                TerrainCellLoadFailureReason failureReason = TerrainCellLoadFailureReason::None;
+                int rowVertexIndex = -1;
+                int baseIndex = -1;
+                if (!LoadTerrainCellVertices(
+                        *request.addresses, cellX, cellZ, sourceVertices, &failureReason, &rowVertexIndex, &baseIndex)) {
+                    if (options_.logInterceptedDraws && !loggedFirstCellFailure) {
+                        const TerrainGridDimensions dimensionsForLog = ReadTerrainGridDimensions(*request.addresses);
+                        const auto* const preparedRowsTable =
+                            GetPreparedCellVertexRowsTable(request.addresses->terrainPreparedCellVerticesRowsPtr);
+                        const auto* const preparedRow =
+                            GetPreparedCellVertexRow(request.addresses->terrainPreparedCellVerticesRowsPtr, cellZ);
+                        const auto* const cellInfoRowsTable = ReadRowTable(request.addresses->terrainCellInfoRowsPtr);
+                        const auto* const cellInfoRow = GetCellInfoRow(cellInfoRowsTable, cellZ);
+                        const auto* const terrainVertices =
+                            GetTerrainVertexArray(request.addresses->terrainGridVerticesPtr);
+                        LOG_INFO(
+                            "TerrainDecalHook: failed to load terrain cell x={} z={} reason={} rowVertexIndex={} "
+                            "baseIndex={} cellCountX={} cellCountZ={} vertexCountX={} vertexCount={} "
+                            "preparedRowsTable={} preparedRow={} cellInfoRowsTable={} cellInfoRow={} terrainVertices={}",
+                            cellX,
+                            cellZ,
+                            ToString(failureReason),
+                            rowVertexIndex,
+                            baseIndex,
+                            dimensionsForLog.cellCountX,
+                            dimensionsForLog.cellCountZ,
+                            dimensionsForLog.vertexCountX,
+                            dimensionsForLog.vertexCount,
+                            static_cast<const void*>(preparedRowsTable),
+                            static_cast<const void*>(preparedRow),
+                            static_cast<const void*>(cellInfoRowsTable),
+                            static_cast<const void*>(cellInfoRow),
+                            static_cast<const void*>(terrainVertices));
+                        loggedFirstCellFailure = true;
+                    }
                     continue;
                 }
+
+                loadedAnyTerrainCells = true;
 
                 for (size_t i = 0; i < sourceVertices.size(); ++i) {
                     vertices[i].vertex = sourceVertices[i];
                 }
 
                 for (auto& vertex : vertices) {
-                    EvaluateDecalUv(slot.matrix, vertex);
+                    EvaluateFootprintUv(slot.matrix, vertex);
+                }
+
+                if (options_.logInterceptedDraws && !loggedFirstProjectedQuad) {
+                    float minClipU = vertices[0].clipU;
+                    float maxClipU = vertices[0].clipU;
+                    float minClipV = vertices[0].clipV;
+                    float maxClipV = vertices[0].clipV;
+
+                    for (const auto& vertex : vertices) {
+                        minClipU = std::min(minClipU, vertex.clipU);
+                        maxClipU = std::max(maxClipU, vertex.clipU);
+                        minClipV = std::min(minClipV, vertex.clipV);
+                        maxClipV = std::max(maxClipV, vertex.clipV);
+                    }
+
+                    LOG_INFO(
+                        "TerrainDecalHook: projected quad sample cell=({}, {}) "
+                        "worldXZ=[({}, {}), ({}, {}), ({}, {}), ({}, {})] "
+                        "clipU=[{}, {}] clipV=[{}, {}] "
+                        "matrixRow0=[{}, {}, {}, {}] matrixRow1=[{}, {}, {}, {}] "
+                        "matrixRow2=[{}, {}, {}, {}] matrixRow3=[{}, {}, {}, {}]",
+                        cellX,
+                        cellZ,
+                        vertices[0].vertex.x,
+                        vertices[0].vertex.z,
+                        vertices[1].vertex.x,
+                        vertices[1].vertex.z,
+                        vertices[2].vertex.x,
+                        vertices[2].vertex.z,
+                        vertices[3].vertex.x,
+                        vertices[3].vertex.z,
+                        minClipU,
+                        maxClipU,
+                        minClipV,
+                        maxClipV,
+                        slot.matrix[0],
+                        slot.matrix[1],
+                        slot.matrix[2],
+                        slot.matrix[3],
+                        slot.matrix[4],
+                        slot.matrix[5],
+                        slot.matrix[6],
+                        slot.matrix[7],
+                        slot.matrix[8],
+                        slot.matrix[9],
+                        slot.matrix[10],
+                        slot.matrix[11],
+                        slot.matrix[12],
+                        slot.matrix[13],
+                        slot.matrix[14],
+                        slot.matrix[15]);
+                    loggedFirstProjectedQuad = true;
+                }
+
+                if (options_.logInterceptedDraws && !loggedCornerOrderProbe) {
+                    constexpr std::array<std::array<size_t, 4>, 4> kProbeOrders{{
+                        {0, 1, 2, 3},
+                        {0, 3, 2, 1},
+                        {1, 2, 3, 0},
+                        {3, 0, 1, 2},
+                    }};
+                    constexpr std::array<const char*, 4> kProbeLabels{
+                        "0123",
+                        "0321",
+                        "1230",
+                        "3012",
+                    };
+
+                    std::array<float, 4> areas{};
+                    float bestArea = -1.0f;
+                    const char* bestLabel = "";
+
+                    for (size_t i = 0; i < kProbeOrders.size(); ++i) {
+                        areas[i] = ComputeClippedPolygonArea(vertices, kProbeOrders[i], clipU, clipV);
+                        if (areas[i] > bestArea) {
+                            bestArea = areas[i];
+                            bestLabel = kProbeLabels[i];
+                        }
+                    }
+
+                    LOG_INFO("TerrainDecalHook: corner-order probe cell=({}, {}) best={} "
+                             "areas=[{}:{}, {}:{}, {}:{}, {}:{}]",
+                             cellX,
+                             cellZ,
+                             bestLabel,
+                             kProbeLabels[0],
+                             areas[0],
+                             kProbeLabels[1],
+                             areas[1],
+                             kProbeLabels[2],
+                             areas[2],
+                             kProbeLabels[3],
+                             areas[3]);
+                    loggedCornerOrderProbe = true;
                 }
 
                 if (!QuadMayIntersectClipBox(vertices, clipU, clipV)) {
                     continue;
                 }
 
-                const bool flipped = request.terrain->IsTriangulationFlipped(static_cast<uint32_t>(cellX),
-                                                                             static_cast<uint32_t>(cellZ));
-
-                const std::array<ClipVertex, 3> tri0 = flipped
-                    ? std::array<ClipVertex, 3>{vertices[0], vertices[1], vertices[3]}
-                    : std::array<ClipVertex, 3>{vertices[0], vertices[1], vertices[2]};
-                const std::array<ClipVertex, 3> tri1 = flipped
-                    ? std::array<ClipVertex, 3>{vertices[1], vertices[2], vertices[3]}
-                    : std::array<ClipVertex, 3>{vertices[0], vertices[2], vertices[3]};
-
                 if (AllVerticesInside(vertices, clipU, clipV)) {
-                    outputVertices.push_back(tri0[0].vertex);
-                    outputVertices.push_back(tri0[1].vertex);
-                    outputVertices.push_back(tri0[2].vertex);
-                    outputVertices.push_back(tri1[0].vertex);
-                    outputVertices.push_back(tri1[1].vertex);
-                    outputVertices.push_back(tri1[2].vertex);
+                    outputVertices.push_back(vertices[0].vertex);
+                    outputVertices.push_back(vertices[1].vertex);
+                    outputVertices.push_back(vertices[2].vertex);
+                    outputVertices.push_back(vertices[0].vertex);
+                    outputVertices.push_back(vertices[2].vertex);
+                    outputVertices.push_back(vertices[3].vertex);
                 }
                 else {
-                    ClipAndEmitTriangle(tri0, clipU, clipV, outputVertices);
-                    ClipAndEmitTriangle(tri1, clipU, clipV, outputVertices);
+                    ClipAndEmitPolygon({vertices[0], vertices[1], vertices[2], vertices[3]},
+                                       clipU,
+                                       clipV,
+                                       outputVertices);
                 }
             }
         }
 
         if (outputVertices.empty()) {
+            if (options_.logInterceptedDraws) {
+                LOG_INFO("TerrainDecalHook: custom renderer emitted no vertices for rect x={} y={} w={} h={} "
+                         "(loadedAnyTerrainCells={} clipU={} clipV={} flags=0x{:08X})",
+                         request.rect ? request.rect->nX : -1,
+                         request.rect ? request.rect->nY : -1,
+                         request.rect ? request.rect->nWidth : -1,
+                         request.rect ? request.rect->nHeight : -1,
+                         loadedAnyTerrainCells,
+                         clipU,
+                         clipV,
+                         slot.flags);
+            }
+            if (!loadedAnyTerrainCells) {
+                LOG_INFO("Not loaded any terrain cells");
+                return DrawResult::FallThroughToVanilla;
+            }
+
             return DrawResult::Handled;
+        }
+
+        if (options_.logInterceptedDraws) {
+            LOG_INFO("TerrainDecalHook: custom renderer emitted {} vertices for rect x={} y={} w={} h={} "
+                     "(clipU={} clipV={} flags=0x{:08X})",
+                     outputVertices.size(),
+                     request.rect ? request.rect->nX : -1,
+                     request.rect ? request.rect->nY : -1,
+                     request.rect ? request.rect->nWidth : -1,
+                     request.rect ? request.rect->nHeight : -1,
+                     clipU,
+                     clipV,
+                     slot.flags);
         }
 
         const auto drawPrims = reinterpret_cast<DrawPrimsFn>(request.addresses->drawPrims);

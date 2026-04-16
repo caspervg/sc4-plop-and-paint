@@ -37,6 +37,7 @@ namespace TerrainDecal
         const HookAddresses* addresses = nullptr;
         cISTETerrain* terrain = nullptr;
         cISTETerrainView* terrainView = nullptr;
+        const float* effectiveTexTransform = nullptr;
     };
 
     class ClippedTerrainDecalRenderer final

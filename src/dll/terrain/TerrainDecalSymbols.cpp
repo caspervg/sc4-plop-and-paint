@@ -12,6 +12,7 @@ namespace TerrainDecal
                 .drawDecals = 0x00736790u,
                 .drawRect = 0x00735720u,
                 .drawRectCallSite = 0x00736B88u,
+                .drawDecalsSetTexTransform4CallSite = 0x00736B7Cu,
                 .setVertexBuffer = 0x007D2970u,
                 .drawPrims = 0x007D2990u,
                 .drawPrimsIndexed = 0x007D29C0u,
@@ -20,7 +21,11 @@ namespace TerrainDecal
                 .drawTerrainMeshSubsetWithVertBufExtensionInDrawFrustum = 0x007545C0u,
                 .terrainGridVerticesPtr = 0x00B4C758u,
                 .terrainCellInfoRowsPtr = 0x00B4C6ACu,
+                .terrainPreparedCellVerticesRowsPtr = 0x00B4C6B0u,
+                .terrainCellCountXPtr = 0x00B4C744u,
+                .terrainCellCountZPtr = 0x00B4C748u,
                 .terrainVertexCountXPtr = 0x00B4C74Cu,
+                .terrainVertexCountPtr = 0x00B4C754u,
                 .overlayRectOffset = 0x0C,
             };
         default:
