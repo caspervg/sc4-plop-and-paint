@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 
@@ -12,9 +13,10 @@ namespace
 {
     // Verified from x86 DrawPrims callers in the SC4 1.1.641 executable:
     // DrawPrims(drawContext, primType, vertexFormat, vertexCount, vertexPtr)
-    // The game also directly submits terrain-style client vertices with format 0x0B.
-    // We emit explicit triangles here, so the current path uses primType 4.
-    constexpr uint32_t kPrimTypeTriangleList = 4;
+    // - DrawPlumbingInfo uses primType 0 for explicit 3/6-vertex triangle lists.
+    // - Signpost/quads use primType 6 with exactly 4 vertices per quad.
+    // Our clipped output is an explicit triangle list, so it should use primType 0.
+    constexpr uint32_t kPrimTypeTriangleList = 0;
     constexpr uint32_t kTerrainVertexFormat = 0x0B;
     constexpr float kClipEpsilon = 1.0e-5f;
 
@@ -112,7 +114,7 @@ namespace
     struct CellInfoEntry
     {
         int vertexIndex;
-        int flatY;
+        uint32_t flatYBits;
     };
 
     struct RowTableEntry
@@ -603,6 +605,17 @@ namespace
         result[1] = vertices[baseIndex + vertexCountX];
         result[2] = vertices[baseIndex + vertexCountX + 1];
         result[3] = vertices[baseIndex + 1];
+
+        // Match the prepared-row builder (FUN_00756350): when cell info is available it
+        // overwrites the y dword of all four corners with the cell row's second field.
+        if (row) {
+            const float flatY = std::bit_cast<float>(row[cellX].flatYBits);
+            result[0].y = flatY;
+            result[1].y = flatY;
+            result[2].y = flatY;
+            result[3].y = flatY;
+        }
+
         return true;
     }
 }
