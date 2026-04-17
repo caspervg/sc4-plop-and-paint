@@ -26,6 +26,7 @@
 #include "public/cIGZS3DCameraService.h"
 #include "public/S3DCameraServiceIds.h"
 #include "public/cIGZS3DCameraService.h"
+#include "persist/SidecarSaveHook.hpp"
 #include "terrain/TerrainDecalHook.hpp"
 #include "debug/OverlayManagerDebugPanel.hpp"
 #include "utils/Logger.h"
@@ -200,10 +201,17 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         terrainDecalHook_.reset();
     }
 
+    sidecarSaveHook_ = std::make_unique<PlopAndPaint::Sidecar::SidecarSaveHook>();
+    sidecarSaveHook_->Install(terrainDecalHook_.get());
+
     cIGZMessageServer2Ptr pMS2;
     if (pMS2) {
         pMS2->AddNotification(this, kSC4MessagePostCityInit);
         pMS2->AddNotification(this, kSC4MessagePreCityShutdown);
+        pMS2->AddNotification(this, PlopAndPaint::Sidecar::kSC4MessageLoad);
+        pMS2->AddNotification(this, PlopAndPaint::Sidecar::kSC4MessageSave);
+        pMS2->AddNotification(this, PlopAndPaint::Sidecar::kSC4MessageInsertOccupant);
+        pMS2->AddNotification(this, PlopAndPaint::Sidecar::kSC4MessageRemoveOccupant);
         pMS2_ = pMS2;
         LOG_INFO("Registered for city messages");
     }
@@ -328,14 +336,26 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     UnregisterLotPlopShortcut_();
     PersistRecentPaints_();
 
+    if (sidecarSaveHook_) {
+        sidecarSaveHook_->Uninstall();
+    }
+
     if (terrainDecalHook_) {
         terrainDecalHook_->Uninstall();
         terrainDecalHook_.reset();
     }
 
+    // Now that the terrain decal hook is gone, drop the sidecar hook too —
+    // it retained a raw pointer to the decal hook.
+    sidecarSaveHook_.reset();
+
     if (pMS2_) {
         pMS2_->RemoveNotification(this, kSC4MessagePostCityInit);
         pMS2_->RemoveNotification(this, kSC4MessagePreCityShutdown);
+        pMS2_->RemoveNotification(this, PlopAndPaint::Sidecar::kSC4MessageLoad);
+        pMS2_->RemoveNotification(this, PlopAndPaint::Sidecar::kSC4MessageSave);
+        pMS2_->RemoveNotification(this, PlopAndPaint::Sidecar::kSC4MessageInsertOccupant);
+        pMS2_->RemoveNotification(this, PlopAndPaint::Sidecar::kSC4MessageRemoveOccupant);
         pMS2_.Reset();
     }
 
@@ -438,7 +458,13 @@ bool SC4PlopAndPaintDirector::OnInstall() { return true; }
 
 bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     const auto pStandardMsg = static_cast<cIGZMessage2Standard*>(pMsg);
-    switch (pStandardMsg->GetType()) {
+    const auto msgType = pStandardMsg->GetType();
+
+    if (sidecarSaveHook_ && sidecarSaveHook_->HandleMessage(pMsg)) {
+        return true;
+    }
+
+    switch (msgType) {
     case kSC4MessagePostCityInit:
         PostCityInit_(pStandardMsg);
         break;
@@ -949,6 +975,10 @@ TerrainDecal::TerrainDecalHook* SC4PlopAndPaintDirector::GetTerrainDecalHook() c
     return terrainDecalHook_.get();
 }
 
+PlopAndPaint::Sidecar::SidecarSaveHook* SC4PlopAndPaintDirector::GetSidecarSaveHook() const noexcept {
+    return sidecarSaveHook_.get();
+}
+
 void SC4PlopAndPaintDirector::ProcessPendingToolActions_() {
     if (propStripperControl_) {
         propStripperControl_->ProcessPendingActions();
@@ -1192,6 +1222,9 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
 
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
     PersistRecentPaints_();
+    if (sidecarSaveHook_) {
+        sidecarSaveHook_->OnCityShutdown();
+    }
     SetLotPlopPanelVisible(false);
     StopFloraStripping();
     StopPropStripping();

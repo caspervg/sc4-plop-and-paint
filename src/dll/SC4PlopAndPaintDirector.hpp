@@ -30,6 +30,7 @@
 #include "public/ImGuiServiceIds.h"
 #include "public/cIGZDrawService.h"
 #include "public/cIGZImGuiService.h"
+#include "persist/SidecarSaveHook.hpp"
 #include "terrain/TerrainDecalHook.hpp"
 #include "utils/Settings.h"
 
@@ -98,6 +99,7 @@ public:
     [[nodiscard]] ImU32 GetThumbnailBorderColor() const noexcept;
     [[nodiscard]] cISC4City* GetCity() const noexcept;
     [[nodiscard]] TerrainDecal::TerrainDecalHook* GetTerrainDecalHook() const noexcept;
+    [[nodiscard]] PlopAndPaint::Sidecar::SidecarSaveHook* GetSidecarSaveHook() const noexcept;
     void SetLotPlopPanelVisible(bool visible);
 
 private:
@@ -160,6 +162,7 @@ private:
     bool drawOverlayEnabled_{true};
     uint32_t drawCallbackToken_{0};
     std::unique_ptr<TerrainDecal::TerrainDecalHook> terrainDecalHook_;
+    std::unique_ptr<PlopAndPaint::Sidecar::SidecarSaveHook> sidecarSaveHook_;
     PreviewMode defaultPropPreviewMode_ = PreviewMode::Outline;
     bool defaultShowGridOverlay_ = true;
     bool defaultSnapPointsToGrid_ = false;

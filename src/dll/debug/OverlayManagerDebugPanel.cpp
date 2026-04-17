@@ -7,11 +7,19 @@
 
 #include "SC4PlopAndPaintDirector.hpp"
 #include "cGZPersistResourceKey.h"
+#include "cIGZCOM.h"
+#include "cIGZFrameWork.h"
 #include "cISC4City.h"
+#include "cISC4Occupant.h"
+#include "cISC4OccupantManager.h"
+#include "cISC4PropOccupant.h"
+#include "cISC4PropOccupantTerrainDecal.h"
 #include "cISTEOverlayManager.h"
 #include "cISTETerrain.h"
 #include "cISTETerrainView.h"
+#include "cRZCOMDllDirector.h"
 #include "cS3DVector2.h"
+#include "cS3DVector3.h"
 #include "imgui.h"
 #include "terrain/TerrainDecalHook.hpp"
 #include "utils/Logger.h"
@@ -99,6 +107,25 @@ namespace DebugUi
                 FetchDecalInfo_(overlay);
             }
             if (!overlayAvailable) {
+                ImGui::EndDisabled();
+            }
+
+            // Decal-prop occupant path: spawns a real cISC4PropOccupantTerrainDecal
+            // which SC4 serializes natively and which fires InsertOccupant, so the
+            // sidecar hook can observe it. Distinct from the loose-overlay path
+            // above (which is retained for renderer testing).
+            const bool cityAvailable = director_ && director_->GetCity() != nullptr;
+            if (!cityAvailable) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::Button("Add Decal Prop")) {
+                const auto snappedCenter = GetSnappedCenter_(center_);
+                if (AddDecalProp_(snappedCenter[0], snappedCenter[1])) {
+                    center_[0] = snappedCenter[0];
+                    center_[1] = snappedCenter[1];
+                }
+            }
+            if (!cityAvailable) {
                 ImGui::EndDisabled();
             }
 
@@ -426,6 +453,98 @@ namespace DebugUi
         [[nodiscard]] static uint32_t NormalizeOverlayIdForHook_(const uint32_t overlayId)
         {
             return overlayId & 0x7FFFFFFFu;
+        }
+
+        bool AddDecalProp_(const float worldX, const float worldZ)
+        {
+            cISC4City* const city = director_ ? director_->GetCity() : nullptr;
+            if (!city) {
+                status_ = "AddDecalProp failed: no city";
+                return false;
+            }
+
+            cISC4OccupantManager* const occupantMgr = city->GetOccupantManager();
+            if (!occupantMgr) {
+                status_ = "AddDecalProp failed: no occupant manager";
+                return false;
+            }
+
+            cIGZFrameWork* const framework = RZGetFrameWork();
+            cIGZCOM* const com = framework ? framework->GetCOMObject() : nullptr;
+            if (!com) {
+                status_ = "AddDecalProp failed: no cIGZCOM";
+                return false;
+            }
+
+            cISC4PropOccupantTerrainDecal* decal = nullptr;
+            if (!com->GetClassObject(GZCLSID_cISC4PropOccupantTerrainDecal,
+                                     GZIID_cISC4PropOccupantTerrainDecal,
+                                     reinterpret_cast<void**>(&decal))
+                || !decal) {
+                status_ = "AddDecalProp failed: GetClassObject";
+                LOG_WARN("OverlayManagerDebugPanel: GetClassObject for terrain decal prop failed");
+                return false;
+            }
+
+            cISC4Occupant* occupant = nullptr;
+            cISC4PropOccupant* propOccupant = nullptr;
+            if (decal->QueryInterface(GZIID_cISC4PropOccupant, reinterpret_cast<void**>(&propOccupant))
+                && propOccupant) {
+                occupant = propOccupant->AsOccupant();
+                if (occupant) {
+                    occupant->AddRef();
+                }
+                propOccupant->Release();
+                propOccupant = nullptr;
+            }
+            if (!occupant) {
+                if (!decal->QueryInterface(GZIID_cISC4Occupant, reinterpret_cast<void**>(&occupant))
+                    || !occupant) {
+                    status_ = "AddDecalProp failed: QI cISC4Occupant";
+                    LOG_WARN("OverlayManagerDebugPanel: terrain decal prop has no cISC4Occupant facet");
+                    decal->Release();
+                    return false;
+                }
+            }
+
+            const cGZPersistResourceKey textureKey(textureType_, textureGroup_, textureInstance_);
+            decal->SetDecalTexture(textureKey, 1.0f);
+            decal->SetDecalSize(baseSize_);
+            decal->SetOpacity(1.0f);
+
+            if (!occupant->IsInitialized()) {
+                occupant->Init();
+            }
+
+            cISTETerrain* const terrain = city->GetTerrain();
+            const float worldY = terrain ? terrain->GetAltitude(worldX, worldZ) : 0.0f;
+            const cS3DVector3 pos(worldX, worldY, worldZ);
+            if (!occupant->SetPosition(&pos)) {
+                status_ = "AddDecalProp failed: SetPosition";
+                occupant->Release();
+                decal->Release();
+                return false;
+            }
+
+            if (!occupantMgr->InsertOccupant(occupant, 0)) {
+                status_ = "AddDecalProp failed: InsertOccupant";
+                LOG_WARN("OverlayManagerDebugPanel: InsertOccupant returned false at ({:.2f}, {:.2f}, {:.2f})",
+                         pos.fX, pos.fY, pos.fZ);
+                occupant->Release();
+                decal->Release();
+                return false;
+            }
+
+            LOG_INFO("OverlayManagerDebugPanel: placed decal prop at ({:.2f}, {:.2f}, {:.2f}) tex=({:08X},{:08X},{:08X}) size={:.2f}",
+                     pos.fX, pos.fY, pos.fZ,
+                     textureType_, textureGroup_, textureInstance_,
+                     baseSize_);
+            status_ = "Decal prop inserted";
+
+            // The occupant manager retains its own reference via InsertOccupant.
+            occupant->Release();
+            decal->Release();
+            return true;
         }
 
         void PushCreatedOverlay_(const uint32_t overlayId, const bool ring)
