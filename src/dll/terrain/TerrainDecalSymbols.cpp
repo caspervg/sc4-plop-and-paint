@@ -11,6 +11,8 @@ namespace TerrainDecal
                 .drawDecals = 0x00736790u,
                 .drawRect = 0x00735720u,
                 .drawRectCallSite = 0x00736B88u,
+                .setTexTransform4 = 0x007D4340u,
+                .setTexTransform4CallSite = 0x00736B7Cu,
                 .setVertexBuffer = 0x007D2970u,
                 .drawPrims = 0x007D2990u,
                 .drawPrimsIndexed = 0x007D29C0u,
@@ -25,6 +27,8 @@ namespace TerrainDecal
                 .terrainVertexCountXPtr = 0x00B4C74Cu,
                 .terrainVertexCountPtr = 0x00B4C754u,
                 .overlayRectOffset = 0x0C,
+                .overlaySlotsPtrOffset = 0x98,
+                .overlaySlotStride = 0xB4,
             };
         default:
             return std::nullopt;

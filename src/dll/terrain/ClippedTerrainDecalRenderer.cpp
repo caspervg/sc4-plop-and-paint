@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "cISTETerrain.h"
+#include "utils/Logger.h"
 
 namespace
 {
@@ -15,6 +16,7 @@ namespace
     constexpr uint32_t kPrimTypeTriangleList = 0;
     constexpr uint32_t kTerrainVertexFormat = 0x0B;
     constexpr float kClipEpsilon = 1.0e-5f;
+    using SetTexTransform4Fn = void(__thiscall*)(SC4DrawContext*, const float*, int);
 
     struct TerrainDrawRect
     {
@@ -62,6 +64,25 @@ namespace
         const float* matrix = nullptr;
     };
 
+    struct TextureTransformOverride
+    {
+        std::array<float, 16> adjusted{};
+        bool active = false;
+    };
+
+    struct ClipBounds
+    {
+        float minU = 0.0f;
+        float maxU = 1.0f;
+        float minV = 0.0f;
+        float maxV = 1.0f;
+    };
+
+    [[nodiscard]] uint32_t NormalizeOverlayIdKey(const uint32_t overlayId) noexcept
+    {
+        return overlayId & 0x7FFFFFFFu;
+    }
+
     struct CellInfoEntry
     {
         int vertexIndex;
@@ -103,6 +124,100 @@ namespace
     [[nodiscard]] bool ShouldClipV(const uint32_t flags) noexcept
     {
         return (flags & 0x20u) == 0u;
+    }
+
+    [[nodiscard]] bool IsValidUvSubrect(const TerrainDecal::OverlayUvSubrect& uvRect) noexcept
+    {
+        return std::isfinite(uvRect.u1) &&
+               std::isfinite(uvRect.v1) &&
+               std::isfinite(uvRect.u2) &&
+               std::isfinite(uvRect.v2) &&
+               uvRect.u1 < uvRect.u2 &&
+               uvRect.v1 < uvRect.v2;
+    }
+
+    [[nodiscard]] const char* DescribeOverlayUvMode(const TerrainDecal::OverlayUvMode mode) noexcept
+    {
+        switch (mode) {
+        case TerrainDecal::OverlayUvMode::StretchSubrect:
+            return "stretch";
+        case TerrainDecal::OverlayUvMode::ClipSubrect:
+            return "clip";
+        default:
+            return "unknown";
+        }
+    }
+
+    [[nodiscard]] bool TryResolveOverlayId(const TerrainDecal::DrawRequest& request, uint32_t& overlayId) noexcept
+    {
+        overlayId = 0;
+
+        if (!request.addresses ||
+            !request.overlayManager ||
+            !request.overlaySlotBase ||
+            request.addresses->overlaySlotsPtrOffset <= 0 ||
+            request.addresses->overlaySlotStride <= 0) {
+            return false;
+        }
+
+        const auto* const overlayManagerBytes = reinterpret_cast<const std::byte*>(request.overlayManager);
+        const auto* const slotsBase =
+            *reinterpret_cast<const std::byte* const*>(overlayManagerBytes + request.addresses->overlaySlotsPtrOffset);
+        if (!slotsBase) {
+            return false;
+        }
+
+        const auto slotAddress = reinterpret_cast<uintptr_t>(request.overlaySlotBase);
+        const auto slotsBaseAddress = reinterpret_cast<uintptr_t>(slotsBase);
+        if (slotAddress < slotsBaseAddress) {
+            return false;
+        }
+
+        const std::ptrdiff_t delta = static_cast<std::ptrdiff_t>(slotAddress - slotsBaseAddress);
+        if ((delta % request.addresses->overlaySlotStride) != 0) {
+            return false;
+        }
+
+        const auto slotIndex = delta / request.addresses->overlaySlotStride;
+        if (slotIndex < 0) {
+            return false;
+        }
+
+        overlayId = static_cast<uint32_t>(slotIndex);
+        return true;
+    }
+
+    [[nodiscard]] TextureTransformOverride BuildTextureTransformOverride(
+        const float* baseTransform,
+        const TerrainDecal::OverlayUvSubrect& uvRect) noexcept
+    {
+        TextureTransformOverride result{};
+        if (!baseTransform || !IsValidUvSubrect(uvRect)) {
+            return result;
+        }
+
+        result.adjusted = {
+            baseTransform[0],  baseTransform[1],  baseTransform[2],  baseTransform[3],
+            baseTransform[4],  baseTransform[5],  baseTransform[6],  baseTransform[7],
+            baseTransform[8],  baseTransform[9],  baseTransform[10], baseTransform[11],
+            baseTransform[12], baseTransform[13], baseTransform[14], baseTransform[15]
+        };
+
+        const float width = uvRect.u2 - uvRect.u1;
+        const float height = uvRect.v2 - uvRect.v1;
+        constexpr int uColumn[] = {0, 4, 8, 12};
+        constexpr int vColumn[] = {1, 5, 9, 13};
+        constexpr int wColumn[] = {3, 7, 11, 15};
+
+        for (size_t i = 0; i < std::size(uColumn); ++i) {
+            result.adjusted[uColumn[i]] = width * baseTransform[uColumn[i]] +
+                                          uvRect.u1 * baseTransform[wColumn[i]];
+            result.adjusted[vColumn[i]] = height * baseTransform[vColumn[i]] +
+                                          uvRect.v1 * baseTransform[wColumn[i]];
+        }
+
+        result.active = true;
+        return result;
     }
 
     [[nodiscard]] float UnpackColorChannel(const uint32_t color, const int shift) noexcept
@@ -258,16 +373,17 @@ namespace
     void ClipAndEmitPolygon(std::vector<ClipVertex> polygon,
                              const bool clipU,
                              const bool clipV,
+                             const ClipBounds& bounds,
                              std::vector<PackedTerrainVertex>& output)
     {
         if (clipU) {
-            ClipPolygonAgainstPlane(polygon, true, true, 0.0f);
-            ClipPolygonAgainstPlane(polygon, true, false, 1.0f);
+            ClipPolygonAgainstPlane(polygon, true, true, bounds.minU);
+            ClipPolygonAgainstPlane(polygon, true, false, bounds.maxU);
         }
 
         if (clipV) {
-            ClipPolygonAgainstPlane(polygon, false, true, 0.0f);
-            ClipPolygonAgainstPlane(polygon, false, false, 1.0f);
+            ClipPolygonAgainstPlane(polygon, false, true, bounds.minV);
+            ClipPolygonAgainstPlane(polygon, false, false, bounds.maxV);
         }
 
         EmitTriangleFan(polygon, output);
@@ -275,31 +391,38 @@ namespace
 
     [[nodiscard]] bool AllVerticesInside(const std::array<ClipVertex, 4>& vertices,
                                          const bool clipU,
-                                         const bool clipV) noexcept
+                                         const bool clipV,
+                                         const ClipBounds& bounds) noexcept
     {
-        return std::all_of(vertices.begin(), vertices.end(), [clipU, clipV](const ClipVertex& vertex) {
-            const bool insideU = !clipU || (vertex.clipU >= -kClipEpsilon && vertex.clipU <= 1.0f + kClipEpsilon);
-            const bool insideV = !clipV || (vertex.clipV >= -kClipEpsilon && vertex.clipV <= 1.0f + kClipEpsilon);
+        return std::all_of(vertices.begin(), vertices.end(), [clipU, clipV, bounds](const ClipVertex& vertex) {
+            const bool insideU = !clipU || (vertex.clipU >= bounds.minU - kClipEpsilon &&
+                                            vertex.clipU <= bounds.maxU + kClipEpsilon);
+            const bool insideV = !clipV || (vertex.clipV >= bounds.minV - kClipEpsilon &&
+                                            vertex.clipV <= bounds.maxV + kClipEpsilon);
             return insideU && insideV;
         });
     }
 
     [[nodiscard]] bool AnyVertexInside(const std::array<ClipVertex, 4>& vertices,
                                        const bool clipU,
-                                       const bool clipV) noexcept
+                                       const bool clipV,
+                                       const ClipBounds& bounds) noexcept
     {
-        return std::any_of(vertices.begin(), vertices.end(), [clipU, clipV](const ClipVertex& vertex) {
-            const bool insideU = !clipU || (vertex.clipU >= -kClipEpsilon && vertex.clipU <= 1.0f + kClipEpsilon);
-            const bool insideV = !clipV || (vertex.clipV >= -kClipEpsilon && vertex.clipV <= 1.0f + kClipEpsilon);
+        return std::any_of(vertices.begin(), vertices.end(), [clipU, clipV, bounds](const ClipVertex& vertex) {
+            const bool insideU = !clipU || (vertex.clipU >= bounds.minU - kClipEpsilon &&
+                                            vertex.clipU <= bounds.maxU + kClipEpsilon);
+            const bool insideV = !clipV || (vertex.clipV >= bounds.minV - kClipEpsilon &&
+                                            vertex.clipV <= bounds.maxV + kClipEpsilon);
             return insideU && insideV;
         });
     }
 
     [[nodiscard]] bool QuadMayIntersectClipBox(const std::array<ClipVertex, 4>& vertices,
                                                const bool clipU,
-                                               const bool clipV) noexcept
+                                               const bool clipV,
+                                               const ClipBounds& bounds) noexcept
     {
-        if (AnyVertexInside(vertices, clipU, clipV)) {
+        if (AnyVertexInside(vertices, clipU, clipV, bounds)) {
             return true;
         }
 
@@ -315,8 +438,8 @@ namespace
             maxV = std::max(maxV, vertex.clipV);
         }
 
-        const bool overlapsU = !clipU || !(maxU < 0.0f || minU > 1.0f);
-        const bool overlapsV = !clipV || !(maxV < 0.0f || minV > 1.0f);
+        const bool overlapsU = !clipU || !(maxU < bounds.minU || minU > bounds.maxU);
+        const bool overlapsV = !clipV || !(maxV < bounds.minV || minV > bounds.maxV);
         return overlapsU && overlapsV;
     }
 
@@ -489,38 +612,173 @@ namespace TerrainDecal
         return options_;
     }
 
+    void ClippedTerrainDecalRenderer::SetOverlayUvSubrect(const uint32_t overlayId, const OverlayUvSubrect& uvRect)
+    {
+        const uint32_t normalizedOverlayId = NormalizeOverlayIdKey(overlayId);
+        overlayUvSubrects_[normalizedOverlayId] = uvRect;
+        LOG_INFO("TerrainDecalRenderer: registered UV override for overlay {} (normalized {}, mode={}) -> [{:.3f}, {:.3f}] to [{:.3f}, {:.3f}]",
+                 overlayId,
+                 normalizedOverlayId,
+                 DescribeOverlayUvMode(uvRect.mode),
+                 uvRect.u1,
+                 uvRect.v1,
+                 uvRect.u2,
+                 uvRect.v2);
+    }
+
+    bool ClippedTerrainDecalRenderer::RemoveOverlayUvSubrect(const uint32_t overlayId) noexcept
+    {
+        const uint32_t normalizedOverlayId = NormalizeOverlayIdKey(overlayId);
+        const bool removed = overlayUvSubrects_.erase(normalizedOverlayId) > 0;
+        if (removed) {
+            LOG_INFO("TerrainDecalRenderer: removed UV override for overlay {} (normalized {})",
+                     overlayId,
+                     normalizedOverlayId);
+        }
+        return removed;
+    }
+
+    void ClippedTerrainDecalRenderer::ClearOverlayUvSubrects() noexcept
+    {
+        if (!overlayUvSubrects_.empty()) {
+            LOG_INFO("TerrainDecalRenderer: cleared {} UV override entries", overlayUvSubrects_.size());
+        }
+        overlayUvSubrects_.clear();
+    }
+
+    bool ClippedTerrainDecalRenderer::TryGetOverlayUvSubrect(const uint32_t overlayId,
+                                                             OverlayUvSubrect& uvRect) const noexcept
+    {
+        const uint32_t normalizedOverlayId = NormalizeOverlayIdKey(overlayId);
+        const auto it = overlayUvSubrects_.find(normalizedOverlayId);
+        if (it == overlayUvSubrects_.end()) {
+            return false;
+        }
+
+        uvRect = it->second;
+        return true;
+    }
+
     DrawResult ClippedTerrainDecalRenderer::Draw(const DrawRequest& request)
     {
+        const bool debugOverridesActive = !overlayUvSubrects_.empty();
+
         if (!options_.enableClippedRendering) {
             return DrawResult::FallThroughToVanilla;
         }
 
         if (!request.addresses || !request.terrain || !request.overlaySlotBase || !request.drawContext) {
+            if (debugOverridesActive) {
+                LOG_WARN("TerrainDecalRenderer: falling through before draw because request is incomplete "
+                         "(addresses={}, terrain={}, slotBase={}, drawContext={})",
+                         request.addresses != nullptr,
+                         request.terrain != nullptr,
+                         request.overlaySlotBase != nullptr,
+                         request.drawContext != nullptr);
+            }
             return DrawResult::FallThroughToVanilla;
         }
 
         const OverlaySlotView slot = ReadOverlaySlotView(request.overlaySlotBase);
         if (slot.state != -1 || !slot.matrix) {
+            if (debugOverridesActive) {
+                LOG_WARN("TerrainDecalRenderer: falling through because slot state/matrix is invalid "
+                         "(state={}, matrix={})",
+                         slot.state,
+                         static_cast<const void*>(slot.matrix));
+            }
             return DrawResult::FallThroughToVanilla;
         }
 
         const bool clipU = ShouldClipU(slot.flags);
         const bool clipV = ShouldClipV(slot.flags);
-        if (!clipU && !clipV) {
+        uint32_t overlayId = 0;
+        OverlayUvSubrect uvRect{};
+        const bool hasOverlayId = TryResolveOverlayId(request, overlayId);
+        const bool hasUvOverride = hasOverlayId && TryGetOverlayUvSubrect(overlayId, uvRect);
+        const bool clipOnlyUvOverride = hasUvOverride && uvRect.mode == OverlayUvMode::ClipSubrect;
+        const bool effectiveClipU = clipU || clipOnlyUvOverride;
+        const bool effectiveClipV = clipV || clipOnlyUvOverride;
+        const ClipBounds clipBounds = clipOnlyUvOverride
+                                          ? ClipBounds{.minU = uvRect.u1, .maxU = uvRect.u2, .minV = uvRect.v1, .maxV = uvRect.v2}
+                                          : ClipBounds{};
+        if (debugOverridesActive) {
+            LOG_INFO("TerrainDecalRenderer: draw slotBase={} resolvedOverlayId={} overlayId={} hasUvOverride={} flags=0x{:08X} clipU={} clipV={} effectiveClipU={} effectiveClipV={}",
+                     static_cast<const void*>(request.overlaySlotBase),
+                     hasOverlayId,
+                     overlayId,
+                     hasUvOverride,
+                     slot.flags,
+                     clipU,
+                     clipV,
+                     effectiveClipU,
+                     effectiveClipV);
+        }
+        if (!effectiveClipU && !effectiveClipV && !hasUvOverride) {
+            return DrawResult::FallThroughToVanilla;
+        }
+
+        const float* const baseTexTransform = request.activeTexTransform ? request.activeTexTransform : slot.matrix;
+        const TextureTransformOverride texTransformOverride =
+            (hasUvOverride && uvRect.mode == OverlayUvMode::StretchSubrect)
+                ? BuildTextureTransformOverride(baseTexTransform, uvRect)
+                : TextureTransformOverride{};
+        if (hasUvOverride && uvRect.mode == OverlayUvMode::StretchSubrect && !texTransformOverride.active) {
+            LOG_WARN("TerrainDecalRenderer: UV override exists for overlay {} but transform override could not be built",
+                     overlayId);
+            return DrawResult::FallThroughToVanilla;
+        }
+        if (hasUvOverride) {
+            LOG_INFO("TerrainDecalRenderer: overlay {} UV override mode={} active [{:.3f}, {:.3f}] to [{:.3f}, {:.3f}] using tex stage {}",
+                     overlayId,
+                     DescribeOverlayUvMode(uvRect.mode),
+                     uvRect.u1,
+                     uvRect.v1,
+                     uvRect.u2,
+                     uvRect.v2,
+                     request.activeTexTransformStage);
+        }
+        if (hasUvOverride &&
+            uvRect.mode == OverlayUvMode::StretchSubrect &&
+            request.activeTexTransformStage < 0) {
+            LOG_WARN("TerrainDecalRenderer: overlay {} UV override requested but no active texture transform stage was captured",
+                     overlayId);
             return DrawResult::FallThroughToVanilla;
         }
 
         if (slot.rect.left >= slot.rect.right || slot.rect.top >= slot.rect.bottom) {
+            if (hasUvOverride || debugOverridesActive) {
+                LOG_INFO("TerrainDecalRenderer: overlay {} handled as empty rect [{},{}]-[{},{}]",
+                         overlayId,
+                         slot.rect.left,
+                         slot.rect.top,
+                         slot.rect.right,
+                         slot.rect.bottom);
+            }
             return DrawResult::Handled;
         }
 
         const TerrainGridDimensions dimensions = ReadTerrainGridDimensions(*request.addresses);
         if (dimensions.cellCountX <= 0 || dimensions.cellCountZ <= 0) {
+            if (hasUvOverride || debugOverridesActive) {
+                LOG_WARN("TerrainDecalRenderer: overlay {} handled with invalid terrain dimensions {}x{}",
+                         overlayId,
+                         dimensions.cellCountX,
+                         dimensions.cellCountZ);
+            }
             return DrawResult::Handled;
         }
 
         const TerrainDrawRect drawRect = ClampTerrainDrawRect(slot.rect, dimensions);
         if (drawRect.left >= drawRect.right || drawRect.top >= drawRect.bottom) {
+            if (hasUvOverride || debugOverridesActive) {
+                LOG_INFO("TerrainDecalRenderer: overlay {} handled with empty clamped rect [{},{}]-[{},{}]",
+                         overlayId,
+                         drawRect.left,
+                         drawRect.top,
+                         drawRect.right,
+                         drawRect.bottom);
+            }
             return DrawResult::Handled;
         }
 
@@ -547,11 +805,11 @@ namespace TerrainDecal
                     EvaluateFootprintUv(slot.matrix, vertex);
                 }
 
-                if (!QuadMayIntersectClipBox(vertices, clipU, clipV)) {
+                if (!QuadMayIntersectClipBox(vertices, effectiveClipU, effectiveClipV, clipBounds)) {
                     continue;
                 }
 
-                if (AllVerticesInside(vertices, clipU, clipV)) {
+                if (AllVerticesInside(vertices, effectiveClipU, effectiveClipV, clipBounds)) {
                     outputVertices.push_back(vertices[0].vertex);
                     outputVertices.push_back(vertices[1].vertex);
                     outputVertices.push_back(vertices[2].vertex);
@@ -561,8 +819,9 @@ namespace TerrainDecal
                 }
                 else {
                     ClipAndEmitPolygon({vertices[0], vertices[1], vertices[2], vertices[3]},
-                                       clipU,
-                                       clipV,
+                                       effectiveClipU,
+                                       effectiveClipV,
+                                       clipBounds,
                                        outputVertices);
                 }
             }
@@ -570,10 +829,21 @@ namespace TerrainDecal
 
         if (outputVertices.empty()) {
             if (!loadedAnyTerrainCells) {
+                if (hasUvOverride || debugOverridesActive) {
+                    LOG_WARN("TerrainDecalRenderer: overlay {} fell through because no terrain cells loaded", overlayId);
+                }
                 return DrawResult::FallThroughToVanilla;
             }
 
+            if (hasUvOverride || debugOverridesActive) {
+                LOG_INFO("TerrainDecalRenderer: overlay {} handled but produced no output vertices", overlayId);
+            }
             return DrawResult::Handled;
+        }
+
+        if (texTransformOverride.active) {
+            const auto setTexTransform = reinterpret_cast<SetTexTransform4Fn>(request.addresses->setTexTransform4);
+            setTexTransform(request.drawContext, texTransformOverride.adjusted.data(), request.activeTexTransformStage);
         }
 
         const auto drawPrims = reinterpret_cast<DrawPrimsFn>(request.addresses->drawPrims);
@@ -582,6 +852,14 @@ namespace TerrainDecal
                   kTerrainVertexFormat,
                   static_cast<uint32_t>(outputVertices.size()),
                   outputVertices.data());
+        if (hasUvOverride || debugOverridesActive) {
+            LOG_INFO("TerrainDecalRenderer: overlay {} submitted {} vertices", overlayId, outputVertices.size());
+        }
+
+        if (texTransformOverride.active) {
+            const auto setTexTransform = reinterpret_cast<SetTexTransform4Fn>(request.addresses->setTexTransform4);
+            setTexTransform(request.drawContext, baseTexTransform, request.activeTexTransformStage);
+        }
 
         return DrawResult::Handled;
     }

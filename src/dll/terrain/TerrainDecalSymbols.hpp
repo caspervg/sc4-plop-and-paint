@@ -13,6 +13,8 @@ namespace TerrainDecal
         uintptr_t drawDecals = 0;
         uintptr_t drawRect = 0;
         uintptr_t drawRectCallSite = 0;
+        uintptr_t setTexTransform4 = 0;
+        uintptr_t setTexTransform4CallSite = 0;
         uintptr_t setVertexBuffer = 0;
         uintptr_t drawPrims = 0;
         uintptr_t drawPrimsIndexed = 0;
@@ -27,6 +29,8 @@ namespace TerrainDecal
         uintptr_t terrainVertexCountXPtr = 0;
         uintptr_t terrainVertexCountPtr = 0;
         std::ptrdiff_t overlayRectOffset = 0;
+        std::ptrdiff_t overlaySlotsPtrOffset = 0;
+        std::ptrdiff_t overlaySlotStride = 0;
     };
 
     [[nodiscard]] std::optional<HookAddresses> ResolveHookAddresses(uint16_t gameVersion);

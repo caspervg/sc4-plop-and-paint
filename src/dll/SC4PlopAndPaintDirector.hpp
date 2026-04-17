@@ -40,6 +40,10 @@ class PropRepository;
 class FavoritesRepository;
 class cIGZS3DCameraService;
 class RecentSwapPanel;
+namespace DebugUi
+{
+    class OverlayManagerDebugPanel;
+}
 
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
@@ -92,6 +96,8 @@ public:
     [[nodiscard]] PreviewMode GetDefaultPropPreviewMode() const noexcept;
     [[nodiscard]] ImU32 GetThumbnailBackgroundColor() const noexcept;
     [[nodiscard]] ImU32 GetThumbnailBorderColor() const noexcept;
+    [[nodiscard]] cISC4City* GetCity() const noexcept;
+    [[nodiscard]] TerrainDecal::TerrainDecalHook* GetTerrainDecalHook() const noexcept;
     void SetLotPlopPanelVisible(bool visible);
 
 private:
@@ -146,6 +152,8 @@ private:
     bool statusPanelRegistered_{false};
     std::unique_ptr<RecentSwapPanel> swapPanel_;
     bool swapPanelRegistered_{false};
+    std::unique_ptr<DebugUi::OverlayManagerDebugPanel> overlayManagerDebugPanel_;
+    bool overlayManagerDebugPanelRegistered_{false};
     RecentPaintHistory recentPaints_{};
     bool enableRecentPaints_{true};
     PaintSwitchPolicy paintSwitchPolicy_{PaintSwitchPolicy::KeepPending};

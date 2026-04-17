@@ -27,6 +27,7 @@
 #include "public/S3DCameraServiceIds.h"
 #include "public/cIGZS3DCameraService.h"
 #include "terrain/TerrainDecalHook.hpp"
+#include "debug/OverlayManagerDebugPanel.hpp"
 #include "utils/Logger.h"
 #include "utils/Settings.h"
 
@@ -39,6 +40,7 @@ namespace {
     constexpr auto kLotPlopPanelId = 0xCA500001u;
     constexpr auto kStatusPanelId = 0xCA500002u;
     constexpr auto kRecentSwapPanelId = 0xCA500003u;
+    constexpr auto kOverlayManagerDebugPanelId = 0xCA500004u;
     constexpr auto kToggleLotPlopWindowShortcutID = 0x9F21C3A1u;
     constexpr auto kKeyConfigType = 0xA2E3D533u;
     constexpr auto kKeyConfigGroup = 0x8F1E6D69u;
@@ -299,6 +301,19 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
                 });
             SyncRecentPaintsCache_();
         }
+
+        overlayManagerDebugPanel_ = std::make_unique<DebugUi::OverlayManagerDebugPanel>(this);
+        const ImGuiPanelDesc overlayDebugDesc = ImGuiPanelAdapter<DebugUi::OverlayManagerDebugPanel>::MakeDesc(
+            overlayManagerDebugPanel_.get(), kOverlayManagerDebugPanelId, 103, true
+        );
+        if (imguiService_->RegisterPanel(overlayDebugDesc)) {
+            overlayManagerDebugPanelRegistered_ = true;
+            LOG_INFO("Registered overlay manager debug panel");
+        }
+        else {
+            overlayManagerDebugPanel_.reset();
+            LOG_WARN("Failed to register overlay manager debug panel");
+        }
     }
     else {
         LOG_WARN("ImGui service not found or not available");
@@ -368,6 +383,12 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
         swapPanelRegistered_ = false;
     }
     swapPanel_.reset();
+
+    if (imguiService_ && overlayManagerDebugPanelRegistered_) {
+        imguiService_->UnregisterPanel(kOverlayManagerDebugPanelId);
+        overlayManagerDebugPanelRegistered_ = false;
+    }
+    overlayManagerDebugPanel_.reset();
 
     if (imguiService_ && panelRegistered_) {
         SetLotPlopPanelVisible(false);
@@ -918,6 +939,14 @@ ImU32 SC4PlopAndPaintDirector::GetThumbnailBackgroundColor() const noexcept {
 
 ImU32 SC4PlopAndPaintDirector::GetThumbnailBorderColor() const noexcept {
     return thumbnailBorderColor_;
+}
+
+cISC4City* SC4PlopAndPaintDirector::GetCity() const noexcept {
+    return pCity_;
+}
+
+TerrainDecal::TerrainDecalHook* SC4PlopAndPaintDirector::GetTerrainDecalHook() const noexcept {
+    return terrainDecalHook_.get();
 }
 
 void SC4PlopAndPaintDirector::ProcessPendingToolActions_() {

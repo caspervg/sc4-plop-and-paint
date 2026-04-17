@@ -1,5 +1,6 @@
 #include "TerrainDecalHook.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <utility>
 
@@ -30,7 +31,7 @@ namespace TerrainDecal
 
     bool TerrainDecalHook::Install()
     {
-        if (callSitePatch_.IsInstalled()) {
+        if (callSitePatch_.IsInstalled() && setTexTransformCallSitePatch_.IsInstalled()) {
             return true;
         }
 
@@ -57,23 +58,37 @@ namespace TerrainDecal
         callSitePatch_.Configure("cSTEOverlayManager::DrawDecals->DrawRect call site",
                                  addresses_->drawRectCallSite,
                                  reinterpret_cast<void*>(&DrawRectCallThunk));
+        setTexTransformCallSitePatch_.Configure("cSTEOverlayManager::DrawDecals->SetTexTransform4 call site",
+                                                addresses_->setTexTransform4CallSite,
+                                                reinterpret_cast<void*>(&SetTexTransform4CallThunk));
 
         if (!callSitePatch_.Install()) {
             sActiveHook_ = nullptr;
             SetLastError_("failed to install draw-rect call-site patch");
             return false;
         }
+        if (!setTexTransformCallSitePatch_.Install()) {
+            callSitePatch_.Uninstall();
+            sActiveHook_ = nullptr;
+            SetLastError_("failed to install set-tex-transform call-site patch");
+            return false;
+        }
 
         lastError_.clear();
-        LOG_INFO("TerrainDecalHook: installed at 0x{:08X} for {}",
+        LOG_INFO("TerrainDecalHook: installed at 0x{:08X} / 0x{:08X} for {}",
                  static_cast<uint32_t>(addresses_->drawRectCallSite),
+                 static_cast<uint32_t>(addresses_->setTexTransform4CallSite),
                  DescribeKnownAddressSet(addresses_->gameVersion));
         return true;
     }
 
     void TerrainDecalHook::Uninstall()
     {
+        setTexTransformCallSitePatch_.Uninstall();
         callSitePatch_.Uninstall();
+        currentTexTransformValid_ = false;
+        currentTexTransformStage_ = -1;
+        renderer_.ClearOverlayUvSubrects();
 
         if (sActiveHook_ == this) {
             sActiveHook_ = nullptr;
@@ -93,6 +108,26 @@ namespace TerrainDecal
     const std::optional<HookAddresses>& TerrainDecalHook::GetAddresses() const noexcept
     {
         return addresses_;
+    }
+
+    void TerrainDecalHook::SetOverlayUvSubrect(const uint32_t overlayId, const OverlayUvSubrect& uvRect)
+    {
+        renderer_.SetOverlayUvSubrect(overlayId, uvRect);
+    }
+
+    bool TerrainDecalHook::RemoveOverlayUvSubrect(const uint32_t overlayId) noexcept
+    {
+        return renderer_.RemoveOverlayUvSubrect(overlayId);
+    }
+
+    void TerrainDecalHook::ClearOverlayUvSubrects() noexcept
+    {
+        renderer_.ClearOverlayUvSubrects();
+    }
+
+    bool TerrainDecalHook::TryGetOverlayUvSubrect(const uint32_t overlayId, OverlayUvSubrect& uvRect) const noexcept
+    {
+        return renderer_.TryGetOverlayUvSubrect(overlayId, uvRect);
     }
 
     ClippedTerrainDecalRenderer& TerrainDecalHook::GetRenderer() noexcept
@@ -117,6 +152,18 @@ namespace TerrainDecal
         sActiveHook_->HandleDrawRectCall_(overlayManager, drawContext, rect);
     }
 
+    void __fastcall TerrainDecalHook::SetTexTransform4CallThunk(SC4DrawContext* drawContext,
+                                                                void*,
+                                                                const float* matrix,
+                                                                int stage)
+    {
+        if (!sActiveHook_) {
+            return;
+        }
+
+        sActiveHook_->HandleSetTexTransform4Call_(drawContext, matrix, stage);
+    }
+
     void TerrainDecalHook::HandleDrawRectCall_(void* overlayManager, SC4DrawContext* drawContext, const cRZRect* rect)
     {
         DrawRequest request{
@@ -124,6 +171,8 @@ namespace TerrainDecal
             .drawContext = drawContext,
             .rect = rect,
             .overlaySlotBase = nullptr,
+            .activeTexTransform = currentTexTransformValid_ ? currentTexTransform_.data() : nullptr,
+            .activeTexTransformStage = currentTexTransformValid_ ? currentTexTransformStage_ : -1,
             .overlayRectOffset = 0,
             .addresses = addresses_ ? &*addresses_ : nullptr,
             .terrain = nullptr,
@@ -141,12 +190,29 @@ namespace TerrainDecal
         request.terrainView = request.terrain ? request.terrain->GetView() : nullptr;
 
         const auto result = renderer_.Draw(request);
+        currentTexTransformValid_ = false;
+        currentTexTransformStage_ = -1;
 
         if (result == DrawResult::Handled) {
             return;
         }
 
         CallOriginalDrawRect_(overlayManager, drawContext, rect);
+    }
+
+    void TerrainDecalHook::HandleSetTexTransform4Call_(SC4DrawContext* drawContext, const float* matrix, const int stage)
+    {
+        if (matrix) {
+            std::copy_n(matrix, currentTexTransform_.size(), currentTexTransform_.begin());
+            currentTexTransformStage_ = stage;
+            currentTexTransformValid_ = true;
+        }
+        else {
+            currentTexTransformValid_ = false;
+            currentTexTransformStage_ = -1;
+        }
+
+        CallOriginalSetTexTransform4_(drawContext, matrix, stage);
     }
 
     void TerrainDecalHook::CallOriginalDrawRect_(void* overlayManager,
@@ -160,6 +226,19 @@ namespace TerrainDecal
 
         const auto original = reinterpret_cast<DrawRectFn>(originalTarget);
         original(overlayManager, drawContext, rect);
+    }
+
+    void TerrainDecalHook::CallOriginalSetTexTransform4_(SC4DrawContext* drawContext,
+                                                         const float* matrix,
+                                                         const int stage) const
+    {
+        const auto originalTarget = setTexTransformCallSitePatch_.GetOriginalTarget();
+        if (!originalTarget) {
+            return;
+        }
+
+        const auto original = reinterpret_cast<SetTexTransform4Fn>(originalTarget);
+        original(drawContext, matrix, stage);
     }
 
     void TerrainDecalHook::SetLastError_(std::string message)
