@@ -92,12 +92,26 @@ namespace PlopAndPaint::Sidecar
             WriteField_(sink, kFieldDecalInfo, tmp.Buffer().data(), tmp.Size());
         }
 
+        void WriteOverlayInfo_(ByteSink& sink, const OverlayInfoSnapshot& info)
+        {
+            ByteSink tmp;
+            tmp.PutFloat32(info.baseSize);
+            tmp.PutFloat32(info.rotationTurns);
+            tmp.PutFloat32(info.aspectMultiplier);
+            tmp.PutFloat32(info.uvScaleU);
+            tmp.PutFloat32(info.uvScaleV);
+            tmp.PutFloat32(info.uvOffset);
+            tmp.PutFloat32(info.unknown8);
+            WriteField_(sink, kFieldOverlayInfo, tmp.Buffer().data(), tmp.Size());
+        }
+
         uint32_t CountKnownFields_(const DecalEntry& entry)
         {
             uint32_t count = 1; // worldPos is always present
             if (entry.textureKey) ++count;
             if (entry.uvSubrect) ++count;
             if (entry.decalInfo) ++count;
+            if (entry.overlayInfo) ++count;
             if (entry.opacity) ++count;
             if (entry.userFlags) ++count;
             return count;
@@ -121,6 +135,9 @@ namespace PlopAndPaint::Sidecar
             }
             if (entry.decalInfo) {
                 WriteDecalInfo_(body, *entry.decalInfo);
+            }
+            if (entry.overlayInfo) {
+                WriteOverlayInfo_(body, *entry.overlayInfo);
             }
             if (entry.opacity) {
                 ByteSink tmp;

@@ -28,9 +28,9 @@ namespace PlopAndPaint::Sidecar
     constexpr uint32_t kMaxChunks = 1024;
     constexpr uint32_t kMaxEntriesPerChunk = 1'000'000u;
     constexpr uint32_t kMaxFieldsPerEntry = 256;
-    constexpr uint32_t kMaxChunkBytes = 64u * 1024u * 1024u;      // 64 MiB
-    constexpr uint32_t kMaxEntryBytes = 1u * 1024u * 1024u;       // 1 MiB
-    constexpr uint32_t kMaxFieldBytes = 256u * 1024u;             // 256 KiB
+    constexpr uint32_t kMaxChunkBytes = 64u * 1024u * 1024u;
+    constexpr uint32_t kMaxEntryBytes = 1u * 1024u * 1024u;
+    constexpr uint32_t kMaxFieldBytes = 256u * 1024u;
 
     // Chunk tags. New chunk tags can be added at any time; readers that don't
     // recognize a tag preserve the raw bytes and re-emit them verbatim on save.
@@ -42,18 +42,19 @@ namespace PlopAndPaint::Sidecar
     //
     // Numeric field values are always stored in the canonical type noted here.
     // Length-prefixed blobs carry a u32 byte count followed by raw bytes.
-    constexpr uint32_t kFieldWorldPos      = FourCC('W', 'P', 'O', 'S'); // 3 × float32
-    constexpr uint32_t kFieldTextureKey    = FourCC('T', 'X', 'K', 'Y'); // 3 × uint32 (T,G,I)
-    constexpr uint32_t kFieldUvSubrect     = FourCC('U', 'V', 'S', 'R'); // 4 × float32 + uint32 mode
-    constexpr uint32_t kFieldDecalInfo     = FourCC('D', 'I', 'N', 'F'); // 7 × float32
-    constexpr uint32_t kFieldOpacity       = FourCC('O', 'P', 'A', 'C'); // 1 × float32
-    constexpr uint32_t kFieldUserFlags     = FourCC('U', 'F', 'L', 'G'); // 1 × uint32
+    constexpr uint32_t kFieldWorldPos = FourCC('W', 'P', 'O', 'S');
+    constexpr uint32_t kFieldTextureKey = FourCC('T', 'X', 'K', 'Y');
+    constexpr uint32_t kFieldUvSubrect = FourCC('U', 'V', 'S', 'R');
+    constexpr uint32_t kFieldDecalInfo = FourCC('D', 'I', 'N', 'F');
+    constexpr uint32_t kFieldOverlayInfo = FourCC('O', 'V', 'I', 'F');
+    constexpr uint32_t kFieldOpacity = FourCC('O', 'P', 'A', 'C');
+    constexpr uint32_t kFieldUserFlags = FourCC('U', 'F', 'L', 'G');
 
     // TGI of the sidecar subfile inside the savegame DBPF. The values below are
     // scoped to this plugin's director ID and are unlikely to collide with any
     // SC4 internal resource type. If another plugin ever wants to interoperate
     // it can read this same TGI.
-    constexpr uint32_t kSidecarType     = 0xE5C2B9A7u;  // matches director ID
-    constexpr uint32_t kSidecarGroup    = 0x50503464u;  // "PP4d"
-    constexpr uint32_t kSidecarInstance = 0x00000001u;  // reserved for future variants
+    constexpr uint32_t kSidecarType = 0xE5C2B9A7u;
+    constexpr uint32_t kSidecarGroup = 0x50503464u;
+    constexpr uint32_t kSidecarInstance = 0x00000001u;
 }

@@ -1,8 +1,10 @@
 #include "OverlayManagerDebugPanel.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <optional>
 #include <vector>
 
 #include "SC4PlopAndPaintDirector.hpp"
@@ -17,6 +19,7 @@
 #include "cISTEOverlayManager.h"
 #include "cISTETerrain.h"
 #include "cISTETerrainView.h"
+#include "cRZAutoRefCount.h"
 #include "cRZCOMDllDirector.h"
 #include "cS3DVector2.h"
 #include "cS3DVector3.h"
@@ -29,6 +32,8 @@ namespace DebugUi
     class OverlayManagerDebugPanelState final
     {
     public:
+        using RuntimeDecalSnapshot = PlopAndPaint::Sidecar::SidecarSaveHook::RuntimeDecalSnapshot;
+
         struct CreatedOverlayEntry
         {
             uint32_t overlayId = 0;
@@ -42,15 +47,28 @@ namespace DebugUi
         {
         }
 
+        enum class SelectedTargetKind
+        {
+            Overlay,
+            Prop,
+        };
+
         void OnInit()
         {
+            observedCity_ = director_ ? director_->GetCity() : nullptr;
             LOG_INFO("OverlayManagerDebugPanel: initialized");
         }
 
         void OnRender()
         {
+            HandleCityChange_();
+
             cISTEOverlayManager* overlay = ResolveOverlayManager_();
             TerrainDecal::TerrainDecalHook* hook = director_ ? director_->GetTerrainDecalHook() : nullptr;
+            PlopAndPaint::Sidecar::SidecarSaveHook* sidecar = director_ ? director_->GetSidecarSaveHook() : nullptr;
+            const auto runtimeDecals = sidecar ? sidecar->SnapshotRuntimeDecals() : std::vector<RuntimeDecalSnapshot>{};
+            const std::optional<RuntimeDecalSnapshot> selectedRuntimeDecal =
+                sidecar ? FindSelectedRuntimeDecal_(runtimeDecals) : std::nullopt;
             const uint32_t hookOverlayKey = NormalizeOverlayIdForHook_(overlayId_);
 
             ImGui::Begin("Terrain Decal Debug", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
@@ -73,6 +91,7 @@ namespace DebugUi
             }
             ImGui::InputFloat("Base size", &baseSize_, 0.1f, 1.0f, "%.2f");
             ImGui::InputFloat("Rotation turns", &rotationTurns_, 0.01f, 0.1f, "%.3f");
+            ImGui::InputFloat("Decal opacity", &alpha_, 0.05f, 0.5f, "%.2f");
 
             const bool overlayAvailable = overlay != nullptr;
             if (!overlayAvailable) {
@@ -129,13 +148,58 @@ namespace DebugUi
                 ImGui::EndDisabled();
             }
 
-            ImGui::SeparatorText("Overlay");
+            ImGui::SeparatorText("Decal Props");
+            ImGui::TextWrapped("Runtime decal props are tracked by the sidecar hook and reuse the editor controls above.");
+            ImGui::TextWrapped("Prop decals apply position, size, rotation, opacity, texture, and visibility live. Advanced decal-info and hook UV fields are stored in sidecar-backed runtime state for persistence.");
+            ImGui::Text("Tracked decal props: %d", static_cast<int>(runtimeDecals.size()));
+            if (ImGui::BeginListBox("##createdDecalProps", ImVec2(340.0f, 120.0f))) {
+                for (const RuntimeDecalSnapshot& entry : runtimeDecals) {
+                    char label[128];
+                    std::snprintf(label,
+                                  sizeof(label),
+                                  "%llu | %08X:%08X | size=%.2f | alpha=%.2f",
+                                  static_cast<unsigned long long>(entry.id),
+                                  entry.textureKey.group,
+                                  entry.textureKey.instance,
+                                  entry.overlayInfo.baseSize,
+                                  entry.opacity);
+                    if (ImGui::Selectable(label, selectedRuntimeDecalId_ == entry.id)) {
+                        selectedRuntimeDecalId_ = entry.id;
+                    }
+                }
+                ImGui::EndListBox();
+            }
+
+            const bool hasSelectedDecalProp = selectedRuntimeDecal.has_value();
+            if (!hasSelectedDecalProp) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::Button("Use Selected Prop")) {
+                selectedTargetKind_ = SelectedTargetKind::Prop;
+                CopyRuntimeDecalToEditor_(*selectedRuntimeDecal);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Apply Selected Prop")) {
+                ApplySelectedRuntimeDecalFromCreateControls_(sidecar);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Use Prop Hook UV")) {
+                selectedTargetKind_ = SelectedTargetKind::Prop;
+                FetchRuntimeDecalHookUv_(*selectedRuntimeDecal);
+            }
+            if (!hasSelectedDecalProp) {
+                ImGui::EndDisabled();
+            }
+
+            ImGui::SeparatorText("Selection");
             ImGui::InputScalar("Overlay ID", ImGuiDataType_U32, &overlayId_, nullptr, nullptr, "%u");
             ImGui::SameLine();
             if (ImGui::Button("Use Last Created")) {
                 overlayId_ = lastOverlayId_;
+                selectedTargetKind_ = SelectedTargetKind::Overlay;
             }
             ImGui::Text("Hook UV key: %u (0x%08X)", hookOverlayKey, hookOverlayKey);
+            ImGui::Text("Active target: %s", selectedTargetKind_ == SelectedTargetKind::Overlay ? "Overlay" : "Prop");
 
             ImGui::Text("Created overlays: %d", static_cast<int>(createdOverlays_.size()));
             if (ImGui::BeginListBox("##createdOverlays", ImVec2(340.0f, 120.0f))) {
@@ -163,6 +227,7 @@ namespace DebugUi
                     overlayId_ = entry.overlayId;
                     textureGroup_ = entry.textureGroup;
                     textureInstance_ = entry.textureInstance;
+                    selectedTargetKind_ = SelectedTargetKind::Overlay;
                     status_ = "Selected overlay restored from history";
                 }
                 ImGui::SameLine();
@@ -173,42 +238,69 @@ namespace DebugUi
                 status_ = "Overlay history cleared";
             }
 
-            if (!overlayAvailable) {
+            const bool canEditSelection =
+                selectedTargetKind_ == SelectedTargetKind::Overlay ? overlayAvailable : hasSelectedDecalProp;
+            if (!canEditSelection) {
                 ImGui::BeginDisabled();
             }
             if (ImGui::Button("Fetch DecalInfo")) {
-                FetchDecalInfo_(overlay);
+                if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                    FetchDecalInfo_(overlay);
+                }
+                else if (selectedRuntimeDecal) {
+                    FetchRuntimeDecalInfo_(*selectedRuntimeDecal);
+                }
             }
             ImGui::SameLine();
-            if (ImGui::Button("Remove Overlay")) {
-                overlay->RemoveOverlay(overlayId_);
-                if (hook) {
-                    hook->RemoveOverlayUvSubrect(overlayId_);
+            if (ImGui::Button("Remove Selected")) {
+                if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                    overlay->RemoveOverlay(overlayId_);
+                    if (hook) {
+                        (void)hook->RemoveOverlayUvSubrect(overlayId_);
+                    }
+                    status_ = "RemoveOverlay called";
                 }
-                status_ = "RemoveOverlay called";
+                else {
+                    (void)RemoveSelectedRuntimeDecal_(sidecar);
+                }
             }
 
             ImGui::InputFloat2("Move to center (x,z)", &moveCenter_[0]);
             if (ImGui::Button("Move Decal")) {
                 const auto snappedCenter = GetSnappedCenter_(moveCenter_);
-                overlay->MoveDecal(overlayId_, cS3DVector2{snappedCenter[0], snappedCenter[1]});
+                if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                    overlay->MoveDecal(overlayId_, cS3DVector2{snappedCenter[0], snappedCenter[1]});
+                    status_ = "MoveDecal called";
+                }
+                else {
+                    MoveSelectedRuntimeDecal_(sidecar, snappedCenter[0], snappedCenter[1]);
+                }
                 moveCenter_[0] = snappedCenter[0];
                 moveCenter_[1] = snappedCenter[1];
-                status_ = "MoveDecal called";
             }
-            ImGui::InputFloat("Alpha", &alpha_, 0.05f, 0.5f, "%.2f");
+            ImGui::InputFloat("Overlay alpha", &alpha_, 0.05f, 0.5f, "%.2f");
             ImGui::SameLine();
             if (ImGui::Button("Set Alpha")) {
-                overlay->SetOverlayAlpha(overlayId_, alpha_);
-                status_ = "SetOverlayAlpha called";
+                if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                    overlay->SetOverlayAlpha(overlayId_, alpha_);
+                    status_ = "SetOverlayAlpha called";
+                }
+                else {
+                    SetSelectedRuntimeDecalAlpha_(sidecar);
+                }
             }
             ImGui::Checkbox("Enabled", &enabled_);
             ImGui::SameLine();
             if (ImGui::Button("Apply Enabled")) {
-                overlay->SetOverlayEnabled(overlayId_, enabled_);
-                status_ = "SetOverlayEnabled called";
+                if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                    overlay->SetOverlayEnabled(overlayId_, enabled_);
+                    status_ = "SetOverlayEnabled called";
+                }
+                else {
+                    SetSelectedRuntimeDecalEnabled_(sidecar);
+                }
             }
-            if (!overlayAvailable) {
+            if (!canEditSelection) {
                 ImGui::EndDisabled();
             }
 
@@ -240,21 +332,32 @@ namespace DebugUi
                 applyDecalInfoNow = true;
             }
 
-            if (!overlayAvailable) {
+            if (!canEditSelection) {
                 ImGui::BeginDisabled();
             }
-            if (overlayAvailable && applyDecalInfoNow) {
-                ApplyDecalInfo_(overlay);
+            if (canEditSelection && applyDecalInfoNow) {
+                if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                    ApplyDecalInfo_(overlay);
+                }
+                else {
+                    ApplySelectedRuntimeDecalInfo_(sidecar);
+                }
             }
-            if (!overlayAvailable) {
+            if (!canEditSelection) {
                 ImGui::EndDisabled();
             }
 
             ImGui::SeparatorText("Hook UV Subrect");
-            if (!hook) {
+            if (selectedTargetKind_ == SelectedTargetKind::Overlay && !hook) {
                 ImGui::TextDisabled("Terrain decal hook unavailable.");
             }
             else {
+                const bool canEditHookUv =
+                    selectedTargetKind_ == SelectedTargetKind::Overlay ? hook != nullptr : hasSelectedDecalProp;
+                if (!canEditHookUv) {
+                    ImGui::BeginDisabled();
+                }
+
                 bool applyHookUvNow = false;
                 const auto markHookUvApplyOnDeactivate = [&applyHookUvNow]() {
                     if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -278,81 +381,106 @@ namespace DebugUi
                 markHookUvApplyOnDeactivate();
 
                 if (ImGui::Button("Fetch Hook UV")) {
-                    TerrainDecal::OverlayUvSubrect currentUv{};
-                    if (hook->TryGetOverlayUvSubrect(overlayId_, currentUv)) {
-                        hookUvSubrect_ = currentUv;
-                        hookUvMode_ = static_cast<int>(currentUv.mode);
-                        hookUvOverrideEnabled_ = true;
-                        LOG_INFO("OverlayManagerDebugPanel: fetched hook UV override for overlay {} (hook key {})",
-                                 overlayId_,
-                                 hookOverlayKey);
-                        status_ = "Fetched hook UV override";
+                    if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                        TerrainDecal::OverlayUvSubrect currentUv{};
+                        if (hook->TryGetOverlayUvSubrect(overlayId_, currentUv)) {
+                            hookUvSubrect_ = currentUv;
+                            hookUvMode_ = static_cast<int>(currentUv.mode);
+                            hookUvOverrideEnabled_ = true;
+                            LOG_INFO("OverlayManagerDebugPanel: fetched hook UV override for overlay {} (hook key {})",
+                                     overlayId_,
+                                     hookOverlayKey);
+                            status_ = "Fetched hook UV override";
+                        }
+                        else {
+                            hookUvSubrect_ = {};
+                            hookUvMode_ = 0;
+                            hookUvOverrideEnabled_ = false;
+                            LOG_INFO("OverlayManagerDebugPanel: no hook UV override registered for overlay {} (hook key {})",
+                                     overlayId_,
+                                     hookOverlayKey);
+                            status_ = "No hook UV override registered";
+                        }
                     }
-                    else {
-                        hookUvSubrect_ = {};
-                        hookUvMode_ = 0;
-                        hookUvOverrideEnabled_ = false;
-                        LOG_INFO("OverlayManagerDebugPanel: no hook UV override registered for overlay {} (hook key {})",
-                                 overlayId_,
-                                 hookOverlayKey);
-                        status_ = "No hook UV override registered";
+                    else if (selectedRuntimeDecal) {
+                        FetchRuntimeDecalHookUv_(*selectedRuntimeDecal);
                     }
                 }
                 if (applyHookUvNow) {
-                    if (hookUvOverrideEnabled_) {
-                        hookUvSubrect_.mode = static_cast<TerrainDecal::OverlayUvMode>(hookUvMode_);
-                        LOG_INFO("OverlayManagerDebugPanel: auto-applying hook UV override for overlay {} (hook key {}, mode={}) -> [{:.3f}, {:.3f}] to [{:.3f}, {:.3f}]",
-                                 overlayId_,
-                                 hookOverlayKey,
-                                 kHookUvModeNames[hookUvMode_],
-                                 hookUvSubrect_.u1,
-                                 hookUvSubrect_.v1,
-                                 hookUvSubrect_.u2,
-                                 hookUvSubrect_.v2);
-                        hook->SetOverlayUvSubrect(overlayId_, hookUvSubrect_);
-                        status_ = "Applied hook UV override";
+                    if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                        if (hookUvOverrideEnabled_) {
+                            hookUvSubrect_.mode = static_cast<TerrainDecal::OverlayUvMode>(hookUvMode_);
+                            LOG_INFO("OverlayManagerDebugPanel: auto-applying hook UV override for overlay {} (hook key {}, mode={}) -> [{:.3f}, {:.3f}] to [{:.3f}, {:.3f}]",
+                                     overlayId_,
+                                     hookOverlayKey,
+                                     kHookUvModeNames[hookUvMode_],
+                                     hookUvSubrect_.u1,
+                                     hookUvSubrect_.v1,
+                                     hookUvSubrect_.u2,
+                                     hookUvSubrect_.v2);
+                            hook->SetOverlayUvSubrect(overlayId_, hookUvSubrect_);
+                            status_ = "Applied hook UV override";
+                        }
+                        else {
+                            LOG_INFO("OverlayManagerDebugPanel: auto-apply removed hook UV override for overlay {} (hook key {})",
+                                     overlayId_,
+                                     hookOverlayKey);
+                            (void)hook->RemoveOverlayUvSubrect(overlayId_);
+                            status_ = "Removed hook UV override";
+                        }
                     }
                     else {
-                        LOG_INFO("OverlayManagerDebugPanel: auto-apply removed hook UV override for overlay {} (hook key {})",
-                                 overlayId_,
-                                 hookOverlayKey);
-                        hook->RemoveOverlayUvSubrect(overlayId_);
-                        status_ = "Removed hook UV override";
+                        (void)ApplySelectedRuntimeDecalHookUv_(sidecar);
                     }
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Apply Hook UV")) {
-                    if (hookUvOverrideEnabled_) {
-                        hookUvSubrect_.mode = static_cast<TerrainDecal::OverlayUvMode>(hookUvMode_);
-                        LOG_INFO("OverlayManagerDebugPanel: applying hook UV override for overlay {} (hook key {}, mode={}) -> [{:.3f}, {:.3f}] to [{:.3f}, {:.3f}]",
-                                 overlayId_,
-                                 hookOverlayKey,
-                                 kHookUvModeNames[hookUvMode_],
-                                 hookUvSubrect_.u1,
-                                 hookUvSubrect_.v1,
-                                 hookUvSubrect_.u2,
-                                 hookUvSubrect_.v2);
-                        hook->SetOverlayUvSubrect(overlayId_, hookUvSubrect_);
-                        status_ = "Applied hook UV override";
+                    if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                        if (hookUvOverrideEnabled_) {
+                            hookUvSubrect_.mode = static_cast<TerrainDecal::OverlayUvMode>(hookUvMode_);
+                            LOG_INFO("OverlayManagerDebugPanel: applying hook UV override for overlay {} (hook key {}, mode={}) -> [{:.3f}, {:.3f}] to [{:.3f}, {:.3f}]",
+                                     overlayId_,
+                                     hookOverlayKey,
+                                     kHookUvModeNames[hookUvMode_],
+                                     hookUvSubrect_.u1,
+                                     hookUvSubrect_.v1,
+                                     hookUvSubrect_.u2,
+                                     hookUvSubrect_.v2);
+                            hook->SetOverlayUvSubrect(overlayId_, hookUvSubrect_);
+                            status_ = "Applied hook UV override";
+                        }
+                        else {
+                            LOG_INFO("OverlayManagerDebugPanel: apply requested with hook override disabled, removing overlay {} (hook key {})",
+                                     overlayId_,
+                                     hookOverlayKey);
+                            (void)hook->RemoveOverlayUvSubrect(overlayId_);
+                            status_ = "Removed hook UV override";
+                        }
                     }
                     else {
-                        LOG_INFO("OverlayManagerDebugPanel: apply requested with hook override disabled, removing overlay {} (hook key {})",
-                                 overlayId_,
-                                 hookOverlayKey);
-                        hook->RemoveOverlayUvSubrect(overlayId_);
-                        status_ = "Removed hook UV override";
+                        (void)ApplySelectedRuntimeDecalHookUv_(sidecar);
                     }
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Clear Hook UV")) {
-                    LOG_INFO("OverlayManagerDebugPanel: clearing hook UV override for overlay {} (hook key {})",
-                             overlayId_,
-                             hookOverlayKey);
-                    hook->RemoveOverlayUvSubrect(overlayId_);
+                    if (selectedTargetKind_ == SelectedTargetKind::Overlay) {
+                        LOG_INFO("OverlayManagerDebugPanel: clearing hook UV override for overlay {} (hook key {})",
+                                 overlayId_,
+                                 hookOverlayKey);
+                        (void)hook->RemoveOverlayUvSubrect(overlayId_);
+                    }
+                    else {
+                        hookUvOverrideEnabled_ = false;
+                        (void)ApplySelectedRuntimeDecalHookUv_(sidecar);
+                    }
                     hookUvSubrect_ = {};
                     hookUvMode_ = 0;
                     hookUvOverrideEnabled_ = false;
                     status_ = "Cleared hook UV override";
+                }
+
+                if (!canEditHookUv) {
+                    ImGui::EndDisabled();
                 }
             }
 
@@ -363,6 +491,7 @@ namespace DebugUi
 
         void OnShutdown()
         {
+            ClearTransientHistory_();
             LOG_INFO("OverlayManagerDebugPanel: shutdown");
         }
 
@@ -455,6 +584,308 @@ namespace DebugUi
             return overlayId & 0x7FFFFFFFu;
         }
 
+        [[nodiscard]] static float ClampOpacity_(const float value)
+        {
+            return std::clamp(value, 0.0f, 1.0f);
+        }
+
+        [[nodiscard]] static int32_t RotationTurnsToPropOrientation_(const float turns)
+        {
+            const int32_t quarterTurns = static_cast<int32_t>(std::lround(turns * 4.0f));
+            const int32_t normalized = quarterTurns % 4;
+            return normalized < 0 ? normalized + 4 : normalized;
+        }
+
+        void HandleCityChange_()
+        {
+            cISC4City* const currentCity = director_ ? director_->GetCity() : nullptr;
+            if (currentCity == observedCity_) {
+                return;
+            }
+
+            ClearTransientHistory_();
+            observedCity_ = currentCity;
+
+            if (currentCity) {
+                status_ = "City changed; transient histories cleared";
+            }
+        }
+
+        void ClearTransientHistory_()
+        {
+            createdOverlays_.clear();
+            selectedCreatedOverlayIndex_ = -1;
+            selectedRuntimeDecalId_ = 0;
+            selectedTargetKind_ = SelectedTargetKind::Overlay;
+        }
+
+        [[nodiscard]] std::optional<RuntimeDecalSnapshot> FindSelectedRuntimeDecal_(
+            const std::vector<RuntimeDecalSnapshot>& runtimeDecals) const
+        {
+            if (selectedRuntimeDecalId_ == 0) {
+                return std::nullopt;
+            }
+
+            for (const RuntimeDecalSnapshot& entry : runtimeDecals) {
+                if (entry.id == selectedRuntimeDecalId_) {
+                    return entry;
+                }
+            }
+
+            return std::nullopt;
+        }
+
+        void CopyRuntimeDecalToEditor_(const RuntimeDecalSnapshot& entry)
+        {
+            textureGroup_ = entry.textureKey.group;
+            textureInstance_ = entry.textureKey.instance;
+            baseSize_ = entry.overlayInfo.baseSize;
+            rotationTurns_ = entry.overlayInfo.rotationTurns;
+            alpha_ = entry.opacity;
+            enabled_ = entry.enabled;
+            center_[0] = entry.worldPos.x;
+            center_[1] = entry.worldPos.z;
+            moveCenter_[0] = entry.worldPos.x;
+            moveCenter_[1] = entry.worldPos.z;
+            FetchRuntimeDecalInfo_(entry);
+            FetchRuntimeDecalHookUv_(entry);
+            status_ = "Selected decal prop copied to editor";
+        }
+
+        void FetchRuntimeDecalInfo_(const RuntimeDecalSnapshot& entry)
+        {
+            infoCenter_[0] = entry.worldPos.x;
+            infoCenter_[1] = entry.worldPos.z;
+            infoBaseSize_ = entry.overlayInfo.baseSize;
+            infoRotationTurns_ = entry.overlayInfo.rotationTurns;
+            infoAspectMultiplier_ = entry.overlayInfo.aspectMultiplier;
+            infoUvScaleU_ = entry.overlayInfo.uvScaleU;
+            infoUvScaleV_ = entry.overlayInfo.uvScaleV;
+            infoUvOffset_ = entry.overlayInfo.uvOffset;
+            infoUnknown8_ = entry.overlayInfo.unknown8;
+            status_ = "Runtime decal info loaded";
+        }
+
+        void FetchRuntimeDecalHookUv_(const RuntimeDecalSnapshot& entry)
+        {
+            if (entry.uvSubrect) {
+                hookUvSubrect_ = TerrainDecal::OverlayUvSubrect{
+                    .u1 = entry.uvSubrect->u1,
+                    .v1 = entry.uvSubrect->v1,
+                    .u2 = entry.uvSubrect->u2,
+                    .v2 = entry.uvSubrect->v2,
+                    .mode = entry.uvSubrect->mode == PlopAndPaint::Sidecar::UvMode::ClipSubrect
+                                ? TerrainDecal::OverlayUvMode::ClipSubrect
+                                : TerrainDecal::OverlayUvMode::StretchSubrect,
+                };
+                hookUvMode_ = static_cast<int>(hookUvSubrect_.mode);
+                hookUvOverrideEnabled_ = true;
+                status_ = "Runtime decal hook UV fetched";
+            }
+            else {
+                hookUvSubrect_ = {};
+                hookUvMode_ = 0;
+                hookUvOverrideEnabled_ = false;
+                status_ = "Runtime decal has no hook UV override";
+            }
+        }
+
+        [[nodiscard]] bool CommitRuntimeDecalSnapshot_(PlopAndPaint::Sidecar::SidecarSaveHook* sidecar,
+                                                       RuntimeDecalSnapshot snapshot)
+        {
+            cISC4City* const city = director_ ? director_->GetCity() : nullptr;
+            if (!sidecar || !city) {
+                return false;
+            }
+
+            cISTETerrain* const terrain = city->GetTerrain();
+            snapshot.worldPos.y = terrain ? terrain->GetAltitude(snapshot.worldPos.x, snapshot.worldPos.z) : 0.0f;
+            return sidecar->UpdateRuntimeDecal(snapshot.id, city, snapshot);
+        }
+
+        bool ApplySelectedRuntimeDecalFromCreateControls_(PlopAndPaint::Sidecar::SidecarSaveHook* sidecar)
+        {
+            const auto selected = sidecar ? sidecar->FindRuntimeDecal(selectedRuntimeDecalId_) : std::nullopt;
+            if (!selected) {
+                status_ = "Apply Selected Prop failed: no selected prop";
+                return false;
+            }
+
+            RuntimeDecalSnapshot snapshot = *selected;
+            const auto snappedCenter = GetSnappedCenter_(center_);
+            snapshot.worldPos.x = snappedCenter[0];
+            snapshot.worldPos.z = snappedCenter[1];
+            snapshot.textureKey.type = textureType_;
+            snapshot.textureKey.group = textureGroup_;
+            snapshot.textureKey.instance = textureInstance_;
+            snapshot.overlayInfo.baseSize = baseSize_;
+            snapshot.overlayInfo.rotationTurns = rotationTurns_;
+            snapshot.opacity = ClampOpacity_(alpha_);
+            snapshot.enabled = enabled_;
+
+            if (!CommitRuntimeDecalSnapshot_(sidecar, snapshot)) {
+                status_ = "Apply Selected Prop failed";
+                return false;
+            }
+
+            center_[0] = snappedCenter[0];
+            center_[1] = snappedCenter[1];
+            moveCenter_[0] = snappedCenter[0];
+            moveCenter_[1] = snappedCenter[1];
+            FetchRuntimeDecalInfo_(snapshot);
+            status_ = "Selected decal prop updated";
+            return true;
+        }
+
+        bool ApplySelectedRuntimeDecalInfo_(PlopAndPaint::Sidecar::SidecarSaveHook* sidecar)
+        {
+            const auto selected = sidecar ? sidecar->FindRuntimeDecal(selectedRuntimeDecalId_) : std::nullopt;
+            if (!selected) {
+                status_ = "Apply runtime decal info failed: no selected prop";
+                return false;
+            }
+
+            RuntimeDecalSnapshot snapshot = *selected;
+            const auto snappedCenter = GetSnappedCenter_(infoCenter_);
+            snapshot.worldPos.x = snappedCenter[0];
+            snapshot.worldPos.z = snappedCenter[1];
+            snapshot.overlayInfo.baseSize = infoBaseSize_;
+            snapshot.overlayInfo.rotationTurns = infoRotationTurns_;
+            snapshot.overlayInfo.aspectMultiplier = infoAspectMultiplier_;
+            snapshot.overlayInfo.uvScaleU = infoUvScaleU_;
+            snapshot.overlayInfo.uvScaleV = infoUvScaleV_;
+            snapshot.overlayInfo.uvOffset = infoUvOffset_;
+            snapshot.overlayInfo.unknown8 = infoUnknown8_;
+
+            if (!CommitRuntimeDecalSnapshot_(sidecar, snapshot)) {
+                status_ = "Apply runtime decal info failed";
+                return false;
+            }
+
+            infoCenter_[0] = snappedCenter[0];
+            infoCenter_[1] = snappedCenter[1];
+            moveCenter_[0] = snappedCenter[0];
+            moveCenter_[1] = snappedCenter[1];
+            status_ = "Runtime decal info applied/stored";
+            return true;
+        }
+
+        bool MoveSelectedRuntimeDecal_(PlopAndPaint::Sidecar::SidecarSaveHook* sidecar,
+                                       const float worldX,
+                                       const float worldZ)
+        {
+            const auto selected = sidecar ? sidecar->FindRuntimeDecal(selectedRuntimeDecalId_) : std::nullopt;
+            if (!selected) {
+                status_ = "Move runtime decal failed: no selected prop";
+                return false;
+            }
+
+            RuntimeDecalSnapshot snapshot = *selected;
+            snapshot.worldPos.x = worldX;
+            snapshot.worldPos.z = worldZ;
+            if (!CommitRuntimeDecalSnapshot_(sidecar, snapshot)) {
+                status_ = "Move runtime decal failed";
+                return false;
+            }
+
+            center_[0] = worldX;
+            center_[1] = worldZ;
+            infoCenter_[0] = worldX;
+            infoCenter_[1] = worldZ;
+            status_ = "Runtime decal moved";
+            return true;
+        }
+
+        bool SetSelectedRuntimeDecalAlpha_(PlopAndPaint::Sidecar::SidecarSaveHook* sidecar)
+        {
+            const auto selected = sidecar ? sidecar->FindRuntimeDecal(selectedRuntimeDecalId_) : std::nullopt;
+            if (!selected) {
+                status_ = "Set runtime decal alpha failed: no selected prop";
+                return false;
+            }
+
+            RuntimeDecalSnapshot snapshot = *selected;
+            snapshot.opacity = ClampOpacity_(alpha_);
+            if (!CommitRuntimeDecalSnapshot_(sidecar, snapshot)) {
+                status_ = "Set runtime decal alpha failed";
+                return false;
+            }
+
+            status_ = "Runtime decal alpha applied";
+            return true;
+        }
+
+        bool SetSelectedRuntimeDecalEnabled_(PlopAndPaint::Sidecar::SidecarSaveHook* sidecar)
+        {
+            const auto selected = sidecar ? sidecar->FindRuntimeDecal(selectedRuntimeDecalId_) : std::nullopt;
+            if (!selected) {
+                status_ = "Set runtime decal enabled failed: no selected prop";
+                return false;
+            }
+
+            RuntimeDecalSnapshot snapshot = *selected;
+            snapshot.enabled = enabled_;
+            if (!CommitRuntimeDecalSnapshot_(sidecar, snapshot)) {
+                status_ = "Set runtime decal enabled failed";
+                return false;
+            }
+
+            status_ = "Runtime decal visibility applied";
+            return true;
+        }
+
+        bool ApplySelectedRuntimeDecalHookUv_(PlopAndPaint::Sidecar::SidecarSaveHook* sidecar)
+        {
+            const auto selected = sidecar ? sidecar->FindRuntimeDecal(selectedRuntimeDecalId_) : std::nullopt;
+            if (!selected) {
+                status_ = "Apply runtime decal hook UV failed: no selected prop";
+                return false;
+            }
+
+            RuntimeDecalSnapshot snapshot = *selected;
+            if (hookUvOverrideEnabled_) {
+                snapshot.uvSubrect = PlopAndPaint::Sidecar::UvSubrect{
+                    .u1 = hookUvSubrect_.u1,
+                    .v1 = hookUvSubrect_.v1,
+                    .u2 = hookUvSubrect_.u2,
+                    .v2 = hookUvSubrect_.v2,
+                    .mode = hookUvMode_ == 1
+                                ? PlopAndPaint::Sidecar::UvMode::ClipSubrect
+                                : PlopAndPaint::Sidecar::UvMode::StretchSubrect,
+                };
+            }
+            else {
+                snapshot.uvSubrect.reset();
+            }
+
+            if (!CommitRuntimeDecalSnapshot_(sidecar, snapshot)) {
+                status_ = "Apply runtime decal hook UV failed";
+                return false;
+            }
+
+            status_ = hookUvOverrideEnabled_ ? "Runtime decal hook UV stored" : "Runtime decal hook UV removed";
+            return true;
+        }
+
+        bool RemoveSelectedRuntimeDecal_(PlopAndPaint::Sidecar::SidecarSaveHook* sidecar)
+        {
+            cISC4City* const city = director_ ? director_->GetCity() : nullptr;
+            if (!sidecar || !city || selectedRuntimeDecalId_ == 0) {
+                status_ = "Remove Selected Prop failed: no selected prop";
+                return false;
+            }
+
+            if (!sidecar->RemoveRuntimeDecal(selectedRuntimeDecalId_, city)) {
+                status_ = "Remove Selected Prop failed";
+                return false;
+            }
+
+            selectedRuntimeDecalId_ = 0;
+            selectedTargetKind_ = SelectedTargetKind::Overlay;
+            status_ = "Selected decal prop removed";
+            return true;
+        }
+
         bool AddDecalProp_(const float worldX, const float worldZ)
         {
             cISC4City* const city = director_ ? director_->GetCity() : nullptr;
@@ -476,33 +907,28 @@ namespace DebugUi
                 return false;
             }
 
-            cISC4PropOccupantTerrainDecal* decal = nullptr;
+            cRZAutoRefCount<cISC4PropOccupantTerrainDecal> decal;
             if (!com->GetClassObject(GZCLSID_cISC4PropOccupantTerrainDecal,
                                      GZIID_cISC4PropOccupantTerrainDecal,
-                                     reinterpret_cast<void**>(&decal))
+                                     decal.AsPPVoid())
                 || !decal) {
                 status_ = "AddDecalProp failed: GetClassObject";
                 LOG_WARN("OverlayManagerDebugPanel: GetClassObject for terrain decal prop failed");
                 return false;
             }
 
-            cISC4Occupant* occupant = nullptr;
-            cISC4PropOccupant* propOccupant = nullptr;
-            if (decal->QueryInterface(GZIID_cISC4PropOccupant, reinterpret_cast<void**>(&propOccupant))
+            cRZAutoRefCount<cISC4Occupant> occupant;
+            cRZAutoRefCount<cISC4PropOccupant> propOccupant;
+            if (decal->QueryInterface(GZIID_cISC4PropOccupant, propOccupant.AsPPVoid())
                 && propOccupant) {
-                occupant = propOccupant->AsOccupant();
-                if (occupant) {
-                    occupant->AddRef();
-                }
-                propOccupant->Release();
-                propOccupant = nullptr;
+                occupant = cRZAutoRefCount<cISC4Occupant>(propOccupant->AsOccupant(),
+                                                          cRZAutoRefCount<cISC4Occupant>::kAddRef);
             }
             if (!occupant) {
-                if (!decal->QueryInterface(GZIID_cISC4Occupant, reinterpret_cast<void**>(&occupant))
+                if (!decal->QueryInterface(GZIID_cISC4Occupant, occupant.AsPPVoid())
                     || !occupant) {
                     status_ = "AddDecalProp failed: QI cISC4Occupant";
                     LOG_WARN("OverlayManagerDebugPanel: terrain decal prop has no cISC4Occupant facet");
-                    decal->Release();
                     return false;
                 }
             }
@@ -510,7 +936,14 @@ namespace DebugUi
             const cGZPersistResourceKey textureKey(textureType_, textureGroup_, textureInstance_);
             decal->SetDecalTexture(textureKey, 1.0f);
             decal->SetDecalSize(baseSize_);
-            decal->SetOpacity(1.0f);
+            decal->SetOpacity(ClampOpacity_(alpha_));
+
+            if (propOccupant) {
+                const int32_t orientation = RotationTurnsToPropOrientation_(rotationTurns_);
+                if (!propOccupant->SetOrientation(orientation)) {
+                    LOG_WARN("OverlayManagerDebugPanel: initial SetOrientation failed for decal prop");
+                }
+            }
 
             if (!occupant->IsInitialized()) {
                 occupant->Init();
@@ -521,8 +954,6 @@ namespace DebugUi
             const cS3DVector3 pos(worldX, worldY, worldZ);
             if (!occupant->SetPosition(&pos)) {
                 status_ = "AddDecalProp failed: SetPosition";
-                occupant->Release();
-                decal->Release();
                 return false;
             }
 
@@ -530,8 +961,6 @@ namespace DebugUi
                 status_ = "AddDecalProp failed: InsertOccupant";
                 LOG_WARN("OverlayManagerDebugPanel: InsertOccupant returned false at ({:.2f}, {:.2f}, {:.2f})",
                          pos.fX, pos.fY, pos.fZ);
-                occupant->Release();
-                decal->Release();
                 return false;
             }
 
@@ -541,9 +970,23 @@ namespace DebugUi
                      baseSize_);
             status_ = "Decal prop inserted";
 
-            // The occupant manager retains its own reference via InsertOccupant.
-            occupant->Release();
-            decal->Release();
+            if (PlopAndPaint::Sidecar::SidecarSaveHook* sidecar = director_ ? director_->GetSidecarSaveHook() : nullptr) {
+                RuntimeDecalSnapshot seedSnapshot{};
+                seedSnapshot.worldPos = {pos.fX, pos.fY, pos.fZ};
+                seedSnapshot.textureKey = {textureType_, textureGroup_, textureInstance_};
+                seedSnapshot.overlayInfo.baseSize = baseSize_;
+                seedSnapshot.overlayInfo.rotationTurns = rotationTurns_;
+                seedSnapshot.opacity = ClampOpacity_(alpha_);
+                seedSnapshot.enabled = true;
+
+                if (const auto trackedId = sidecar->TrackRuntimeDecal(occupant, &seedSnapshot)) {
+                    selectedRuntimeDecalId_ = *trackedId;
+                    selectedTargetKind_ = SelectedTargetKind::Prop;
+                    if (const auto snapshot = sidecar->FindRuntimeDecal(*trackedId)) {
+                        CopyRuntimeDecalToEditor_(*snapshot);
+                    }
+                }
+            }
             return true;
         }
 
@@ -573,6 +1016,9 @@ namespace DebugUi
         uint32_t lastOverlayId_ = 0;
         std::vector<CreatedOverlayEntry> createdOverlays_{};
         int selectedCreatedOverlayIndex_ = -1;
+        cISC4City* observedCity_ = nullptr;
+        uint64_t selectedRuntimeDecalId_ = 0;
+        SelectedTargetKind selectedTargetKind_ = SelectedTargetKind::Overlay;
         float center_[2] = {512.0f, 512.0f};
         float moveCenter_[2] = {512.0f, 512.0f};
         float baseSize_ = 16.0f;

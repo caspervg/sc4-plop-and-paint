@@ -1,11 +1,18 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
+#include <vector>
 
 #include "DecalSidecarRepository.hpp"
+#include "cISC4Occupant.h"
+#include "cISC4PropOccupant.h"
+#include "cISC4PropOccupantTerrainDecal.h"
+#include "cRZAutoRefCount.h"
 
 class cIGZMessage2;
 class cIGZMessage2Standard;
+class cISC4City;
 
 namespace TerrainDecal
 {
@@ -53,6 +60,37 @@ namespace PlopAndPaint::Sidecar
         [[nodiscard]] DecalSidecarRepository& Repository() noexcept { return repository_; }
         [[nodiscard]] const DecalSidecarRepository& Repository() const noexcept { return repository_; }
 
+        struct RuntimeOverlayInfo
+        {
+            float baseSize = 16.0f;
+            float rotationTurns = 0.0f;
+            float aspectMultiplier = 1.0f;
+            float uvScaleU = 1.0f;
+            float uvScaleV = 1.0f;
+            float uvOffset = 0.0f;
+            float unknown8 = 0.0f;
+        };
+
+        struct RuntimeDecalSnapshot
+        {
+            uint64_t id = 0;
+            WorldPos worldPos{};
+            TextureKey textureKey{0, 0, 0};
+            RuntimeOverlayInfo overlayInfo{};
+            float opacity = 1.0f;
+            bool enabled = true;
+            std::optional<UvSubrect> uvSubrect;
+        };
+
+        [[nodiscard]] std::vector<RuntimeDecalSnapshot> SnapshotRuntimeDecals() const;
+        [[nodiscard]] std::optional<RuntimeDecalSnapshot> FindRuntimeDecal(uint64_t id) const;
+        [[nodiscard]] std::optional<uint64_t> GetMostRecentRuntimeDecalId() const noexcept;
+        [[nodiscard]] std::optional<uint64_t> TrackRuntimeDecal(
+            cISC4Occupant* occupant,
+            const RuntimeDecalSnapshot* preferredSnapshot = nullptr);
+        bool UpdateRuntimeDecal(uint64_t id, cISC4City* city, const RuntimeDecalSnapshot& snapshot);
+        bool RemoveRuntimeDecal(uint64_t id, cISC4City* city);
+
         // Last operation status, useful for the debug UI.
         struct Status
         {
@@ -72,9 +110,23 @@ namespace PlopAndPaint::Sidecar
         void OnRemoveOccupant_(cIGZMessage2Standard* msg);
 
         void ApplyEntryToRenderer_(const DecalEntry& entry) const;
+        void ClearRuntimeDecals_() noexcept;
+        [[nodiscard]] std::optional<uint64_t> UpsertRuntimeDecal_(
+            cISC4Occupant* occupant,
+            const RuntimeDecalSnapshot* preferredSnapshot = nullptr);
+        bool RemoveRuntimeDecalByOccupant_(cISC4Occupant* occupant);
+
+        struct RuntimeDecalRecord
+        {
+            cRZAutoRefCount<cISC4PropOccupantTerrainDecal> decal;
+            cRZAutoRefCount<cISC4PropOccupant> prop;
+            cRZAutoRefCount<cISC4Occupant> occupant;
+            RuntimeDecalSnapshot snapshot{};
+        };
 
         DecalSidecarRepository repository_;
         TerrainDecal::TerrainDecalHook* terrainDecalHook_ = nullptr;
+        std::vector<RuntimeDecalRecord> runtimeDecals_;
         Status status_{};
     };
 }

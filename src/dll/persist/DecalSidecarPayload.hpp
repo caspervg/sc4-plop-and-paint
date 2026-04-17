@@ -52,6 +52,17 @@ namespace PlopAndPaint::Sidecar
         float scaleY = 1.0f;
     };
 
+    struct OverlayInfoSnapshot
+    {
+        float baseSize = 16.0f;
+        float rotationTurns = 0.0f;
+        float aspectMultiplier = 1.0f;
+        float uvScaleU = 1.0f;
+        float uvScaleV = 1.0f;
+        float uvOffset = 0.0f;
+        float unknown8 = 0.0f;
+    };
+
     // Forward-compat escape hatch: fields we read but don't understand. Writers
     // preserve these untouched so round-tripping through an older DLL is lossless.
     struct UnknownField
@@ -66,6 +77,7 @@ namespace PlopAndPaint::Sidecar
         std::optional<TextureKey> textureKey;
         std::optional<UvSubrect> uvSubrect;
         std::optional<DecalInfoSnapshot> decalInfo;
+        std::optional<OverlayInfoSnapshot> overlayInfo;
         std::optional<float> opacity;
         std::optional<uint32_t> userFlags;
         std::vector<UnknownField> unknownFields;

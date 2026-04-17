@@ -128,6 +128,19 @@ namespace PlopAndPaint::Sidecar
                 }
                 break;
             }
+            case kFieldOverlayInfo: {
+                OverlayInfoSnapshot info{};
+                if (fieldValue.GetFloat32(info.baseSize)
+                    && fieldValue.GetFloat32(info.rotationTurns)
+                    && fieldValue.GetFloat32(info.aspectMultiplier)
+                    && fieldValue.GetFloat32(info.uvScaleU)
+                    && fieldValue.GetFloat32(info.uvScaleV)
+                    && fieldValue.GetFloat32(info.uvOffset)
+                    && fieldValue.GetFloat32(info.unknown8)) {
+                    entry.overlayInfo = info;
+                }
+                break;
+            }
             case kFieldOpacity: {
                 float opacity = 0.0f;
                 if (fieldValue.GetFloat32(opacity)) {
