@@ -257,6 +257,7 @@ void DecalPanelTab::RenderSettingsModal_() {
         if (ImGui::Button("Start Painting", ImVec2(120, 0))) {
             char name[20];
             std::snprintf(name, sizeof(name), "0x%08X", pendingPaint_.instanceId);
+            ReleaseImGuiInputCapture_();
             director_->StartDecalPainting(pendingPaint_.instanceId, pendingPaint_.settings, name);
             ImGui::CloseCurrentPopup();
         }
