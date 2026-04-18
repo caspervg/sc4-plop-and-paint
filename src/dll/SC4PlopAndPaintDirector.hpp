@@ -19,6 +19,11 @@
 #include "cISC4View3DWin.h"
 #include "cRZAutoRefCount.h"
 #include "cRZMessage2COMDirector.h"
+#include "decals/DecalPainterInputControl.hpp"
+#include "decals/DecalStripperInputControl.hpp"
+#include "public/TerrainDecalServiceIds.h"
+#include "decals/DecalRepository.hpp"
+#include "paint/DecalPaintSettings.hpp"
 #include "flora/FloraPainterInputControl.hpp"
 #include "flora/FloraStripperInputControl.hpp"
 #include "imgui.h"
@@ -76,6 +81,13 @@ public:
     bool StartFloraStripping();
     void StopFloraStripping();
     [[nodiscard]] bool IsFloraStripping() const;
+    bool StartDecalPainting(uint32_t instanceId, const DecalPaintSettings& settings, const std::string& name);
+    void StopDecalPainting();
+    [[nodiscard]] bool IsDecalPainting() const;
+    bool StartDecalStripping();
+    void StopDecalStripping();
+    [[nodiscard]] bool IsDecalStripping() const;
+    [[nodiscard]] bool IsDecalServiceAvailable() const;
     bool StartPropStripping();
     void StopPropStripping();
     [[nodiscard]] bool IsPropStripping() const;
@@ -108,7 +120,9 @@ private:
     bool CanPrepareForPaintSwitch_(BasePainterInputControl* control, bool isPaintingFlag) const;
     bool PrepareForPaintSwitch_(BasePainterInputControl* control, bool& isPaintingFlag);
     bool PrepareForExclusiveActivation_(bool keepPropPainting, bool keepFloraPainting, bool keepPropStripping,
-                                        bool keepFloraStripping = false);
+                                        bool keepFloraStripping = false,
+                                        bool keepDecalPainting = false,
+                                        bool keepDecalStripping = false);
     void ApplySwitchPolicy_(BasePainterInputControl* control);
     [[nodiscard]] RecentPaintEntry BuildRecentPaintEntry_(RecentPaintEntry::Kind kind,
                                                           uint32_t typeId,
@@ -128,6 +142,7 @@ private:
     std::unique_ptr<PropRepository>      propRepository_;
     std::unique_ptr<FloraRepository>     floraRepository_;
     std::unique_ptr<FavoritesRepository> favoritesRepository_;
+    std::unique_ptr<DecalRepository>     decalRepository_;
 
     bool panelRegistered_{false};
     bool panelVisible_{false};
@@ -141,6 +156,11 @@ private:
     bool floraStripping_{false};
     cRZAutoRefCount<PropStripperInputControl> propStripperControl_;
     bool propStripping_{false};
+    cRZAutoRefCount<DecalPainterInputControl>  decalPainterControl_;
+    bool decalPainting_{false};
+    cRZAutoRefCount<DecalStripperInputControl> decalStripperControl_;
+    bool decalStripping_{false};
+    cIGZTerrainDecalService* terrainDecalService_{nullptr};
     std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};
     std::unique_ptr<RecentSwapPanel> swapPanel_;

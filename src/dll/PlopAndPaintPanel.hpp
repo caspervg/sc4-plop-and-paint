@@ -5,10 +5,12 @@
 #include "common/PanelTab.hpp"
 #include "public/ImGuiTexture.h"
 
+class DecalRepository;
 class FloraRepository;
 class LotRepository;
 class PropRepository;
 class FavoritesRepository;
+class cIGZPersistResourceManager;
 
 class PlopAndPaintPanel final : public ImGuiPanel {
 public:
@@ -17,6 +19,8 @@ public:
                  PropRepository* props,
                  FloraRepository* flora,
                  FavoritesRepository* favorites,
+                 DecalRepository* decals,
+                 cIGZPersistResourceManager* pRM,
                  cIGZImGuiService* imguiService);
     void OnInit() override {}
     void OnRender() override;

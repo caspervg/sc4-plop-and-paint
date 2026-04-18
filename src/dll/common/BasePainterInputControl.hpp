@@ -53,9 +53,9 @@ public:
     void ProcessPendingActions();
     void DrawOverlay(IDirect3DDevice7* device);
 
-    void UndoLastPlacement();
-    void CancelAllPlacements();
-    void CommitPlacements();
+    virtual void UndoLastPlacement();
+    virtual void CancelAllPlacements();
+    virtual void CommitPlacements();
 
 protected:
     struct CollectedPoint {

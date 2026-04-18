@@ -1,5 +1,8 @@
 #include "PlopAndPaintPanel.hpp"
 
+#include "cIGZPersistResourceManager.h"
+#include "decals/DecalPanelTab.hpp"
+#include "decals/DecalRepository.hpp"
 #include "flora/FloraCollectionsPanelTab.hpp"
 #include "flora/FloraPanelTab.hpp"
 #include "imgui_impl_win32.h"
@@ -14,6 +17,8 @@ PlopAndPaintPanel::PlopAndPaintPanel(SC4PlopAndPaintDirector* director,
                            PropRepository* props,
                            FloraRepository* flora,
                            FavoritesRepository* favorites,
+                           DecalRepository* decals,
+                           cIGZPersistResourceManager* pRM,
                            cIGZImGuiService* imguiService)
     : director_(director), imguiService_(imguiService) {
     tabs_.push_back(std::make_unique<BuildingsPanelTab>(director_, lots, props, favorites, imguiService_));
@@ -21,6 +26,9 @@ PlopAndPaintPanel::PlopAndPaintPanel(SC4PlopAndPaintDirector* director,
     tabs_.push_back(std::make_unique<FamiliesPanelTab>(director_, lots, props, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FloraPanelTab>(director_, flora, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FloraCollectionsPanelTab>(director_, flora, favorites, imguiService_));
+    if (decals) {
+        tabs_.push_back(std::make_unique<DecalPanelTab>(director_, decals, pRM, imguiService_));
+    }
 }
 
 void PlopAndPaintPanel::OnRender() {
