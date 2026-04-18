@@ -241,7 +241,7 @@ void DecalPanelTab::RenderSettingsModal_() {
         ImGui::DragFloat("Base size (m)##decalSize", &state.decalInfo.baseSize, 1.0f, 0.5f, 512.0f);
         ImGui::DragFloat("Rotation (turns)##decalRot", &state.decalInfo.rotationTurns, 0.01f, 0.0f, 1.0f);
         ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f);
-        ImGui::ColorEdit3("Color tint##decalColor", reinterpret_cast<float*>(&state.color));
+        ImGui::ColorEdit3("Color tint##decalColor", &state.color.fX);
 
         const char* overlayTypes[] = {"StaticLand", "StaticWater", "DynamicLand", "DynamicWater"};
         int overlayIdx = static_cast<int>(state.overlayType);
