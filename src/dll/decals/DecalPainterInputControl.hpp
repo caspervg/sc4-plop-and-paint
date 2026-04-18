@@ -26,9 +26,12 @@ protected:
     // No occupant removal — decals are managed via TerrainDecalId.
     void RemoveOccupant_(cISC4Occupant* /*occupant*/) override {}
 
-    // Decals have no 3D model preview.
-    [[nodiscard]] bool ShouldShowModelPreview_() const override { return false; }
+    [[nodiscard]] bool ShouldShowModelPreview_() const override;
     [[nodiscard]] bool SupportsVerticalAdjustment_() const override { return false; }
+    [[nodiscard]] bool HasActivePreviewOccupant_() const override;
+    void CreatePreviewOccupant_() override;
+    void DestroyPreviewOccupant_() override;
+    void UpdatePreviewOccupant_() override;
 
     // Populate overlay bounds from baseSize so the outline circle scales correctly.
     void PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement, uint32_t typeID) const override;
@@ -39,10 +42,12 @@ private:
     };
 
     void AddDecalToUndo_(TerrainDecalId id);
+    [[nodiscard]] TerrainDecalState BuildPreviewState_(const cS3DVector3& pos, uint32_t typeID) const;
 
     cIGZTerrainDecalService* decalService_{nullptr};
     uint32_t                 instanceId_{0};
     TerrainDecalState        stateTemplate_{};
+    TerrainDecalId           previewDecalId_{};
 
     std::vector<DecalUndoGroup> undoStack_{};
     DecalUndoGroup              currentUndoGroup_{};
