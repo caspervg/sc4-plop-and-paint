@@ -242,7 +242,7 @@ void DecalPanelTab::RenderSettingsModal_() {
         ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f);
         ImGui::ColorEdit3("Color tint##decalColor", reinterpret_cast<float*>(&state.color));
 
-        const char* overlayTypes[] = {"DynamicLand", "StaticLand", "DynamicWater", "StaticWater"};
+        const char* overlayTypes[] = {"StaticLand", "StaticWater", "DynamicLand", "DynamicWater"};
         int overlayIdx = static_cast<int>(state.overlayType);
         if (ImGui::Combo("Overlay type##decalOverlay", &overlayIdx, overlayTypes, 4)) {
             state.overlayType = static_cast<cISTETerrainView::tOverlayManagerType>(overlayIdx);
