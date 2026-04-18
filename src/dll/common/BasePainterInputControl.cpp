@@ -761,6 +761,15 @@ cS3DVector3 BasePainterInputControl::ResolveDirectPosition_(const cS3DVector3& t
     return result;
 }
 
+void BasePainterInputControl::RefreshPreviewOverlay_() {
+    if (!ShouldShowOutlinePreview_()) {
+        overlay_.Clear();
+        return;
+    }
+
+    RebuildPreviewOverlay_();
+}
+
 void BasePainterInputControl::CaptureDirectAbsoluteHeight_() {
     if (!cursorValid_) {
         return;

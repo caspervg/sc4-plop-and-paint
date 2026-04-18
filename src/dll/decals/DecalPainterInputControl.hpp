@@ -11,6 +11,8 @@ public:
     DecalPainterInputControl();
     ~DecalPainterInputControl() override = default;
 
+    bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
+
     void SetDecalToPaint(uint32_t instanceId, const DecalPaintSettings& settings, const std::string& name);
     void SetDecalService(cIGZTerrainDecalService* service);
 
@@ -48,6 +50,8 @@ private:
 
     void AddDecalToUndo_(TerrainDecalId id, uint8_t committedDrawMode);
     void TrimUndoStack_();
+    void AdjustRotationDegrees_(float deltaDegrees);
+    void RefreshPreviewDecal_();
     void RestoreCommittedDrawMode_(const PendingDecal& decal) const;
     void RestoreCommittedDrawMode_(const DecalUndoGroup& group) const;
     [[nodiscard]] TerrainDecalState BuildPreviewState_(const cS3DVector3& pos, uint32_t typeID) const;

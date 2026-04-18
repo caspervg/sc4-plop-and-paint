@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <windows.h>
 
 #include "cGZPersistResourceKey.h"
 #include "../paint/PaintOverlay.hpp"
@@ -13,10 +14,31 @@ namespace {
     constexpr uint32_t kDecalTextureGroup = 0x0986135E;
     constexpr size_t   kMaxUndoGroups     = 50;
     constexpr uint8_t  kPendingDrawMode   = 1;
+    constexpr float    kDegreesPerTurn    = 360.0f;
+    constexpr float    kTau               = 6.28318530717958647692f;
+
+    float NormalizeTurns(const float turns) {
+        float normalizedTurns = std::fmod(turns, 1.0f);
+        if (normalizedTurns < 0.0f) {
+            normalizedTurns += 1.0f;
+        }
+        return normalizedTurns;
+    }
 }
 
 DecalPainterInputControl::DecalPainterInputControl()
     : BasePainterInputControl(kDecalPainterControlID) {}
+
+bool DecalPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t modifiers) {
+    if (vkCode == 'R' && IsOnTop()) {
+        const bool shiftHeld = (modifiers & MOD_SHIFT) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const float deltaDegrees = shiftHeld ? 5.0f : 45.0f;
+        AdjustRotationDegrees_(deltaDegrees);
+        return true;
+    }
+
+    return BasePainterInputControl::OnKeyDown(vkCode, modifiers);
+}
 
 void DecalPainterInputControl::SetDecalToPaint(const uint32_t instanceId,
                                                const DecalPaintSettings& settings,
@@ -158,6 +180,8 @@ void DecalPainterInputControl::PopulatePreviewBounds_(PaintOverlay::PreviewPlace
     const float aspectMultiplier = std::max(stateTemplate_.decalInfo.aspectMultiplier, 0.1f);
     placement.width = stateTemplate_.decalInfo.baseSize * aspectMultiplier;
     placement.depth = stateTemplate_.decalInfo.baseSize;
+    placement.hasContinuousRotation = true;
+    placement.continuousRotationRadians = -NormalizeTurns(stateTemplate_.decalInfo.rotationTurns) * kTau;
 }
 
 void DecalPainterInputControl::AddDecalToUndo_(const TerrainDecalId decalId, const uint8_t committedDrawMode) {
@@ -179,6 +203,39 @@ void DecalPainterInputControl::TrimUndoStack_() {
         undoStack_.erase(undoStack_.begin());
         LOG_DEBUG("DecalPainterInputControl: trimmed undo stack to {} group(s)", undoStack_.size());
     }
+}
+
+void DecalPainterInputControl::AdjustRotationDegrees_(const float deltaDegrees) {
+    stateTemplate_.decalInfo.rotationTurns =
+        NormalizeTurns(stateTemplate_.decalInfo.rotationTurns + (deltaDegrees / kDegreesPerTurn));
+    RefreshPreviewDecal_();
+    RefreshPreviewOverlay_();
+    LOG_DEBUG("DecalPainterInputControl: rotation adjusted to {:.2f} degrees",
+              stateTemplate_.decalInfo.rotationTurns * kDegreesPerTurn);
+}
+
+void DecalPainterInputControl::RefreshPreviewDecal_() {
+    if (!decalService_ || previewDecalId_.value == 0 || !cursorValid_) {
+        return;
+    }
+
+    const uint32_t previewTypeID = CurrentDirectTypeID_();
+    if (previewTypeID == 0) {
+        return;
+    }
+
+    const cS3DVector3 worldPos = ResolveDirectPosition_(currentCursorWorld_);
+    const TerrainDecalState previewState = BuildPreviewState_(worldPos, previewTypeID);
+    if (!decalService_->ReplaceDecal(previewDecalId_, previewState)) {
+        LOG_WARN("DecalPainterInputControl: failed to refresh preview decal rotation id={}", previewDecalId_.value);
+        DestroyPreviewOccupant_();
+        CreatePreviewOccupant_();
+        return;
+    }
+
+    previewOccupantTypeID_ = previewTypeID;
+    lastPreviewPosition_ = worldPos;
+    previewPositionValid_ = true;
 }
 
 void DecalPainterInputControl::RestoreCommittedDrawMode_(const PendingDecal& decal) const {

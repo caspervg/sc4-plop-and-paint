@@ -55,6 +55,15 @@ namespace {
         }
     }
 
+    cS3DVector3 RotateLocalPoint(const cS3DVector3& local, const float yawRadians) {
+        const float cosYaw = std::cos(yawRadians);
+        const float sinYaw = std::sin(yawRadians);
+        return cS3DVector3(
+            local.fX * cosYaw - local.fZ * sinYaw,
+            local.fY,
+            local.fX * sinYaw + local.fZ * cosYaw);
+    }
+
     float SampleStableTerrainHeight(cISTETerrain* terrain, const float x, const float z) {
         if (!terrain) {
             return 0.0f;
@@ -487,7 +496,10 @@ void PaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, cISTET
     const float maxZ = hasBounds ? preview.maxZ : preview.depth * 0.5f;
 
     const auto makeWorldPoint = [&](const float localX, const float localY, const float localZ) {
-        cS3DVector3 rotated = RotateLocalPoint(cS3DVector3(localX, localY, localZ), preview.placement.rotation);
+        const cS3DVector3 local(localX, localY, localZ);
+        cS3DVector3 rotated = preview.hasContinuousRotation
+            ? RotateLocalPoint(local, preview.continuousRotationRadians)
+            : RotateLocalPoint(local, preview.placement.rotation);
         return cS3DVector3(
             preview.placement.position.fX + rotated.fX,
             preview.placement.position.fY + rotated.fY + kHeightOffset,

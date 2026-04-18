@@ -22,6 +22,8 @@ public:
     struct PreviewPlacement {
         PlannedPaint placement{};
         bool valid = true;
+        bool hasContinuousRotation = false;
+        float continuousRotationRadians = 0.0f;
         float width = 0.0f;
         float height = 0.0f;
         float depth = 0.0f;
