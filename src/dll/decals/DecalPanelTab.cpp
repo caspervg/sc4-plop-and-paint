@@ -9,6 +9,7 @@
 #include "cGZPersistResourceKey.h"
 #include "cIGZPersistDBSegment.h"
 #include "cIGZPersistResourceManager.h"
+#include "cRZAutoRefCount.h"
 #include "cISTETerrainView.h"
 #include "../SC4PlopAndPaintDirector.hpp"
 #include "../common/Constants.hpp"
@@ -285,8 +286,8 @@ ImGuiTexture DecalPanelTab::LoadDecalThumbnail_(const uint32_t instanceId) const
     const cGZPersistResourceKey key{0x7AB50E44, 0x0986135E, instanceId};
 
     // Find the DB segment containing this key and read raw bytes
-    cIGZPersistDBSegment* segment = nullptr;
-    if (!pRM_->FindDBSegment(key, &segment) || !segment) {
+    cRZAutoRefCount<cIGZPersistDBSegment> segment;
+    if (!pRM_->FindDBSegment(key, segment.AsPPObj()) || !segment) {
         LOG_DEBUG("DecalPanelTab: no segment for decal 0x{:08X}", instanceId);
         return texture;
     }
