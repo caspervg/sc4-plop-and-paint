@@ -1,5 +1,7 @@
 #include "DecalPainterInputControl.hpp"
 
+#include <algorithm>
+
 #include "cGZPersistResourceKey.h"
 #include "../paint/PaintOverlay.hpp"
 #include "../utils/Logger.h"
@@ -58,7 +60,8 @@ bool DecalPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos,
 
 void DecalPainterInputControl::PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement,
                                                        uint32_t /*typeID*/) const {
-    placement.width = stateTemplate_.decalInfo.baseSize;
+    const float aspectMultiplier = std::max(stateTemplate_.decalInfo.aspectMultiplier, 0.1f);
+    placement.width = stateTemplate_.decalInfo.baseSize * aspectMultiplier;
     placement.depth = stateTemplate_.decalInfo.baseSize;
 }
 
