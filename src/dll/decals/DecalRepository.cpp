@@ -40,8 +40,16 @@ void DecalRepository::Populate(cIGZPersistResourceManager* pRM) {
 
     rawList->Release();
 
+    const size_t rawMatchCount = instanceIds_.size();
     std::sort(instanceIds_.begin(), instanceIds_.end());
-    LOG_INFO("DecalRepository: found {} zoom-4 decal textures", instanceIds_.size());
+    instanceIds_.erase(std::unique(instanceIds_.begin(), instanceIds_.end()), instanceIds_.end());
+
+    const size_t duplicateCount = rawMatchCount - instanceIds_.size();
+    if (duplicateCount > 0) {
+        LOG_INFO("DecalRepository: deduplicated {} duplicate zoom-4 decal texture entries", duplicateCount);
+    }
+
+    LOG_INFO("DecalRepository: found {} unique zoom-4 decal textures", instanceIds_.size());
 }
 
 void DecalRepository::Clear() {

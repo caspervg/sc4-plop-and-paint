@@ -12,6 +12,7 @@ namespace {
     constexpr uint32_t kDecalTextureType  = 0x7AB50E44;
     constexpr uint32_t kDecalTextureGroup = 0x0986135E;
     constexpr size_t   kMaxUndoGroups     = 50;
+    constexpr uint8_t  kPendingDrawMode   = 1;
 }
 
 DecalPainterInputControl::DecalPainterInputControl()
@@ -47,15 +48,17 @@ bool DecalPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos,
     TerrainDecalState state = stateTemplate_;
     state.textureKey.instance = typeID;
     state.decalInfo.center = cS3DVector2(pos.fX, pos.fZ);
+    const uint8_t committedDrawMode = state.drawMode;
+    state.drawMode = kPendingDrawMode;
 
-    TerrainDecalId id{};
-    if (!decalService_->CreateDecal(state, &id)) {
+    TerrainDecalId decalId{};
+    if (!decalService_->CreateDecal(state, &decalId)) {
         LOG_WARN("DecalPainterInputControl: CreateDecal failed for 0x{:08X}", typeID);
         return false;
     }
 
-    AddDecalToUndo_(id);
-    LOG_DEBUG("DecalPainterInputControl: placed decal 0x{:08X} id={}", typeID, id.value);
+    AddDecalToUndo_(decalId, committedDrawMode);
+    LOG_DEBUG("DecalPainterInputControl: placed decal 0x{:08X} id={}", typeID, decalId.value);
     return true;
 }
 
@@ -80,13 +83,13 @@ void DecalPainterInputControl::CreatePreviewOccupant_() {
 
     const TerrainDecalState previewState = BuildPreviewState_(worldPos, previewTypeID);
 
-    TerrainDecalId id{};
-    if (!decalService_->CreateDecal(previewState, &id)) {
+    TerrainDecalId decalId{};
+    if (!decalService_->CreateDecal(previewState, &decalId)) {
         LOG_WARN("DecalPainterInputControl: failed to create temporary preview decal for 0x{:08X}", previewTypeID);
         return;
     }
 
-    previewDecalId_ = id;
+    previewDecalId_ = decalId;
     previewOccupantTypeID_ = previewTypeID;
     lastPreviewPosition_ = worldPos;
     previewPositionValid_ = true;
@@ -157,17 +160,51 @@ void DecalPainterInputControl::PopulatePreviewBounds_(PaintOverlay::PreviewPlace
     placement.depth = stateTemplate_.decalInfo.baseSize;
 }
 
-void DecalPainterInputControl::AddDecalToUndo_(const TerrainDecalId id) {
+void DecalPainterInputControl::AddDecalToUndo_(const TerrainDecalId decalId, const uint8_t committedDrawMode) {
+    PendingDecal pendingDecal{decalId, committedDrawMode};
     if (IsBatchingPlacements_()) {
-        currentUndoGroup_.ids.push_back(id);
+        currentUndoGroup_.decals.push_back(pendingDecal);
     }
     else {
         DecalUndoGroup group;
-        group.ids.push_back(id);
-        if (undoStack_.size() >= kMaxUndoGroups) {
-            undoStack_.erase(undoStack_.begin());
-        }
+        group.decals.push_back(pendingDecal);
         undoStack_.push_back(std::move(group));
+        TrimUndoStack_();
+    }
+}
+
+void DecalPainterInputControl::TrimUndoStack_() {
+    while (undoStack_.size() > kMaxUndoGroups) {
+        RestoreCommittedDrawMode_(undoStack_.front());
+        undoStack_.erase(undoStack_.begin());
+        LOG_DEBUG("DecalPainterInputControl: trimmed undo stack to {} group(s)", undoStack_.size());
+    }
+}
+
+void DecalPainterInputControl::RestoreCommittedDrawMode_(const PendingDecal& decal) const {
+    if (!decalService_ || decal.id.value == 0) {
+        return;
+    }
+
+    TerrainDecalSnapshot snap{};
+    if (!decalService_->GetDecal(decal.id, &snap)) {
+        LOG_WARN("DecalPainterInputControl: failed to get decal id={} while restoring draw mode", decal.id.value);
+        return;
+    }
+
+    if (snap.state.drawMode == decal.committedDrawMode) {
+        return;
+    }
+
+    snap.state.drawMode = decal.committedDrawMode;
+    if (!decalService_->ReplaceDecal(decal.id, snap.state)) {
+        LOG_WARN("DecalPainterInputControl: failed to restore draw mode for decal id={}", decal.id.value);
+    }
+}
+
+void DecalPainterInputControl::RestoreCommittedDrawMode_(const DecalUndoGroup& group) const {
+    for (const PendingDecal& decal : group.decals) {
+        RestoreCommittedDrawMode_(decal);
     }
 }
 
@@ -186,47 +223,61 @@ void DecalPainterInputControl::UndoLastPlacement() {
     const DecalUndoGroup group = undoStack_.back();
     undoStack_.pop_back();
 
-    for (const TerrainDecalId id : group.ids) {
-        if (!decalService_->RemoveDecal(id)) {
-            LOG_WARN("DecalPainterInputControl: failed to remove decal id={} during undo", id.value);
+    for (const PendingDecal& decal : group.decals) {
+        if (!decalService_->RemoveDecal(decal.id)) {
+            LOG_WARN("DecalPainterInputControl: failed to remove decal id={} during undo", decal.id.value);
         }
     }
     LOG_INFO("DecalPainterInputControl: undone {} decal(s), {} group(s) remain",
-             group.ids.size(), undoStack_.size());
+             group.decals.size(), undoStack_.size());
 }
 
 void DecalPainterInputControl::CancelAllPlacements() {
     if (!decalService_) {
         undoStack_.clear();
-        currentUndoGroup_.ids.clear();
+        currentUndoGroup_.decals.clear();
         return;
     }
 
     for (const DecalUndoGroup& group : undoStack_) {
-        for (const TerrainDecalId id : group.ids) {
-            decalService_->RemoveDecal(id);
+        for (const PendingDecal& decal : group.decals) {
+            decalService_->RemoveDecal(decal.id);
         }
     }
-    for (const TerrainDecalId id : currentUndoGroup_.ids) {
-        decalService_->RemoveDecal(id);
+    for (const PendingDecal& decal : currentUndoGroup_.decals) {
+        decalService_->RemoveDecal(decal.id);
     }
 
     undoStack_.clear();
-    currentUndoGroup_.ids.clear();
+    currentUndoGroup_.decals.clear();
     LOG_INFO("DecalPainterInputControl: cancelled all placements");
 }
 
 void DecalPainterInputControl::CommitPlacements() {
-    // Decals are already live; just clear the undo stack.
+    const size_t pendingCount = PendingPlacementCount_();
+    LOG_INFO("DecalPainterInputControl: committing {} decal(s)", pendingCount);
+
+    for (const DecalUndoGroup& group : undoStack_) {
+        RestoreCommittedDrawMode_(group);
+    }
+    RestoreCommittedDrawMode_(currentUndoGroup_);
+
     undoStack_.clear();
-    currentUndoGroup_.ids.clear();
-    LOG_INFO("DecalPainterInputControl: committed all placements");
+    currentUndoGroup_.decals.clear();
 }
 
 TerrainDecalState DecalPainterInputControl::BuildPreviewState_(const cS3DVector3& pos, const uint32_t typeID) const {
     TerrainDecalState previewState = stateTemplate_;
     previewState.textureKey.instance = typeID;
     previewState.decalInfo.center = cS3DVector2(pos.fX, pos.fZ);
-    previewState.drawMode = 1;
+    previewState.drawMode = kPendingDrawMode;
     return previewState;
+}
+
+size_t DecalPainterInputControl::PendingPlacementCount_() const {
+    size_t count = currentUndoGroup_.decals.size();
+    for (const DecalUndoGroup& group : undoStack_) {
+        count += group.decals.size();
+    }
+    return count;
 }

@@ -132,6 +132,7 @@ protected:
     [[nodiscard]] cS3DVector3 ResolveDirectPosition_(const cS3DVector3& terrainPosition) const;
     void CaptureDirectAbsoluteHeight_();
     void ClearDirectAbsoluteHeight_();
+    [[nodiscard]] virtual size_t PendingPlacementCount_() const;
 
     // Shared state
     cRZAutoRefCount<cISC4City> city_;
@@ -183,7 +184,6 @@ private:
 
     void UndoLastPlacementInGroup_();
     void TrimUndoStack_();
-    [[nodiscard]] size_t PendingPlacementCount_() const;
     [[nodiscard]] bool ShouldShowOutlinePreview_() const;
 
     ControlState state_{ControlState::Uninitialized};

@@ -37,12 +37,21 @@ protected:
     void PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement, uint32_t typeID) const override;
 
 private:
-    struct DecalUndoGroup {
-        std::vector<TerrainDecalId> ids;
+    struct PendingDecal {
+        TerrainDecalId id{};
+        uint8_t committedDrawMode{0};
     };
 
-    void AddDecalToUndo_(TerrainDecalId id);
+    struct DecalUndoGroup {
+        std::vector<PendingDecal> decals;
+    };
+
+    void AddDecalToUndo_(TerrainDecalId id, uint8_t committedDrawMode);
+    void TrimUndoStack_();
+    void RestoreCommittedDrawMode_(const PendingDecal& decal) const;
+    void RestoreCommittedDrawMode_(const DecalUndoGroup& group) const;
     [[nodiscard]] TerrainDecalState BuildPreviewState_(const cS3DVector3& pos, uint32_t typeID) const;
+    [[nodiscard]] size_t PendingPlacementCount_() const override;
 
     cIGZTerrainDecalService* decalService_{nullptr};
     uint32_t                 instanceId_{0};

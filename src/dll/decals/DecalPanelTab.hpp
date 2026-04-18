@@ -28,6 +28,7 @@ private:
     void RenderDecalGrid_(const std::vector<size_t>& indices);
     void RenderSettingsModal_();
     void QueuePaintForDecal_(uint32_t instanceId);
+    void StartPaintingDecal_(uint32_t instanceId);
     ImGuiTexture LoadDecalThumbnail_(uint32_t instanceId) const;
 
     DecalRepository*             decals_;

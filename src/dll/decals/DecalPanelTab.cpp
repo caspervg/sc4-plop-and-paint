@@ -1,6 +1,7 @@
 #include "DecalPanelTab.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <span>
@@ -18,12 +19,18 @@
 
 namespace {
     constexpr float kIconSize = 64.0f;
-    constexpr int   kColumns  = 6;
+    constexpr float kActionButtonWidth = 120.0f;
+    constexpr uint32_t kDecalTextureType  = 0x7AB50E44;
+    constexpr uint32_t kDecalTextureGroup = 0x0986135E;
 
     std::string FormatInstanceId(const uint32_t id) {
         char buf[16];
         std::snprintf(buf, sizeof(buf), "%08X", id);
         return buf;
+    }
+
+    cGZPersistResourceKey MakeDecalTextureKey(const uint32_t instanceId) {
+        return cGZPersistResourceKey{kDecalTextureType, kDecalTextureGroup, instanceId};
     }
 }
 
@@ -62,6 +69,7 @@ void DecalPanelTab::OnRender() {
 
     std::vector<size_t> filtered;
     BuildFilteredIndices_(filtered);
+    const bool hasSelection = selectedInstanceId_ != 0;
 
     ImGui::Text("Showing %zu of %zu textures", filtered.size(), decals_->Count());
     if (director_->IsDecalPainting()) {
@@ -89,6 +97,40 @@ void DecalPanelTab::OnRender() {
         }
     }
 
+    if (!hasSelection) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button("Paint selected", ImVec2(kActionButtonWidth, 0.0f))) {
+        QueuePaintForDecal_(selectedInstanceId_);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Open the paint settings for the selected decal.\nYou can also press Enter after selecting a texture.");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Paint now", ImVec2(kActionButtonWidth, 0.0f))) {
+        StartPaintingDecal_(selectedInstanceId_);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Start painting immediately with the current decal settings.");
+    }
+    if (!hasSelection) {
+        ImGui::EndDisabled();
+    }
+    ImGui::SameLine();
+    if (hasSelection) {
+        ImGui::TextDisabled("Selected: 0x%08X", selectedInstanceId_);
+    }
+    else {
+        ImGui::TextDisabled("Click a texture to select it.");
+    }
+
+    if (hasSelection &&
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::GetIO().WantTextInput &&
+        (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false))) {
+        QueuePaintForDecal_(selectedInstanceId_);
+    }
+
     ImGui::Separator();
     RenderDecalGrid_(filtered);
     RenderSettingsModal_();
@@ -102,10 +144,16 @@ void DecalPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
 }
 
 void DecalPanelTab::RenderFilterBar_() {
-    ImGui::SetNextItemWidth(200.0f);
-    ImGui::InputText("IID prefix##DecalIID", iidFilterBuf_, sizeof(iidFilterBuf_));
+    ImGui::TextUnformatted("Filters");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(UI::iidFilterWidth());
+    ImGui::InputTextWithHint("##DecalIID", "IID prefix...", iidFilterBuf_, sizeof(iidFilterBuf_));
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Filter by hex instance ID prefix (e.g. '25A7')");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear filters")) {
+        iidFilterBuf_[0] = '\0';
     }
 }
 
@@ -141,19 +189,28 @@ void DecalPanelTab::BuildFilteredIndices_(std::vector<size_t>& out) const {
 
 void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
     const auto& ids = decals_->GetInstanceIds();
-    const float cellSize = kIconSize + ImGui::GetStyle().ItemSpacing.x;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec2 btnSize{kIconSize, kIconSize};
+    const float tileWidth = btnSize.x + style.FramePadding.x * 2.0f;
+    const float rowStride = tileWidth + style.ItemSpacing.x;
 
-    if (!ImGui::BeginChild("DecalGrid", ImVec2(0, 0), false)) {
+    if (!ImGui::BeginChild("DecalGrid", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+        ImGui::EndChild();
+        return;
+    }
+
+    if (indices.empty()) {
+        ImGui::TextDisabled("No decals match the current filters.");
         ImGui::EndChild();
         return;
     }
 
     const float availWidth = ImGui::GetContentRegionAvail().x;
-    const auto columns = std::max(1, static_cast<int>(availWidth / cellSize));
+    const auto columns = std::max(1, static_cast<int>((availWidth + style.ItemSpacing.x) / rowStride));
 
     ImGuiListClipper clipper;
     const auto rowCount = static_cast<int>((indices.size() + columns - 1) / columns);
-    clipper.Begin(rowCount, kIconSize + ImGui::GetStyle().ItemSpacing.y);
+    clipper.Begin(rowCount, btnSize.y + style.FramePadding.y * 2.0f + style.ItemSpacing.y);
 
     while (clipper.Step()) {
         for (auto row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
@@ -171,23 +228,12 @@ void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
 
                 const bool selected = (instanceId == selectedInstanceId_);
 
-                // Draw border for selected cell
-                if (selected) {
-                    ImVec2 pos = ImGui::GetCursorScreenPos();
-                    ImGui::GetWindowDrawList()->AddRect(
-                        ImVec2(pos.x - 2, pos.y - 2),
-                        ImVec2(pos.x + kIconSize + 2, pos.y + kIconSize + 2),
-                        IM_COL32(255, 200, 0, 255), 2.0f);
-                }
-
                 // Try to get cached thumbnail
                 const auto texOpt = thumbnailCache_.Get(instanceId);
 
                 ImGui::PushID(static_cast<int>(instanceId));
-                ImVec2 btnSize{kIconSize, kIconSize};
-
-                auto clicked = false;
-                auto dblClicked = false;
+                bool clicked = false;
+                bool dblClicked = false;
 
                 if (texOpt.has_value() && *texOpt != nullptr) {
                     ImGui::ImageButton("##decal",
@@ -199,11 +245,22 @@ void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
                     ImGui::Button(label, btnSize);
                     thumbnailCache_.Request(instanceId);
                 }
-                clicked    = ImGui::IsItemClicked(ImGuiMouseButton_Left);
-                dblClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+                clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+                dblClicked = clicked && ImGui::GetMouseClickedCount(ImGuiMouseButton_Left) >= 2;
+
+                if (selected) {
+                    const ImVec2 rectMin = ImGui::GetItemRectMin();
+                    const ImVec2 rectMax = ImGui::GetItemRectMax();
+                    ImGui::GetWindowDrawList()->AddRect(
+                        ImVec2(rectMin.x - 2.0f, rectMin.y - 2.0f),
+                        ImVec2(rectMax.x + 2.0f, rectMax.y + 2.0f),
+                        IM_COL32(255, 200, 0, 255), 2.0f);
+                }
 
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("0x%08X\nDouble-click to paint", instanceId);
+                    ImGui::SetTooltip(
+                        "0x%08X\nClick to select.\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                        instanceId);
                 }
 
                 if (dblClicked) {
@@ -228,53 +285,68 @@ void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
 }
 
 void DecalPanelTab::RenderSettingsModal_() {
-    if (!pendingPaint_.open) {
+    if (pendingPaint_.open) {
+        ImGui::OpenPopup("Decal Paint Settings");
+        pendingPaint_.open = false;
+    }
+
+    if (!ImGui::BeginPopupModal("Decal Paint Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
     }
 
-    ImGui::OpenPopup("Decal Paint Settings");
-    pendingPaint_.open = false;
+    TerrainDecalState& state = pendingPaint_.settings.stateTemplate;
 
-    if (ImGui::BeginPopupModal("Decal Paint Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        TerrainDecalState& state = pendingPaint_.settings.stateTemplate;
+    ImGui::DragFloat("Base size (m)##decalSize", &state.decalInfo.baseSize, 1.0f, 0.5f, 512.0f);
+    ImGui::DragFloat("Rotation (turns)##decalRot", &state.decalInfo.rotationTurns, 0.01f, 0.0f, 1.0f);
+    ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f);
+    ImGui::ColorEdit3("Color tint##decalColor", &state.color.fX);
 
-        ImGui::DragFloat("Base size (m)##decalSize", &state.decalInfo.baseSize, 1.0f, 0.5f, 512.0f);
-        ImGui::DragFloat("Rotation (turns)##decalRot", &state.decalInfo.rotationTurns, 0.01f, 0.0f, 1.0f);
-        ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f);
-        ImGui::ColorEdit3("Color tint##decalColor", &state.color.fX);
-
-        const char* overlayTypes[] = {"StaticLand", "StaticWater", "DynamicLand", "DynamicWater"};
-        int overlayIdx = static_cast<int>(state.overlayType);
-        if (ImGui::Combo("Overlay type##decalOverlay", &overlayIdx, overlayTypes, 4)) {
-            state.overlayType = static_cast<cISTETerrainView::tOverlayManagerType>(overlayIdx);
-        }
-
-        ImGui::DragFloat("Aspect multiplier##decalAspect",
-                         &state.decalInfo.aspectMultiplier, 0.01f, 0.1f, 10.0f);
-
-        ImGui::Separator();
-
-        if (ImGui::Button("Start Painting", ImVec2(120, 0))) {
-            char name[20];
-            std::snprintf(name, sizeof(name), "0x%08X", pendingPaint_.instanceId);
-            ReleaseImGuiInputCapture_();
-            director_->StartDecalPainting(pendingPaint_.instanceId, pendingPaint_.settings, name);
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80, 0))) {
-            ImGui::CloseCurrentPopup();
-        }
-
-        ImGui::EndPopup();
+    const char* overlayTypes[] = {"StaticLand", "StaticWater", "DynamicLand", "DynamicWater"};
+    int overlayIdx = static_cast<int>(state.overlayType);
+    if (ImGui::Combo("Overlay type##decalOverlay", &overlayIdx, overlayTypes, 4)) {
+        state.overlayType = static_cast<cISTETerrainView::tOverlayManagerType>(overlayIdx);
     }
+
+    ImGui::DragFloat("Aspect multiplier##decalAspect",
+                     &state.decalInfo.aspectMultiplier, 0.01f, 0.1f, 10.0f);
+
+    ImGui::Separator();
+
+    if (ImGui::Button("Start Painting", ImVec2(120, 0))) {
+        char name[20];
+        std::snprintf(name, sizeof(name), "0x%08X", pendingPaint_.instanceId);
+        ReleaseImGuiInputCapture_();
+        director_->StartDecalPainting(pendingPaint_.instanceId, pendingPaint_.settings, name);
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(80, 0))) {
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
 }
 
 void DecalPanelTab::QueuePaintForDecal_(const uint32_t instanceId) {
     pendingPaint_.instanceId = instanceId;
     // Preserve settings but update texture key
-    pendingPaint_.settings.stateTemplate.textureKey = cGZPersistResourceKey{0x7AB50E44, 0x0986135E, instanceId};
+    pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
     pendingPaint_.open = true;
+}
+
+void DecalPanelTab::StartPaintingDecal_(const uint32_t instanceId) {
+    if (instanceId == 0) {
+        return;
+    }
+
+    pendingPaint_.instanceId = instanceId;
+    pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
+
+    char name[20];
+    std::snprintf(name, sizeof(name), "0x%08X", instanceId);
+
+    ReleaseImGuiInputCapture_();
+    director_->StartDecalPainting(instanceId, pendingPaint_.settings, name);
 }
 
 ImGuiTexture DecalPanelTab::LoadDecalThumbnail_(const uint32_t instanceId) const {
@@ -284,7 +356,7 @@ ImGuiTexture DecalPanelTab::LoadDecalThumbnail_(const uint32_t instanceId) const
         return texture;
     }
 
-    const cGZPersistResourceKey key{0x7AB50E44, 0x0986135E, instanceId};
+    const cGZPersistResourceKey key = MakeDecalTextureKey(instanceId);
 
     // Find the DB segment containing this key and read raw bytes
     cRZAutoRefCount<cIGZPersistDBSegment> segment;
