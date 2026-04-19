@@ -55,8 +55,11 @@ private:
     // Filter state
     char    iidFilterBuf_[17]{};
     bool    favoritesOnly_{false};
+    int     wealthFilter_{0};
+    int     dilapidationFilter_{0};
 
     uint32_t selectedInstanceId_{0};
+    uint32_t scrollToInstanceId_{0};
     char     presetNameBuf_[64]{};
     int      selectedFavoritePresetIndex_{-1};
 

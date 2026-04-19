@@ -3,6 +3,7 @@
 #include <cRZCOMDllDirector.h>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -20,6 +21,7 @@
 #include "cRZAutoRefCount.h"
 #include "cRZMessage2COMDirector.h"
 #include "decals/DecalPainterInputControl.hpp"
+#include "decals/DecalPickerInputControl.hpp"
 #include "decals/DecalStripperInputControl.hpp"
 #include "public/TerrainDecalServiceIds.h"
 #include "decals/DecalRepository.hpp"
@@ -87,6 +89,9 @@ public:
     bool StartDecalStripping();
     void StopDecalStripping();
     [[nodiscard]] bool IsDecalStripping() const;
+    bool StartDecalPicking(std::function<void(uint32_t instanceId)> onPick);
+    void StopDecalPicking();
+    [[nodiscard]] bool IsDecalPicking() const;
     [[nodiscard]] bool IsDecalServiceAvailable() const;
     bool StartPropStripping();
     void StopPropStripping();
@@ -122,7 +127,8 @@ private:
     bool PrepareForExclusiveActivation_(bool keepPropPainting, bool keepFloraPainting, bool keepPropStripping,
                                         bool keepFloraStripping = false,
                                         bool keepDecalPainting = false,
-                                        bool keepDecalStripping = false);
+                                        bool keepDecalStripping = false,
+                                        bool keepDecalPicking = false);
     void ApplySwitchPolicy_(BasePainterInputControl* control);
     [[nodiscard]] RecentPaintEntry BuildRecentPaintEntry_(RecentPaintEntry::Kind kind,
                                                           uint32_t typeId,
@@ -160,6 +166,8 @@ private:
     bool decalPainting_{false};
     cRZAutoRefCount<DecalStripperInputControl> decalStripperControl_;
     bool decalStripping_{false};
+    cRZAutoRefCount<DecalPickerInputControl>   decalPickerControl_;
+    bool decalPicking_{false};
     cIGZTerrainDecalService* terrainDecalService_{nullptr};
     std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};

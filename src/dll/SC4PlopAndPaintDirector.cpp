@@ -934,6 +934,71 @@ bool SC4PlopAndPaintDirector::IsDecalStripping() const {
     return decalStripping_;
 }
 
+bool SC4PlopAndPaintDirector::StartDecalPicking(std::function<void(uint32_t)> onPick) {
+    if (!pCity_ || !pView3D_) {
+        LOG_WARN("Cannot start decal picking: city or view not available");
+        return false;
+    }
+
+    if (!terrainDecalService_) {
+        LOG_WARN("Cannot start decal picking: terrain decal service not available");
+        return false;
+    }
+
+    if (!PrepareForExclusiveActivation_(false, false, false, false, false, false, true)) {
+        LOG_INFO("Blocked decal picking while another tool still has a sketch in progress");
+        return false;
+    }
+
+    if (!decalPickerControl_) {
+        auto* control = new DecalPickerInputControl();
+        decalPickerControl_ = control;
+        if (!decalPickerControl_->Init()) {
+            LOG_ERROR("Failed to initialize DecalPickerInputControl");
+            decalPickerControl_.Reset();
+            return false;
+        }
+    }
+
+    decalPickerControl_->SetDecalService(terrainDecalService_);
+    decalPickerControl_->SetCity(pCity_);
+    decalPickerControl_->SetWindow(pView3D_->AsIGZWin());
+    decalPickerControl_->SetOnPick(std::move(onPick));
+    decalPickerControl_->SetOnCancel([this]() {
+        if (pView3D_ && decalPickerControl_ &&
+            pView3D_->GetCurrentViewInputControl() == decalPickerControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+        decalPicking_ = false;
+        LOG_INFO("Stopped decal picking");
+    });
+
+    if (!pView3D_->SetCurrentViewInputControl(
+            decalPickerControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        LOG_WARN("Failed to set decal picker as current view input control");
+        return false;
+    }
+
+    decalPicking_ = true;
+    LOG_INFO("Started decal picking");
+    return true;
+}
+
+void SC4PlopAndPaintDirector::StopDecalPicking() {
+    if (pView3D_ && decalPickerControl_) {
+        if (pView3D_->GetCurrentViewInputControl() == decalPickerControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+    }
+    decalPicking_ = false;
+    LOG_INFO("Stopped decal picking");
+}
+
+bool SC4PlopAndPaintDirector::IsDecalPicking() const {
+    return decalPicking_;
+}
+
 bool SC4PlopAndPaintDirector::IsDecalServiceAvailable() const {
     return terrainDecalService_ != nullptr;
 }
@@ -1129,6 +1194,9 @@ void SC4PlopAndPaintDirector::ProcessPendingToolActions_() {
     if (decalStripperControl_) {
         decalStripperControl_->ProcessPendingActions();
     }
+    if (decalPickerControl_) {
+        decalPickerControl_->ProcessPendingActions();
+    }
     if (decalPainterControl_) {
         decalPainterControl_->ProcessPendingActions();
     }
@@ -1153,9 +1221,10 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     FloraStripperInputControl* floraStripperControl = director->floraStripperControl_;
     DecalPainterInputControl* decalPainterControl = director->decalPainterControl_;
     DecalStripperInputControl* decalStripperControl = director->decalStripperControl_;
+    DecalPickerInputControl* decalPickerControl = director->decalPickerControl_;
 
     const bool needsOverlay = painterControl || stripperControl || floraControl
-        || floraStripperControl || decalPainterControl || decalStripperControl;
+        || floraStripperControl || decalPainterControl || decalStripperControl || decalPickerControl;
 
     if (!director->drawOverlayEnabled_ || !director->imguiService_ || !needsOverlay) {
         return;
@@ -1184,6 +1253,9 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     }
     if (decalStripperControl) {
         decalStripperControl->DrawOverlay(device);
+    }
+    if (decalPickerControl) {
+        decalPickerControl->DrawOverlay(device);
     }
     device->Release();
     dd->Release();
@@ -1268,7 +1340,8 @@ bool SC4PlopAndPaintDirector::PrepareForExclusiveActivation_(const bool keepProp
                                                              const bool keepPropStripping,
                                                              const bool keepFloraStripping,
                                                              const bool keepDecalPainting,
-                                                             const bool keepDecalStripping) {
+                                                             const bool keepDecalStripping,
+                                                             const bool keepDecalPicking) {
     if (!keepPropPainting && !CanPrepareForPaintSwitch_(propPainterControl_, propPainting_)) {
         return false;
     }
@@ -1303,6 +1376,10 @@ bool SC4PlopAndPaintDirector::PrepareForExclusiveActivation_(const bool keepProp
 
     if (!keepDecalStripping && decalStripping_) {
         StopDecalStripping();
+    }
+
+    if (!keepDecalPicking && decalPicking_) {
+        StopDecalPicking();
     }
 
     return true;
