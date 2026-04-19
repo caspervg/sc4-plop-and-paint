@@ -14,6 +14,7 @@ class DecalPanelTab : public PanelTab {
 public:
     DecalPanelTab(SC4PlopAndPaintDirector* director,
                   DecalRepository* decals,
+                  FavoritesRepository* favorites,
                   cIGZPersistResourceManager* pRM,
                   cIGZImGuiService* imguiService);
 
@@ -30,6 +31,9 @@ private:
     void RenderUvPicker_(TerrainDecalState& state);
     void QueuePaintForDecal_(uint32_t instanceId);
     void StartPaintingDecal_(uint32_t instanceId);
+    void ApplyFavoritePresetIfAvailable_(uint32_t instanceId);
+    void LoadFavoritePresetByName_(uint32_t instanceId, const char* presetName);
+    void ResetPresetNameInput_();
     void ClearUvPickerTexture_();
     bool EnsureUvPickerTextureLoaded_();
     bool LoadDecalTexture_(uint32_t instanceId, ImGuiTexture& outTexture, ImVec2& outSourceSize) const;
@@ -50,8 +54,11 @@ private:
 
     // Filter state
     char    iidFilterBuf_[17]{};
+    bool    favoritesOnly_{false};
 
     uint32_t selectedInstanceId_{0};
+    char     presetNameBuf_[64]{};
+    int      selectedFavoritePresetIndex_{-1};
 
     struct PendingPaintState {
         uint32_t instanceId{0};

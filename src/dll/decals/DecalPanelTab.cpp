@@ -150,13 +150,62 @@ namespace {
         window.v2 = static_cast<float>(y + height) / static_cast<float>(textureHeight);
         QuantizeUvWindowToPixels(window, sourceSize);
     }
+
+    SavedDecalPreset BuildSavedPreset(const TerrainDecalState& state) {
+        SavedDecalPreset preset;
+        preset.overlayType = static_cast<uint32_t>(state.overlayType);
+        preset.decalInfo.baseSize = state.decalInfo.baseSize;
+        preset.decalInfo.rotationTurns = state.decalInfo.rotationTurns;
+        preset.decalInfo.aspectMultiplier = state.decalInfo.aspectMultiplier;
+        preset.decalInfo.uvScaleU = state.decalInfo.uvScaleU;
+        preset.decalInfo.uvScaleV = state.decalInfo.uvScaleV;
+        preset.decalInfo.uvOffset = state.decalInfo.uvOffset;
+        preset.decalInfo.unknown8 = state.decalInfo.unknown8;
+        preset.opacity = state.opacity;
+        preset.enabled = state.enabled;
+        preset.color.x = state.color.fX;
+        preset.color.y = state.color.fY;
+        preset.color.z = state.color.fZ;
+        preset.drawMode = state.drawMode;
+        preset.flags = state.flags;
+        preset.hasUvWindow = state.hasUvWindow;
+        preset.uvWindow.u1 = state.uvWindow.u1;
+        preset.uvWindow.v1 = state.uvWindow.v1;
+        preset.uvWindow.u2 = state.uvWindow.u2;
+        preset.uvWindow.v2 = state.uvWindow.v2;
+        preset.uvWindow.mode = static_cast<uint32_t>(state.uvWindow.mode);
+        return preset;
+    }
+
+    void ApplySavedPreset(const SavedDecalPreset& preset, TerrainDecalState& state) {
+        state.overlayType = static_cast<cISTETerrainView::tOverlayManagerType>(preset.overlayType);
+        state.decalInfo.baseSize = preset.decalInfo.baseSize;
+        state.decalInfo.rotationTurns = preset.decalInfo.rotationTurns;
+        state.decalInfo.aspectMultiplier = preset.decalInfo.aspectMultiplier;
+        state.decalInfo.uvScaleU = preset.decalInfo.uvScaleU;
+        state.decalInfo.uvScaleV = preset.decalInfo.uvScaleV;
+        state.decalInfo.uvOffset = preset.decalInfo.uvOffset;
+        state.decalInfo.unknown8 = preset.decalInfo.unknown8;
+        state.opacity = preset.opacity;
+        state.enabled = preset.enabled;
+        state.color = cS3DVector3(preset.color.x, preset.color.y, preset.color.z);
+        state.drawMode = preset.drawMode;
+        state.flags = preset.flags;
+        state.hasUvWindow = preset.hasUvWindow;
+        state.uvWindow.u1 = preset.uvWindow.u1;
+        state.uvWindow.v1 = preset.uvWindow.v1;
+        state.uvWindow.u2 = preset.uvWindow.u2;
+        state.uvWindow.v2 = preset.uvWindow.v2;
+        state.uvWindow.mode = static_cast<TerrainDecalUvMode>(preset.uvWindow.mode);
+    }
 }
 
 DecalPanelTab::DecalPanelTab(SC4PlopAndPaintDirector* director,
                               DecalRepository* decals,
+                              FavoritesRepository* favorites,
                               cIGZPersistResourceManager* pRM,
                               cIGZImGuiService* imguiService)
-    : PanelTab(director, nullptr, nullptr, nullptr, imguiService)
+    : PanelTab(director, nullptr, nullptr, favorites, imguiService)
     , decals_(decals)
     , pRM_(pRM) {
     pendingPaint_.settings.stateTemplate.decalInfo.baseSize = 16.0f;
@@ -188,6 +237,10 @@ void DecalPanelTab::OnRender() {
     std::vector<size_t> filtered;
     BuildFilteredIndices_(filtered);
     const bool hasSelection = selectedInstanceId_ != 0;
+    const bool selectedIsFavorite = hasSelection && favorites_ && favorites_->IsDecalFavorite(selectedInstanceId_);
+    const bool selectedHasPresets =
+        hasSelection && favorites_ && favorites_->GetDecalFavoritePresets(selectedInstanceId_) &&
+        !favorites_->GetDecalFavoritePresets(selectedInstanceId_)->empty();
 
     ImGui::Text("Showing %zu of %zu textures", filtered.size(), decals_->Count());
     if (director_->IsDecalPainting()) {
@@ -215,6 +268,7 @@ void DecalPanelTab::OnRender() {
         }
     }
 
+    ImGui::Spacing();
     if (!hasSelection) {
         ImGui::BeginDisabled();
     }
@@ -235,8 +289,25 @@ void DecalPanelTab::OnRender() {
         ImGui::EndDisabled();
     }
     ImGui::SameLine();
+    if (hasSelection && favorites_) {
+        if (ImGui::SmallButton(selectedIsFavorite ? "Unfavorite" : "Favorite")) {
+            favorites_->ToggleDecalFavorite(selectedInstanceId_);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(selectedIsFavorite ? "Remove selected texture from favorites" : "Add selected texture to favorites");
+        }
+        ImGui::SameLine();
+    }
     if (hasSelection) {
-        ImGui::TextDisabled("Selected: 0x%08X", selectedInstanceId_);
+        if (selectedIsFavorite && selectedHasPresets) {
+            ImGui::TextDisabled("Selected: 0x%08X  favorite  saved presets", selectedInstanceId_);
+        }
+        else if (selectedIsFavorite) {
+            ImGui::TextDisabled("Selected: 0x%08X  favorite", selectedInstanceId_);
+        }
+        else {
+            ImGui::TextDisabled("Selected: 0x%08X", selectedInstanceId_);
+        }
     }
     else {
         ImGui::TextDisabled("Click a texture to select it.");
@@ -268,6 +339,7 @@ void DecalPanelTab::OnShutdown() {
 }
 
 void DecalPanelTab::RenderFilterBar_() {
+    ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Filters");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(UI::iidFilterWidth());
@@ -276,8 +348,11 @@ void DecalPanelTab::RenderFilterBar_() {
         ImGui::SetTooltip("Filter by hex instance ID prefix (e.g. '25A7')");
     }
     ImGui::SameLine();
+    ImGui::Checkbox("Only favorites##decalFavoritesOnly", &favoritesOnly_);
+    ImGui::SameLine();
     if (ImGui::Button("Clear filters")) {
         iidFilterBuf_[0] = '\0';
+        favoritesOnly_ = false;
     }
 }
 
@@ -286,8 +361,12 @@ void DecalPanelTab::BuildFilteredIndices_(std::vector<size_t>& out) const {
     out.reserve(ids.size());
 
     const bool hasFilter = iidFilterBuf_[0] != '\0';
+    const auto* favoriteDecalIds = favorites_ ? &favorites_->GetFavoriteDecalIds() : nullptr;
 
     for (size_t i = 0; i < ids.size(); ++i) {
+        if (favoritesOnly_ && (!favoriteDecalIds || !favoriteDecalIds->contains(ids[i]))) {
+            continue;
+        }
         if (hasFilter) {
             const std::string hex = FormatInstanceId(ids[i]);
             // case-insensitive prefix match
@@ -345,6 +424,10 @@ void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
                 }
 
                 const uint32_t instanceId = ids[indices[static_cast<size_t>(idx)]];
+                const bool isFavorite = favorites_ && favorites_->IsDecalFavorite(instanceId);
+                const bool hasSavedPresets =
+                    favorites_ && favorites_->GetDecalFavoritePresets(instanceId) &&
+                    !favorites_->GetDecalFavoritePresets(instanceId)->empty();
 
                 if (col > 0) {
                     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x);
@@ -381,10 +464,33 @@ void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
                         IM_COL32(255, 200, 0, 255), 2.0f);
                 }
 
+                if (isFavorite) {
+                    const ImVec2 rectMin = ImGui::GetItemRectMin();
+                    const ImVec2 badgeMin(rectMin.x + 3.0f, rectMin.y + 3.0f);
+                    const ImVec2 badgeMax(rectMin.x + 18.0f, rectMin.y + 17.0f);
+                    ImGui::GetWindowDrawList()->AddRectFilled(badgeMin, badgeMax, IM_COL32(32, 32, 32, 220), 3.0f);
+                    ImGui::GetWindowDrawList()->AddText(
+                        ImVec2(badgeMin.x + 4.0f, badgeMin.y + 1.0f),
+                        hasSavedPresets ? IM_COL32(255, 210, 64, 255) : IM_COL32(220, 220, 220, 255),
+                        "*");
+                }
+
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip(
-                        "0x%08X\nClick to select.\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
-                        instanceId);
+                    if (isFavorite && hasSavedPresets) {
+                        ImGui::SetTooltip(
+                            "0x%08X\nFavorite with saved presets.\nClick to select.\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                            instanceId);
+                    }
+                    else if (isFavorite) {
+                        ImGui::SetTooltip(
+                            "0x%08X\nFavorite.\nClick to select.\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                            instanceId);
+                    }
+                    else {
+                        ImGui::SetTooltip(
+                            "0x%08X\nClick to select.\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                            instanceId);
+                    }
                 }
 
                 if (dblClicked) {
@@ -420,7 +526,28 @@ void DecalPanelTab::RenderSettingsModal_() {
 
     TerrainDecalState& state = pendingPaint_.settings.stateTemplate;
     float rotationDegrees = TurnsToDegrees(state.decalInfo.rotationTurns);
+    const bool isFavorite = favorites_ && favorites_->IsDecalFavorite(pendingPaint_.instanceId);
+    const auto* presets = favorites_ ? favorites_->GetDecalFavoritePresets(pendingPaint_.instanceId) : nullptr;
+    const int presetCount = presets ? static_cast<int>(presets->size()) : 0;
 
+    ImGui::Text("Texture: 0x%08X", pendingPaint_.instanceId);
+    if (favorites_) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton(isFavorite ? "Unfavorite##decalModalFavorite" : "Favorite##decalModalFavorite")) {
+            favorites_->ToggleDecalFavorite(pendingPaint_.instanceId);
+        }
+        ImGui::SameLine();
+        if (isFavorite && presetCount > 0) {
+            ImGui::TextDisabled("%d saved preset%s", presetCount, presetCount == 1 ? "" : "s");
+        }
+        else if (isFavorite) {
+            ImGui::TextDisabled("favorite");
+        }
+    }
+    ImGui::Separator();
+
+    ImGui::PushItemWidth(220.0f);
+    ImGui::TextUnformatted("Placement");
     ImGui::DragFloat("Base size (m)##decalSize", &state.decalInfo.baseSize, 1.0f, 0.5f, 512.0f);
     if (ImGui::DragFloat("Rotation (deg)##decalRot", &rotationDegrees, 1.0f, -3600.0f, 3600.0f, "%.1f")) {
         state.decalInfo.rotationTurns = DegreesToTurns(rotationDegrees);
@@ -489,6 +616,145 @@ void DecalPanelTab::RenderSettingsModal_() {
         state.uvWindow = {};
     }
     ImGui::EndDisabled();
+
+    ImGui::Separator();
+
+    ImGui::TextUnformatted("Favorite Presets");
+    if (!favorites_) {
+        ImGui::TextDisabled("Favorites repository unavailable.");
+    }
+    else {
+        if (presetCount == 0) {
+            selectedFavoritePresetIndex_ = -1;
+        }
+        else if (selectedFavoritePresetIndex_ < 0 || selectedFavoritePresetIndex_ >= presetCount) {
+            selectedFavoritePresetIndex_ = 0;
+        }
+
+        if (!isFavorite) {
+            ImGui::TextDisabled("Mark this texture as a favorite to keep reusable presets.");
+        }
+        else if (presetCount == 0) {
+            ImGui::TextDisabled("No saved presets yet for this favorite.");
+        }
+
+        if (presetCount > 0) {
+            const char* currentPresetName = (*presets)[selectedFavoritePresetIndex_].name.c_str();
+            if (ImGui::BeginCombo("Saved presets##decalFavoritePresetList", currentPresetName)) {
+                for (int i = 0; i < presetCount; ++i) {
+                    const bool selected = i == selectedFavoritePresetIndex_;
+                    std::string label = (*presets)[i].name;
+                    if ((*presets)[i].isDefault) {
+                        label += " [default]";
+                    }
+                    if (ImGui::Selectable(label.c_str(), selected)) {
+                        selectedFavoritePresetIndex_ = i;
+                        std::snprintf(presetNameBuf_, sizeof(presetNameBuf_), "%s", (*presets)[i].name.c_str());
+                    }
+                    if (selected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
+        else {
+            ImGui::BeginDisabled();
+            int dummy = 0;
+            const char* emptyItems[] = {"No saved presets"};
+            ImGui::Combo("Saved presets##decalFavoritePresetListDisabled", &dummy, emptyItems, 1);
+            ImGui::EndDisabled();
+        }
+
+        ImGui::SameLine();
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::Button("Load Selected")) {
+            LoadFavoritePresetByName_(pendingPaint_.instanceId, (*presets)[selectedFavoritePresetIndex_].name.c_str());
+        }
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::EndDisabled();
+        }
+
+        ImGui::SameLine();
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::Button("Set Default")) {
+            favorites_->SetDefaultDecalFavoritePreset(
+                pendingPaint_.instanceId,
+                (*presets)[selectedFavoritePresetIndex_].name);
+        }
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::EndDisabled();
+        }
+
+        ImGui::SameLine();
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::Button("Delete")) {
+            if (favorites_->DeleteDecalFavoritePreset(
+                    pendingPaint_.instanceId,
+                    (*presets)[selectedFavoritePresetIndex_].name)) {
+                ResetPresetNameInput_();
+            }
+        }
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::EndDisabled();
+        }
+
+        ImGui::InputTextWithHint("Preset name##decalFavoritePresetName",
+                                 "e.g. Wide muddy edge",
+                                 presetNameBuf_,
+                                 sizeof(presetNameBuf_));
+
+        const bool hasTypedName = presetNameBuf_[0] != '\0';
+        ImGui::BeginDisabled(!hasTypedName);
+        if (ImGui::Button(isFavorite ? "Save As New Preset" : "Favorite + Save Preset")) {
+            favorites_->UpsertDecalFavoritePreset(
+                pendingPaint_.instanceId,
+                presetNameBuf_,
+                BuildSavedPreset(state),
+                presetCount == 0);
+            const auto* updatedPresets = favorites_->GetDecalFavoritePresets(pendingPaint_.instanceId);
+            if (updatedPresets) {
+                for (size_t i = 0; i < updatedPresets->size(); ++i) {
+                    if ((*updatedPresets)[i].name == presetNameBuf_) {
+                        selectedFavoritePresetIndex_ = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Save the current decal settings under the typed preset name.");
+        }
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!hasTypedName);
+        if (ImGui::Button("Save As Default")) {
+            favorites_->UpsertDecalFavoritePreset(
+                pendingPaint_.instanceId,
+                presetNameBuf_,
+                BuildSavedPreset(state),
+                true);
+            const auto* updatedPresets = favorites_->GetDecalFavoritePresets(pendingPaint_.instanceId);
+            if (updatedPresets) {
+                for (size_t i = 0; i < updatedPresets->size(); ++i) {
+                    if ((*updatedPresets)[i].name == presetNameBuf_) {
+                        selectedFavoritePresetIndex_ = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+        }
+        ImGui::EndDisabled();
+    }
+
+    ImGui::PopItemWidth();
 
     ImGui::Separator();
 
@@ -647,11 +913,13 @@ void DecalPanelTab::RenderUvPicker_(TerrainDecalState& state) {
 void DecalPanelTab::QueuePaintForDecal_(const uint32_t instanceId) {
     if (pendingPaint_.instanceId != instanceId) {
         ClearUvPickerTexture_();
+        ResetPresetNameInput_();
     }
 
     pendingPaint_.instanceId = instanceId;
     // Preserve settings but update texture key
     pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
+    ApplyFavoritePresetIfAvailable_(instanceId);
     pendingPaint_.open = true;
 }
 
@@ -662,12 +930,50 @@ void DecalPanelTab::StartPaintingDecal_(const uint32_t instanceId) {
 
     pendingPaint_.instanceId = instanceId;
     pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
+    ApplyFavoritePresetIfAvailable_(instanceId);
 
     char name[20];
     std::snprintf(name, sizeof(name), "0x%08X", instanceId);
 
     ReleaseImGuiInputCapture_();
     director_->StartDecalPainting(instanceId, pendingPaint_.settings, name);
+}
+
+void DecalPanelTab::ApplyFavoritePresetIfAvailable_(const uint32_t instanceId) {
+    if (!favorites_) {
+        return;
+    }
+
+    if (const SavedDecalPreset* preset = favorites_->GetDefaultDecalFavoritePreset(instanceId)) {
+        ApplySavedPreset(*preset, pendingPaint_.settings.stateTemplate);
+        pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
+    }
+}
+
+void DecalPanelTab::LoadFavoritePresetByName_(const uint32_t instanceId, const char* const presetName) {
+    if (!favorites_ || !presetName || presetName[0] == '\0') {
+        return;
+    }
+
+    const auto* presets = favorites_->GetDecalFavoritePresets(instanceId);
+    if (!presets) {
+        return;
+    }
+
+    for (size_t i = 0; i < presets->size(); ++i) {
+        if ((*presets)[i].name == presetName) {
+            ApplySavedPreset((*presets)[i].preset, pendingPaint_.settings.stateTemplate);
+            pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
+            selectedFavoritePresetIndex_ = static_cast<int>(i);
+            std::snprintf(presetNameBuf_, sizeof(presetNameBuf_), "%s", presetName);
+            return;
+        }
+    }
+}
+
+void DecalPanelTab::ResetPresetNameInput_() {
+    presetNameBuf_[0] = '\0';
+    selectedFavoritePresetIndex_ = -1;
 }
 
 void DecalPanelTab::ClearUvPickerTexture_() {

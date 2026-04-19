@@ -1,10 +1,12 @@
 #pragma once
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "../../shared/entities.hpp"
+#include "public/cIGZTerrainDecalService.h"
 
 class PropRepository;
 
@@ -32,6 +34,19 @@ public:
     [[nodiscard]] const std::unordered_set<uint64_t>& GetFavoriteFloraIds() const;
     void ToggleFloraFavorite(uint32_t groupId, uint32_t instanceId);
 
+    // Decal favorites
+    [[nodiscard]] bool IsDecalFavorite(uint32_t instanceId) const;
+    [[nodiscard]] const std::unordered_set<uint32_t>& GetFavoriteDecalIds() const;
+    void ToggleDecalFavorite(uint32_t instanceId);
+    [[nodiscard]] const std::vector<NamedDecalPreset>* GetDecalFavoritePresets(uint32_t instanceId) const;
+    [[nodiscard]] const SavedDecalPreset* GetDefaultDecalFavoritePreset(uint32_t instanceId) const;
+    bool UpsertDecalFavoritePreset(uint32_t instanceId,
+                                   const std::string& name,
+                                   const SavedDecalPreset& preset,
+                                   bool makeDefault);
+    bool DeleteDecalFavoritePreset(uint32_t instanceId, const std::string& name);
+    bool SetDefaultDecalFavoritePreset(uint32_t instanceId, const std::string& name);
+
     // User-created families (formerly "palettes")
     [[nodiscard]] const std::vector<PropFamily>& GetUserFamilies() const;
     std::vector<PropFamily>& GetUserFamilies();
@@ -55,6 +70,8 @@ private:
     std::unordered_set<uint32_t> favoriteLotIds_;
     std::unordered_set<uint64_t> favoritePropIds_;
     std::unordered_set<uint64_t> favoriteFloraIds_;
+    std::unordered_set<uint32_t> favoriteDecalIds_;
+    std::unordered_map<uint32_t, std::vector<NamedDecalPreset>> favoriteDecalPresets_;
     std::vector<PropFamily> userFamilies_;
     std::vector<RecentPaintEntryData> recentPaintsCache_;
     size_t activeUserFamilyIndex_{0};

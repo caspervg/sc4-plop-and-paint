@@ -27,7 +27,7 @@ PlopAndPaintPanel::PlopAndPaintPanel(SC4PlopAndPaintDirector* director,
     tabs_.push_back(std::make_unique<FloraPanelTab>(director_, flora, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FloraCollectionsPanelTab>(director_, flora, favorites, imguiService_));
     if (decals) {
-        tabs_.push_back(std::make_unique<DecalPanelTab>(director_, decals, pRM, imguiService_));
+        tabs_.push_back(std::make_unique<DecalPanelTab>(director_, decals, favorites, pRM, imguiService_));
     }
 }
 
