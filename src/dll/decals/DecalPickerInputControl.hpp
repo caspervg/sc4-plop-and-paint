@@ -51,6 +51,7 @@ private:
     bool                          cursorValid_{false};
     TerrainDecalId                hoveredDecalId_{};
     bool                          hasHoveredDecal_{false};
+    uint8_t                       hoveredOriginalDrawMode_{0};
 
     std::function<void(uint32_t)> onPick_;
     std::function<void()>         onCancel_;

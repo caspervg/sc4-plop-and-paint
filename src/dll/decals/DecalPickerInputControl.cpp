@@ -214,17 +214,19 @@ void DecalPickerInputControl::SetHoveredDecal_(const TerrainDecalId id) {
     if (hasHoveredDecal_ && decalService_) {
         TerrainDecalSnapshot snap{};
         if (decalService_->GetDecal(hoveredDecalId_, &snap)) {
-            snap.state.drawMode = 0;
+            snap.state.drawMode = hoveredOriginalDrawMode_;
             decalService_->ReplaceDecal(hoveredDecalId_, snap.state);
         }
     }
 
     hasHoveredDecal_ = (id.value != 0);
     hoveredDecalId_  = id;
+    hoveredOriginalDrawMode_ = 0;
 
     if (hasHoveredDecal_ && decalService_) {
         TerrainDecalSnapshot snap{};
         if (decalService_->GetDecal(id, &snap)) {
+            hoveredOriginalDrawMode_ = snap.state.drawMode;
             snap.state.drawMode = 1;
             decalService_->ReplaceDecal(id, snap.state);
         }
