@@ -16,6 +16,9 @@ namespace {
     constexpr uint8_t  kPendingDrawMode   = 1;
     constexpr float    kDegreesPerTurn    = 360.0f;
     constexpr float    kTau               = 6.28318530717958647692f;
+    constexpr int      kDefaultDepthOffset = 2;
+    constexpr int      kMinDepthOffset     = 0;
+    constexpr int      kMaxDepthOffset     = 64;
 
     float NormalizeTurns(const float turns) {
         float normalizedTurns = std::fmod(turns, 1.0f);
@@ -30,6 +33,13 @@ DecalPainterInputControl::DecalPainterInputControl()
     : BasePainterInputControl(kDecalPainterControlID) {}
 
 bool DecalPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t modifiers) {
+    if ((modifiers & MOD_CONTROL) && IsOnTop() && (vkCode == VK_PRIOR || vkCode == VK_NEXT)) {
+        const int direction = (vkCode == VK_PRIOR) ? 1 : -1;
+        const int step = (modifiers & MOD_SHIFT) ? 5 : 1;
+        AdjustDepthOffset_(direction * step);
+        return true;
+    }
+
     if (vkCode == 'R' && IsOnTop()) {
         const bool shiftHeld = (modifiers & MOD_SHIFT) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         const float deltaDegrees = shiftHeld ? 5.0f : 45.0f;
@@ -74,7 +84,7 @@ bool DecalPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos,
     state.drawMode = kPendingDrawMode;
 
     TerrainDecalId decalId{};
-    if (!decalService_->CreateDecal(state, &decalId)) {
+    if (!decalService_->CreateDecal(&state, static_cast<uint32_t>(sizeof(state)), &decalId)) {
         LOG_WARN("DecalPainterInputControl: CreateDecal failed for 0x{:08X}", typeID);
         return false;
     }
@@ -106,7 +116,7 @@ void DecalPainterInputControl::CreatePreviewOccupant_() {
     const TerrainDecalState previewState = BuildPreviewState_(worldPos, previewTypeID);
 
     TerrainDecalId decalId{};
-    if (!decalService_->CreateDecal(previewState, &decalId)) {
+    if (!decalService_->CreateDecal(&previewState, static_cast<uint32_t>(sizeof(previewState)), &decalId)) {
         LOG_WARN("DecalPainterInputControl: failed to create temporary preview decal for 0x{:08X}", previewTypeID);
         return;
     }
@@ -163,7 +173,7 @@ void DecalPainterInputControl::UpdatePreviewOccupant_() {
     }
 
     const TerrainDecalState previewState = BuildPreviewState_(worldPos, previewTypeID);
-    if (!decalService_->ReplaceDecal(previewDecalId_, previewState)) {
+    if (!decalService_->ReplaceDecal(previewDecalId_, &previewState, static_cast<uint32_t>(sizeof(previewState)))) {
         LOG_WARN("DecalPainterInputControl: failed to update temporary preview decal id={}", previewDecalId_.value);
         DestroyPreviewOccupant_();
         CreatePreviewOccupant_();
@@ -214,6 +224,14 @@ void DecalPainterInputControl::AdjustRotationDegrees_(const float deltaDegrees) 
               stateTemplate_.decalInfo.rotationTurns * kDegreesPerTurn);
 }
 
+void DecalPainterInputControl::AdjustDepthOffset_(const int delta) {
+    const int current = stateTemplate_.depthOffset >= 0 ? stateTemplate_.depthOffset : kDefaultDepthOffset;
+    stateTemplate_.depthOffset = std::clamp(current + delta, kMinDepthOffset, kMaxDepthOffset);
+    RefreshPreviewDecal_();
+    RefreshPreviewOverlay_();
+    LOG_DEBUG("DecalPainterInputControl: depth offset adjusted to {}", stateTemplate_.depthOffset);
+}
+
 void DecalPainterInputControl::RefreshPreviewDecal_() {
     if (!decalService_ || previewDecalId_.value == 0 || !cursorValid_) {
         return;
@@ -226,7 +244,7 @@ void DecalPainterInputControl::RefreshPreviewDecal_() {
 
     const cS3DVector3 worldPos = ResolveDirectPosition_(currentCursorWorld_);
     const TerrainDecalState previewState = BuildPreviewState_(worldPos, previewTypeID);
-    if (!decalService_->ReplaceDecal(previewDecalId_, previewState)) {
+    if (!decalService_->ReplaceDecal(previewDecalId_, &previewState, static_cast<uint32_t>(sizeof(previewState)))) {
         LOG_WARN("DecalPainterInputControl: failed to refresh preview decal rotation id={}", previewDecalId_.value);
         DestroyPreviewOccupant_();
         CreatePreviewOccupant_();
@@ -244,7 +262,7 @@ void DecalPainterInputControl::RestoreCommittedDrawMode_(const PendingDecal& dec
     }
 
     TerrainDecalSnapshot snap{};
-    if (!decalService_->GetDecal(decal.id, &snap)) {
+    if (!decalService_->GetDecal(decal.id, &snap, static_cast<uint32_t>(sizeof(snap)))) {
         LOG_WARN("DecalPainterInputControl: failed to get decal id={} while restoring draw mode", decal.id.value);
         return;
     }
@@ -254,7 +272,7 @@ void DecalPainterInputControl::RestoreCommittedDrawMode_(const PendingDecal& dec
     }
 
     snap.state.drawMode = decal.committedDrawMode;
-    if (!decalService_->ReplaceDecal(decal.id, snap.state)) {
+    if (!decalService_->ReplaceDecal(decal.id, &snap.state, static_cast<uint32_t>(sizeof(snap.state)))) {
         LOG_WARN("DecalPainterInputControl: failed to restore draw mode for decal id={}", decal.id.value);
     }
 }

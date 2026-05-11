@@ -183,6 +183,7 @@ struct SavedDecalPreset {
     uint32_t flags = 0;
     bool hasUvWindow = false;
     SavedDecalUvWindow uvWindow{};
+    int depthOffset = -1;
 };
 
 struct NamedDecalPreset {
@@ -207,7 +208,7 @@ struct RecentPaintEntryData {
 };
 
 struct AllFavorites {
-    uint32_t version = 5;
+    uint32_t version = 6;
     TabFavorites lots;
     std::optional<TabFavorites> props;
     std::optional<TabFavorites> flora;

@@ -178,7 +178,7 @@ void DecalStripperInputControl::UndoLastDeletion() {
     undoStack_.pop_back();
 
     TerrainDecalId newId{};
-    if (!decalService_->CreateDecal(info.state, &newId)) {
+    if (!decalService_->CreateDecal(&info.state, static_cast<uint32_t>(sizeof(info.state)), &newId)) {
         LOG_WARN("DecalStripperInputControl: failed to recreate decal during undo");
         return;
     }
@@ -223,7 +223,10 @@ TerrainDecalId DecalStripperInputControl::PickNearestDecal_() const {
     }
 
     std::vector<TerrainDecalSnapshot> snapshots(count);
-    const uint32_t copied = decalService_->CopyDecals(snapshots.data(), count);
+    const uint32_t copied = decalService_->CopyDecals(
+        snapshots.data(),
+        count,
+        static_cast<uint32_t>(sizeof(TerrainDecalSnapshot)));
 
     TerrainDecalId nearest{};
     float nearestDistSq = kPickRadiusMeters * kPickRadiusMeters;
@@ -258,7 +261,10 @@ void DecalStripperInputControl::DeleteDecalsInBrush_() {
     }
 
     std::vector<TerrainDecalSnapshot> snapshots(count);
-    const uint32_t copied = decalService_->CopyDecals(snapshots.data(), count);
+    const uint32_t copied = decalService_->CopyDecals(
+        snapshots.data(),
+        count,
+        static_cast<uint32_t>(sizeof(TerrainDecalSnapshot)));
 
     const float radiusSq = kBrushRadiusMeters * kBrushRadiusMeters;
     size_t removedCount = 0;
@@ -288,9 +294,9 @@ void DecalStripperInputControl::SetHoveredDecal_(const TerrainDecalId id) {
     // Restore previous hovered decal's drawMode
     if (hasHoveredDecal_ && decalService_) {
         TerrainDecalSnapshot snap{};
-        if (decalService_->GetDecal(hoveredDecalId_, &snap)) {
+        if (decalService_->GetDecal(hoveredDecalId_, &snap, static_cast<uint32_t>(sizeof(snap)))) {
             snap.state.drawMode = hoveredOriginalDrawMode_;
-            decalService_->ReplaceDecal(hoveredDecalId_, snap.state);
+            decalService_->ReplaceDecal(hoveredDecalId_, &snap.state, static_cast<uint32_t>(sizeof(snap.state)));
         }
     }
 
@@ -301,10 +307,10 @@ void DecalStripperInputControl::SetHoveredDecal_(const TerrainDecalId id) {
     // Highlight new hovered decal
     if (hasHoveredDecal_ && decalService_) {
         TerrainDecalSnapshot snap{};
-        if (decalService_->GetDecal(id, &snap)) {
+        if (decalService_->GetDecal(id, &snap, static_cast<uint32_t>(sizeof(snap)))) {
             hoveredOriginalDrawMode_ = snap.state.drawMode;
             snap.state.drawMode = 1;
-            decalService_->ReplaceDecal(id, snap.state);
+            decalService_->ReplaceDecal(id, &snap.state, static_cast<uint32_t>(sizeof(snap.state)));
         }
     }
 }
@@ -319,7 +325,7 @@ void DecalStripperInputControl::DeleteHoveredDecal_() {
     }
 
     TerrainDecalSnapshot snap{};
-    if (!decalService_->GetDecal(hoveredDecalId_, &snap)) {
+    if (!decalService_->GetDecal(hoveredDecalId_, &snap, static_cast<uint32_t>(sizeof(snap)))) {
         LOG_WARN("DecalStripperInputControl: failed to get decal before removal");
         hasHoveredDecal_ = false;
         return;

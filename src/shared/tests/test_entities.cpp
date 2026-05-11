@@ -152,7 +152,8 @@ inline bool operator==(const SavedDecalPreset& lhs, const SavedDecalPreset& rhs)
            lhs.drawMode == rhs.drawMode &&
            lhs.flags == rhs.flags &&
            lhs.hasUvWindow == rhs.hasUvWindow &&
-           lhs.uvWindow == rhs.uvWindow;
+           lhs.uvWindow == rhs.uvWindow &&
+           lhs.depthOffset == rhs.depthOffset;
 }
 
 inline bool operator==(const NamedDecalPreset& lhs, const NamedDecalPreset& rhs) {
@@ -445,7 +446,8 @@ TEST_CASE("FavoriteDecalEntry CBOR serialization and deserialization", "[cbor][f
                     .drawMode = 0,
                     .flags = 4,
                     .hasUvWindow = true,
-                    .uvWindow = SavedDecalUvWindow{.u1 = 0.1f, .v1 = 0.2f, .u2 = 0.8f, .v2 = 0.9f, .mode = 1}
+                    .uvWindow = SavedDecalUvWindow{.u1 = 0.1f, .v1 = 0.2f, .u2 = 0.8f, .v2 = 0.9f, .mode = 1},
+                    .depthOffset = 6
                 },
                 .isDefault = true
             },
@@ -468,7 +470,8 @@ TEST_CASE("FavoriteDecalEntry CBOR serialization and deserialization", "[cbor][f
                     .drawMode = 1,
                     .flags = 0,
                     .hasUvWindow = false,
-                    .uvWindow = SavedDecalUvWindow{}
+                    .uvWindow = SavedDecalUvWindow{},
+                    .depthOffset = -1
                 },
                 .isDefault = false
             }
@@ -485,7 +488,7 @@ TEST_CASE("FavoriteDecalEntry CBOR serialization and deserialization", "[cbor][f
 
 TEST_CASE("AllFavorites CBOR serialization with lots only", "[cbor][favorites]") {
     AllFavorites original{
-        .version = 5,
+        .version = 6,
         .lots = {.items = {rfl::Hex<uint64_t>(0xAABBCCDDULL), rfl::Hex<uint64_t>(0x123456789ABCDEF0ULL)}},
         .props = std::nullopt,
         .flora = std::nullopt,
@@ -499,7 +502,7 @@ TEST_CASE("AllFavorites CBOR serialization with lots only", "[cbor][favorites]")
 
     auto deserialized = rfl::cbor::read<AllFavorites>(cbor_bytes);
     REQUIRE(deserialized);
-    REQUIRE(deserialized->version == 5);
+    REQUIRE(deserialized->version == 6);
     REQUIRE(deserialized->lots.items.size() == 2);
     REQUIRE(deserialized->lots.items[0].value() == 0xAABBCCDDULL);
     REQUIRE(deserialized->lots.items[1].value() == 0x123456789ABCDEF0ULL);
@@ -512,7 +515,7 @@ TEST_CASE("AllFavorites CBOR serialization with lots only", "[cbor][favorites]")
 
 TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites]") {
     AllFavorites original{
-        .version = 5,
+        .version = 6,
         .lots = {.items = {rfl::Hex<uint64_t>(0x11111111ULL)}},
         .props = TabFavorites{.items = {rfl::Hex<uint64_t>(0x22222222ULL)}},
         .flora = TabFavorites{.items = {rfl::Hex<uint64_t>(0x33333333ULL)}},
@@ -539,7 +542,8 @@ TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites
                             .drawMode = 0,
                             .flags = 8,
                             .hasUvWindow = true,
-                            .uvWindow = SavedDecalUvWindow{.u1 = 0.0f, .v1 = 0.0f, .u2 = 0.5f, .v2 = 1.0f, .mode = 0}
+                            .uvWindow = SavedDecalUvWindow{.u1 = 0.0f, .v1 = 0.0f, .u2 = 0.5f, .v2 = 1.0f, .mode = 0},
+                            .depthOffset = 5
                         },
                         .isDefault = true
                     }
@@ -579,7 +583,7 @@ TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites
 
     auto deserialized = rfl::cbor::read<AllFavorites>(cbor_bytes);
     REQUIRE(deserialized);
-    REQUIRE(deserialized->version == 5);
+    REQUIRE(deserialized->version == 6);
     REQUIRE(deserialized->lots.items.size() == 1);
     REQUIRE(deserialized->props.has_value());
     REQUIRE(deserialized->props->items.size() == 1);
@@ -606,7 +610,7 @@ TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites
 
 TEST_CASE("AllFavorites CBOR empty favorites", "[cbor][favorites][edge-case]") {
     AllFavorites original{
-        .version = 5,
+        .version = 6,
         .lots = {.items = {}},
         .props = std::nullopt,
         .flora = std::nullopt,

@@ -15,6 +15,7 @@ public:
 
     void SetDecalToPaint(uint32_t instanceId, const DecalPaintSettings& settings, const std::string& name);
     void SetDecalService(cIGZTerrainDecalService* service);
+    [[nodiscard]] int GetDepthOffset() const { return stateTemplate_.depthOffset; }
 
     // Override undo/commit to manage TerrainDecalId instead of occupants.
     void UndoLastPlacement() override;
@@ -51,6 +52,7 @@ private:
     void AddDecalToUndo_(TerrainDecalId id, uint8_t committedDrawMode);
     void TrimUndoStack_();
     void AdjustRotationDegrees_(float deltaDegrees);
+    void AdjustDepthOffset_(int delta);
     void RefreshPreviewDecal_();
     void RestoreCommittedDrawMode_(const PendingDecal& decal) const;
     void RestoreCommittedDrawMode_(const DecalUndoGroup& group) const;

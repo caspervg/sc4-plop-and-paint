@@ -124,7 +124,7 @@ void FavoritesRepository::Save() const {
         const auto cborPath = pluginsPath / "favorites.cbor";
 
         AllFavorites allFavorites;
-        allFavorites.version = 5;
+        allFavorites.version = 6;
 
         for (const uint32_t id : favoriteLotIds_) {
             allFavorites.lots.items.emplace_back(id);

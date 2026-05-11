@@ -49,7 +49,7 @@ bool DecalPickerInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t /*
     }
 
     TerrainDecalSnapshot snap{};
-    if (!decalService_->GetDecal(id, &snap)) {
+    if (!decalService_->GetDecal(id, &snap, static_cast<uint32_t>(sizeof(snap)))) {
         LOG_WARN("DecalPickerInputControl: failed to read decal id={}", id.value);
         return false;
     }
@@ -187,7 +187,10 @@ TerrainDecalId DecalPickerInputControl::PickNearestDecal_() const {
     }
 
     std::vector<TerrainDecalSnapshot> snapshots(count);
-    const uint32_t copied = decalService_->CopyDecals(snapshots.data(), count);
+    const uint32_t copied = decalService_->CopyDecals(
+        snapshots.data(),
+        count,
+        static_cast<uint32_t>(sizeof(TerrainDecalSnapshot)));
 
     TerrainDecalId nearest{};
     float nearestDistSq = kPickRadiusMeters * kPickRadiusMeters;
@@ -213,9 +216,9 @@ void DecalPickerInputControl::SetHoveredDecal_(const TerrainDecalId id) {
 
     if (hasHoveredDecal_ && decalService_) {
         TerrainDecalSnapshot snap{};
-        if (decalService_->GetDecal(hoveredDecalId_, &snap)) {
+        if (decalService_->GetDecal(hoveredDecalId_, &snap, static_cast<uint32_t>(sizeof(snap)))) {
             snap.state.drawMode = hoveredOriginalDrawMode_;
-            decalService_->ReplaceDecal(hoveredDecalId_, snap.state);
+            decalService_->ReplaceDecal(hoveredDecalId_, &snap.state, static_cast<uint32_t>(sizeof(snap.state)));
         }
     }
 
@@ -225,10 +228,10 @@ void DecalPickerInputControl::SetHoveredDecal_(const TerrainDecalId id) {
 
     if (hasHoveredDecal_ && decalService_) {
         TerrainDecalSnapshot snap{};
-        if (decalService_->GetDecal(id, &snap)) {
+        if (decalService_->GetDecal(id, &snap, static_cast<uint32_t>(sizeof(snap)))) {
             hoveredOriginalDrawMode_ = snap.state.drawMode;
             snap.state.drawMode = 1;
-            decalService_->ReplaceDecal(id, snap.state);
+            decalService_->ReplaceDecal(id, &snap.state, static_cast<uint32_t>(sizeof(snap.state)));
         }
     }
 }

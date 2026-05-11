@@ -236,6 +236,7 @@ namespace {
         preset.uvWindow.u2 = state.uvWindow.u2;
         preset.uvWindow.v2 = state.uvWindow.v2;
         preset.uvWindow.mode = static_cast<uint32_t>(state.uvWindow.mode);
+        preset.depthOffset = state.depthOffset;
         return preset;
     }
 
@@ -259,6 +260,7 @@ namespace {
         state.uvWindow.u2 = preset.uvWindow.u2;
         state.uvWindow.v2 = preset.uvWindow.v2;
         state.uvWindow.mode = static_cast<TerrainDecalUvMode>(preset.uvWindow.mode);
+        state.depthOffset = preset.depthOffset;
     }
 }
 
@@ -652,6 +654,19 @@ void DecalPanelTab::RenderSettingsModal_() {
     }
     ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f);
     ImGui::ColorEdit3("Color tint##decalColor", &state.color.fX);
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Rendering");
+    bool useDefaultDepthOffset = state.depthOffset < 0;
+    if (ImGui::Checkbox("Use default depth offset##decalDefaultDepthOffset", &useDefaultDepthOffset)) {
+        state.depthOffset = useDefaultDepthOffset ? -1 : 2;
+    }
+    ImGui::BeginDisabled(useDefaultDepthOffset);
+    int depthOffset = std::max(0, state.depthOffset);
+    if (ImGui::InputInt("Depth offset##decalDepthOffset", &depthOffset)) {
+        state.depthOffset = std::clamp(depthOffset, 0, 64);
+    }
+    ImGui::EndDisabled();
 
     ImGui::Separator();
     ImGui::TextUnformatted("UV Window");

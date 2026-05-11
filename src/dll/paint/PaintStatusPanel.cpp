@@ -1,5 +1,6 @@
 #include "PaintStatusPanel.hpp"
 
+#include "../decals/DecalPainterInputControl.hpp"
 #include "../props/PropPainterInputControl.hpp"
 #include "imgui.h"
 
@@ -46,6 +47,15 @@ void PaintStatusPanel::OnRender() {
     if (activeControl_->SupportsVerticalAdjustment()) {
         ImGui::Text("Height offset: %+.1fm", settings.deltaYMeters);
     }
+    if (const auto* decalControl = dynamic_cast<const DecalPainterInputControl*>(activeControl_)) {
+        const int depthOffset = decalControl->GetDepthOffset();
+        if (depthOffset >= 0) {
+            ImGui::Text("Depth offset: %d", depthOffset);
+        }
+        else {
+            ImGui::TextUnformatted("Depth offset: default");
+        }
+    }
 
     // Mode-specific settings
     if (settings.mode == PaintMode::Direct && activeControl_->SupportsVerticalAdjustment()) {
@@ -84,6 +94,9 @@ void PaintStatusPanel::OnRender() {
     }
     if (settings.mode == PaintMode::Direct && activeControl_->SupportsVerticalAdjustment()) {
         ImGui::TextUnformatted("H capture height");
+    }
+    if (dynamic_cast<const DecalPainterInputControl*>(activeControl_)) {
+        ImGui::TextUnformatted("Ctrl+PgUp/PgDn depth  Shift for 5");
     }
     ImGui::TextUnformatted("Ctrl+Z undo group  Ctrl+Backspace undo prop");
     if (settings.mode == PaintMode::Line || settings.mode == PaintMode::Polygon) {
