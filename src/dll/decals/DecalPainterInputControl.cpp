@@ -35,8 +35,7 @@ DecalPainterInputControl::DecalPainterInputControl()
 bool DecalPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t modifiers) {
     if ((modifiers & MOD_CONTROL) && IsOnTop() && (vkCode == VK_PRIOR || vkCode == VK_NEXT)) {
         const int direction = (vkCode == VK_PRIOR) ? 1 : -1;
-        const int step = (modifiers & MOD_SHIFT) ? 5 : 1;
-        AdjustDepthOffset_(direction * step);
+        AdjustDepthOffset_(direction);
         return true;
     }
 

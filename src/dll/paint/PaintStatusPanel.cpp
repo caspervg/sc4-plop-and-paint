@@ -96,7 +96,7 @@ void PaintStatusPanel::OnRender() {
         ImGui::TextUnformatted("H capture height");
     }
     if (dynamic_cast<const DecalPainterInputControl*>(activeControl_)) {
-        ImGui::TextUnformatted("Ctrl+PgUp/PgDn depth  Shift for 5");
+        ImGui::TextUnformatted("Ctrl+PgUp/PgDn depth");
     }
     ImGui::TextUnformatted("Ctrl+Z undo group  Ctrl+Backspace undo prop");
     if (settings.mode == PaintMode::Line || settings.mode == PaintMode::Polygon) {
