@@ -2,32 +2,40 @@
 // ReSharper disable CppDFAUnreachableCode
 #include "SC4PlopAndPaintDirector.hpp"
 
+#include <cstdint>
 #include <cIGZFrameWork.h>
 #include <cstdio>
+#include <system_error>
 #include <wil/resource.h>
 #include <wil/win32_helpers.h>
 
+#include "PlopAndPaintPanel.hpp"
+#include "SC4UI.h"
 #include "cGZPersistResourceKey.h"
+#include "cIGZDBSegmentPackedFile.h"
+#include "cIGZPersistDBSegmentDirectoryFiles.h"
+#include "cIGZCOM.h"
 #include "cIGZCommandParameterSet.h"
+#include "cIGZPersistDBSegment.h"
 #include "cIGZPersistResourceManager.h"
 #include "cIGZWinKeyAccelerator.h"
 #include "cIGZWinKeyAcceleratorRes.h"
+#include "cRZBaseString.h"
 #include "cRZBaseVariant.h"
-#include "PlopAndPaintPanel.hpp"
 #include "common/Constants.hpp"
 #include "common/Utils.hpp"
-#include "favorites/FavoritesRepository.hpp"
 #include "decals/DecalPainterInputControl.hpp"
 #include "decals/DecalRepository.hpp"
 #include "decals/DecalStripperInputControl.hpp"
+#include "favorites/FavoritesRepository.hpp"
 #include "flora/FloraRepository.hpp"
 #include "lots/LotRepository.hpp"
 #include "paint/RecentSwapPanel.hpp"
 #include "props/PropPainterInputControl.hpp"
 #include "props/PropRepository.hpp"
 #include "props/PropStripperInputControl.hpp"
-#include "public/cIGZS3DCameraService.h"
 #include "public/S3DCameraServiceIds.h"
+#include "public/cIGZS3DCameraService.h"
 #include "utils/Logger.h"
 #include "utils/Settings.h"
 
@@ -40,6 +48,17 @@ namespace {
     constexpr auto kLotPlopPanelId = 0xCA500001u;
     constexpr auto kStatusPanelId = 0xCA500002u;
     constexpr auto kRecentSwapPanelId = 0xCA500003u;
+    constexpr auto kCLSID_cSC4WinLotConfigurationEditorScriptWindow = 0xC9235387u;
+    constexpr auto kLotConfigEditorScriptType = 0x00000000u;
+    constexpr auto kLotConfigEditorScriptGroup = 0x96A006B0u;
+    constexpr auto kLotConfigChooserScriptInstance = 0x891c9252u;
+    constexpr auto kNetworkLotChooserScriptInstance = 0x89aad2aau;
+    constexpr auto kLotConfigEditorScriptInstance = 0x09234182u;
+    constexpr auto kNetworkLotEditorScriptInstance = 0xE9AB008Cu;
+    constexpr uintptr_t kSC4LotConfigEditorOpenFunction = 0x00486530u;
+    constexpr uintptr_t kLotConfigEditorStateOffset = 0x190u;
+    constexpr auto kLotConfigWritableSegmentId = 0xCA5010DBu;
+    constexpr auto kLotConfigDirectorySegmentId = 0xCA5010DCu;
     constexpr auto kToggleLotPlopWindowShortcutID = 0x9F21C3A1u;
     constexpr auto kKeyConfigType = 0xA2E3D533u;
     constexpr auto kKeyConfigGroup = 0x8F1E6D69u;
@@ -165,11 +184,23 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
     UI::SetIconSize(settings.GetThumbnailDisplaySize());
     enableRecentPaints_ = settings.GetEnableRecentPaints();
     paintSwitchPolicy_ = settings.GetPaintSwitchPolicy();
+    enableLotConfigWindowTest_ = settings.GetEnableLotConfigWindowTest();
+    lotConfigWindowTestTarget_ = settings.GetLotConfigWindowTestTarget();
+    lotConfigWindowTestAutoOpenOnCityLoad_ = settings.GetLotConfigWindowTestAutoOpenOnCityLoad();
     recentPaints_.SetMaxEntries(settings.GetRecentPaintMaxItems());
     LOG_INFO("Recent paints: enabled={}, maxItems={}, paintSwitchPolicy={}",
              enableRecentPaints_,
              recentPaints_.MaxEntries(),
              PaintSwitchPolicyToString(paintSwitchPolicy_));
+    const char* lotConfigTargetName =
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::Chooser           ? "chooser" :
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::NetworkLotEditor   ? "network_editor" :
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::NetworkLotChooser  ? "network_chooser" :
+                                                                                      "editor";
+    LOG_INFO("Lot configuration window test: enabled={}, target={}, autoOpenOnCityLoad={}",
+             enableLotConfigWindowTest_,
+             lotConfigTargetName,
+             lotConfigWindowTestAutoOpenOnCityLoad_);
     const auto thumbnailBackgroundColor = settings.GetThumbnailBackgroundColor();
     thumbnailBackgroundColor_ = IM_COL32(
         thumbnailBackgroundColor[0],
@@ -332,6 +363,8 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
         pMS2_->RemoveNotification(this, kSC4MessagePreCityShutdown);
         pMS2_.Reset();
     }
+
+    CloseLotConfigWindowTest_();
 
     if (auto* framework = RZGetFrameWork()) {
         framework->RemoveHook(this);
@@ -1462,6 +1495,12 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
                     LOG_INFO("Acquired View3D interface");
                     RegisterLotPlopShortcut_();
                 }
+
+                if (enableLotConfigWindowTest_ && lotConfigWindowTestAutoOpenOnCityLoad_) {
+                    RegisterLotConfigWritableSegmentTest_();
+                    RegisterLotConfigDirectorySegment_();
+                    TryOpenLotConfigWindowTest_(pWinSC4App);
+                }
             }
         }
     }
@@ -1470,6 +1509,8 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
     PersistRecentPaints_();
     SetLotPlopPanelVisible(false);
+    CloseLotConfigWindowTest_();
+    UnregisterLotConfigWritableSegmentTest_();
     StopDecalStripping();
     StopDecalPainting();
     StopFloraStripping();
@@ -1512,6 +1553,394 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
 
 void SC4PlopAndPaintDirector::ToggleLotPlopPanel_() {
     SetLotPlopPanelVisible(!panelVisible_);
+}
+
+bool SC4PlopAndPaintDirector::RegisterLotConfigWritableSegmentTest_() {
+    if (!enableLotConfigWindowTest_) {
+        return false;
+    }
+    if (lotConfigWritableSegment_) {
+        return true;
+    }
+
+    cIGZPersistResourceManagerPtr pRM;
+    if (!pRM) {
+        LOG_WARN("Lot configuration writable segment test skipped: resource manager is unavailable");
+        return false;
+    }
+
+    cIGZCOM* const pCOM = GZCOM();
+    if (!pCOM) {
+        LOG_WARN("Lot configuration writable segment test skipped: GZCOM is unavailable");
+        return false;
+    }
+
+    const std::filesystem::path pluginsPath = GetUserPluginsPath_();
+    if (pluginsPath.empty()) {
+        LOG_WARN("Lot configuration writable segment test skipped: plugin directory is unavailable");
+        return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(pluginsPath, ec);
+    if (ec) {
+        LOG_WARN("Lot configuration writable segment test failed: could not create plugin directory '{}': {}",
+                 pluginsPath.string(),
+                 ec.message());
+        return false;
+    }
+
+    const std::filesystem::path scratchPath = pluginsPath / "SC4PlopAndPaint_LotEditorScratch.dat";
+
+    cRZAutoRefCount<cIGZDBSegmentPackedFile> packedFile;
+    if (!pCOM->GetClassObject(
+            GZCLSID_cGZDBSegmentPackedFile,
+            GZIID_cIGZDBSegmentPackedFile,
+            packedFile.AsPPVoid()) ||
+        !packedFile) {
+        LOG_WARN(
+            "Lot configuration writable segment test failed: could not create cGZDBSegmentPackedFile "
+            "0x{:08X}/0x{:08X}",
+            GZCLSID_cGZDBSegmentPackedFile,
+            GZIID_cIGZDBSegmentPackedFile);
+        return false;
+    }
+
+    if (!packedFile->Init()) {
+        LOG_WARN("Lot configuration writable segment test failed: cGZDBSegmentPackedFile::Init returned false");
+        return false;
+    }
+
+    cRZBaseString pathString(scratchPath.string());
+    if (!packedFile->SetPath(pathString)) {
+        LOG_WARN("Lot configuration writable segment test failed: SetPath('{}') returned false",
+                 scratchPath.string());
+        packedFile->Shutdown();
+        return false;
+    }
+
+    cIGZPersistDBSegment* const segment = packedFile->AsIGZPersistDBSegment();
+    if (!segment) {
+        LOG_WARN("Lot configuration writable segment test failed: AsIGZPersistDBSegment returned null");
+        packedFile->Shutdown();
+        return false;
+    }
+
+    if (!segment->SetSegmentID(kLotConfigWritableSegmentId)) {
+        LOG_WARN("Lot configuration writable segment test failed: SetSegmentID(0x{:08X}) returned false",
+                 kLotConfigWritableSegmentId);
+        segment->Close();
+        packedFile->Shutdown();
+        return false;
+    }
+
+    if (!segment->Open(true, true)) {
+        LOG_WARN("Lot configuration writable segment test failed: Open(read=true, write=true) returned false for '{}'",
+                 scratchPath.string());
+        packedFile->Shutdown();
+        return false;
+    }
+
+    if (!pRM->RegisterDBSegmentFront(*segment)) {
+        LOG_WARN("Lot configuration writable segment test failed: RegisterDBSegmentFront returned false for '{}'",
+                 scratchPath.string());
+        segment->Close();
+        packedFile->Shutdown();
+        return false;
+    }
+
+    lotConfigWritableSegmentFile_ = packedFile;
+    lotConfigWritableSegment_ = segment;
+    lotConfigWritableSegmentPath_ = scratchPath.string();
+
+    LOG_INFO("Lot configuration writable segment test registered '{}' at front with segment ID 0x{:08X}",
+             lotConfigWritableSegmentPath_,
+             kLotConfigWritableSegmentId);
+    return true;
+}
+
+void SC4PlopAndPaintDirector::RegisterLotConfigDirectorySegment_() {
+    if (lotConfigDirectorySegment_) {
+        return;
+    }
+
+    cIGZPersistResourceManagerPtr pRM;
+    if (!pRM) {
+        LOG_WARN("Lot configuration directory segment: resource manager unavailable");
+        return;
+    }
+
+    cIGZCOM* const pCOM = GZCOM();
+    if (!pCOM) {
+        LOG_WARN("Lot configuration directory segment: GZCOM unavailable");
+        return;
+    }
+
+    const std::filesystem::path pluginsPath = GetUserPluginsPath_();
+    if (pluginsPath.empty()) {
+        LOG_WARN("Lot configuration directory segment: plugin directory unavailable");
+        return;
+    }
+
+    LOG_INFO("Lot configuration directory segment: attempting registration for '{}'", pluginsPath.string());
+
+    cRZAutoRefCount<cIGZPersistDBSegmentDirectoryFiles> dirSegment;
+    const bool dirGetClassOk = pCOM->GetClassObject(
+        GZCLSID_cGZDBSegmentDirectoryFiles,
+        GZIID_cIGZPersistDBSegmentDirectoryFiles,
+        dirSegment.AsPPVoid());
+    LOG_INFO("Lot configuration directory segment: GetClassObject(0x{:08X}, 0x{:08X}) returned {}, ptr={}",
+             GZCLSID_cGZDBSegmentDirectoryFiles,
+             GZIID_cIGZPersistDBSegmentDirectoryFiles,
+             dirGetClassOk,
+             static_cast<void*>(static_cast<cIGZPersistDBSegmentDirectoryFiles*>(dirSegment)));
+    if (!dirGetClassOk || !dirSegment) {
+        LOG_WARN("Lot configuration directory segment: GetClassObject failed");
+        return;
+    }
+
+    const bool dirInitOk = dirSegment->Init();
+    LOG_INFO("Lot configuration directory segment: Init() returned {}", dirInitOk);
+    if (!dirInitOk) {
+        return;
+    }
+
+    const std::string dirPathStr = pluginsPath.string() + "\\";
+    cRZBaseString dirPathRZ(dirPathStr);
+    if (!dirSegment->SetDirectory(dirPathRZ)) {
+        LOG_WARN("Lot configuration directory segment: SetDirectory('{}') returned false", dirPathStr);
+        dirSegment->Shutdown();
+        return;
+    }
+
+    // Extension and filename-key config must be set before Open() so the directory scan
+    // can map existing files. 0x6534284A is the lot configuration exemplar type ID.
+    dirSegment->AddExtensionAssociation(0x6534284A, cRZBaseString("SC4Lot"));
+    dirSegment->SetAllowedIDPositions(true, true);
+    dirSegment->SetAllowTextAsKey(true);
+
+    cIGZPersistDBSegment* const dirBase = dirSegment->AsIGZPersistDBSegment();
+    if (!dirBase) {
+        LOG_WARN("Lot configuration directory segment: AsIGZPersistDBSegment returned null");
+        dirSegment->Shutdown();
+        return;
+    }
+
+    if (!dirBase->SetSegmentID(kLotConfigDirectorySegmentId)) {
+        LOG_WARN("Lot configuration directory segment: SetSegmentID(0x{:08X}) returned false",
+                 kLotConfigDirectorySegmentId);
+        dirSegment->Shutdown();
+        return;
+    }
+
+    const bool openOk = dirBase->Open(true, true);
+    LOG_INFO("Lot configuration directory segment: Open(read=true, write=true) returned {} for '{}'",
+             openOk, dirPathStr);
+
+    if (!pRM->RegisterDBSegmentFront(*dirBase)) {
+        LOG_WARN("Lot configuration directory segment: RegisterDBSegmentFront returned false for '{}'",
+                 dirPathStr);
+        if (openOk) {
+            dirBase->Close();
+        }
+        dirSegment->Shutdown();
+        return;
+    }
+
+    lotConfigDirectorySegment_ = dirSegment;
+    lotConfigDirectorySegmentBase_ = dirBase;
+
+    LOG_INFO("Lot configuration directory segment registered '{}' at front with segment ID 0x{:08X}",
+             dirPathStr, kLotConfigDirectorySegmentId);
+}
+
+void SC4PlopAndPaintDirector::UnregisterLotConfigWritableSegmentTest_() {
+    cIGZPersistResourceManagerPtr pRM;
+
+    if (lotConfigDirectorySegmentBase_) {
+        if (pRM) {
+            pRM->UnregisterDBSegment(*lotConfigDirectorySegmentBase_);
+        }
+        if (lotConfigDirectorySegmentBase_->IsOpen()) {
+            lotConfigDirectorySegmentBase_->Close();
+        }
+        lotConfigDirectorySegmentBase_.Reset();
+    }
+    if (lotConfigDirectorySegment_) {
+        lotConfigDirectorySegment_->Shutdown();
+        lotConfigDirectorySegment_.Reset();
+    }
+
+    if (!lotConfigWritableSegment_) {
+        lotConfigWritableSegmentFile_.Reset();
+        lotConfigWritableSegmentPath_.clear();
+        return;
+    }
+
+    if (pRM) {
+        pRM->UnregisterDBSegment(*lotConfigWritableSegment_);
+    }
+
+    if (lotConfigWritableSegment_->IsOpen()) {
+        lotConfigWritableSegment_->Flush();
+        lotConfigWritableSegment_->Close();
+    }
+
+    if (lotConfigWritableSegmentFile_) {
+        lotConfigWritableSegmentFile_->Shutdown();
+    }
+
+    LOG_INFO("Lot configuration writable segment test unregistered '{}'", lotConfigWritableSegmentPath_);
+    lotConfigWritableSegment_.Reset();
+    lotConfigWritableSegmentFile_.Reset();
+    lotConfigWritableSegmentPath_.clear();
+}
+
+void SC4PlopAndPaintDirector::TryOpenLotConfigWindowTest_(cIGZWin* parentWin) {
+    if (!enableLotConfigWindowTest_) {
+        return;
+    }
+    if (!parentWin) {
+        LOG_WARN("Lot configuration window test skipped: parent window is null");
+        return;
+    }
+    if (lotConfigWindowTestWin_) {
+        lotConfigWindowTestWin_->ShowWindow();
+        lotConfigWindowTestWin_->PullToFront();
+        LOG_INFO("Lot configuration window test already has a window; pulled it to front");
+        return;
+    }
+
+    const bool isChooser =
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::Chooser ||
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::NetworkLotChooser;
+    const bool isNetworkTarget =
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::NetworkLotEditor ||
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::NetworkLotChooser;
+    const char* targetName =
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::Chooser        ? "cSC4WinLotConfigurationChooser" :
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::NetworkLotChooser ? "cSC4WinNetworkLotChooser" :
+        isNetworkTarget                                                          ? "cSC4WinNetworkLotEditor" :
+                                                                                   "cSC4WinLotConfigurationEditor";
+
+    cIGZWin* scriptParent = parentWin->GetChildWindowFromID(kGZWin_SC4View3DWin);
+    if (!scriptParent) {
+        LOG_WARN("Lot configuration window test skipped: View3D child window is unavailable");
+        return;
+    }
+
+    const uint32_t scriptInstance =
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::Chooser        ? kLotConfigChooserScriptInstance :
+        lotConfigWindowTestTarget_ == LotConfigWindowTestTarget::NetworkLotChooser ? kNetworkLotChooserScriptInstance :
+        isNetworkTarget                                                          ? kNetworkLotEditorScriptInstance :
+                                                                                   kLotConfigEditorScriptInstance;
+    const uint32_t windowClsid = kCLSID_cSC4WinLotConfigurationEditorScriptWindow;
+    const cGZPersistResourceKey scriptKey(
+        kLotConfigEditorScriptType,
+        kLotConfigEditorScriptGroup,
+        scriptInstance);
+
+    cRZAutoRefCount<cIGZWin> testWin;
+    if (isChooser) {
+        cIGZWin* rawWin = SC4UI::CreateWindowFromScript(scriptKey, scriptParent, windowClsid);
+        if (rawWin) {
+            testWin = rawWin;
+        }
+        LOG_INFO(
+            "Lot configuration window test triggered {} via UI script key 0x{:08X}/0x{:08X}/0x{:08X}, "
+            "window CLSID 0x{:08X}, ptr={}",
+            targetName,
+            kLotConfigEditorScriptType,
+            kLotConfigEditorScriptGroup,
+            scriptInstance,
+            windowClsid,
+            static_cast<void*>(rawWin));
+    } else {
+        if (!SC4UI::CreateWindowFromScript(
+                scriptKey,
+                scriptParent,
+                windowClsid,
+                GZIID_cIGZWin,
+                testWin.AsPPVoid()) ||
+            !testWin) {
+            LOG_WARN(
+                "Lot configuration window test failed: CreateWindowFromScript({}, key 0x{:08X}/0x{:08X}/0x{:08X}, "
+                "window CLSID 0x{:08X}) returned null",
+                targetName,
+                kLotConfigEditorScriptType,
+                kLotConfigEditorScriptGroup,
+                scriptInstance,
+                windowClsid);
+            return;
+        }
+        LOG_INFO(
+            "Lot configuration window test created {} via UI script key 0x{:08X}/0x{:08X}/0x{:08X}, window CLSID "
+            "0x{:08X}",
+            targetName,
+            kLotConfigEditorScriptType,
+            kLotConfigEditorScriptGroup,
+            scriptInstance,
+            windowClsid);
+    }
+
+    if (!isChooser) {
+        using OpenLotConfigEditorFn = uint32_t(__thiscall *)(cIGZWin*, int*);
+        const auto openLotConfigEditor = reinterpret_cast<OpenLotConfigEditorFn>(kSC4LotConfigEditorOpenFunction);
+        int openKey[4]{};
+
+        LOG_INFO("Lot configuration window test calling editor open/init routine 0x{:08X}",
+                 kSC4LotConfigEditorOpenFunction);
+        const uint32_t openResult = openLotConfigEditor(testWin, openKey);
+        const bool openOk = (openResult & 0xFFu) != 0;
+        LOG_INFO("Lot configuration window test editor open/init returned 0x{:08X}", openResult);
+        if (!openOk) {
+            LOG_WARN("Lot configuration window test editor open/init failed; closing script window");
+            testWin->HideWindow();
+            scriptParent->ChildRemove(testWin);
+            testWin->Shutdown();
+            return;
+        }
+
+        const auto editorAddress = reinterpret_cast<uintptr_t>(static_cast<cIGZWin*>(testWin));
+        const auto editorState = *reinterpret_cast<uintptr_t*>(editorAddress + kLotConfigEditorStateOffset);
+        LOG_INFO("Lot configuration window test editor state pointer at +0x{:X} is 0x{:08X}",
+                 kLotConfigEditorStateOffset,
+                 editorState);
+        if (editorState == 0) {
+            LOG_WARN("Lot configuration window test editor state is null after open/init; closing script window");
+            testWin->HideWindow();
+            scriptParent->ChildRemove(testWin);
+            testWin->Shutdown();
+            return;
+        }
+    }
+
+    LOG_INFO("Lot configuration window test calling ShowWindow");
+    const bool showOk = testWin->ShowWindow();
+    LOG_INFO("Lot configuration window test calling PullToFront");
+    const bool frontOk = testWin->PullToFront();
+    testWin->InvalidateSelfAndParents();
+
+    LOG_INFO("Lot configuration window test ShowWindow returned {}, PullToFront returned {}", showOk, frontOk);
+
+    lotConfigWindowTestParent_ = scriptParent;
+    lotConfigWindowTestWin_ = testWin;
+}
+
+void SC4PlopAndPaintDirector::CloseLotConfigWindowTest_() {
+    if (!lotConfigWindowTestWin_) {
+        lotConfigWindowTestParent_ = nullptr;
+        return;
+    }
+
+    lotConfigWindowTestWin_->HideWindow();
+    if (lotConfigWindowTestParent_) {
+        lotConfigWindowTestParent_->ChildRemove(lotConfigWindowTestWin_);
+    }
+    lotConfigWindowTestWin_->Shutdown();
+    lotConfigWindowTestWin_.Reset();
+    lotConfigWindowTestParent_ = nullptr;
+    LOG_INFO("Closed lot configuration window test instance");
 }
 
 bool SC4PlopAndPaintDirector::RegisterLotPlopShortcut_() {

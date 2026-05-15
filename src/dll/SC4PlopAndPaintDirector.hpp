@@ -12,8 +12,11 @@
 #include "RecentPaintHistory.hpp"
 #include "GZServPtrs.h"
 #include "cIGZCommandServer.h"
+#include "cIGZDBSegmentPackedFile.h"
+#include "cIGZPersistDBSegmentDirectoryFiles.h"
 #include "cIGZMessage2Standard.h"
 #include "cIGZMessageServer2.h"
+#include "cIGZPersistDBSegment.h"
 #include "cIGZWin.h"
 #include "cISC4App.h"
 #include "cISC4City.h"
@@ -46,7 +49,6 @@ class PropRepository;
 class FavoritesRepository;
 class cIGZS3DCameraService;
 class RecentSwapPanel;
-
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
 
@@ -114,6 +116,11 @@ private:
     void PostCityInit_(const cIGZMessage2Standard* pStandardMsg);
     void PreCityShutdown_(cIGZMessage2Standard* pStandardMsg);
     void ToggleLotPlopPanel_();
+    bool RegisterLotConfigWritableSegmentTest_();
+    void RegisterLotConfigDirectorySegment_();
+    void UnregisterLotConfigWritableSegmentTest_();
+    void TryOpenLotConfigWindowTest_(cIGZWin* parentWin);
+    void CloseLotConfigWindowTest_();
     bool RegisterLotPlopShortcut_();
     void UnregisterLotPlopShortcut_();
     static std::filesystem::path GetUserPluginsPath_();
@@ -177,6 +184,16 @@ private:
     bool enableRecentPaints_{true};
     PaintSwitchPolicy paintSwitchPolicy_{PaintSwitchPolicy::KeepPending};
     bool drawOverlayEnabled_{true};
+    bool enableLotConfigWindowTest_{false};
+    LotConfigWindowTestTarget lotConfigWindowTestTarget_{LotConfigWindowTestTarget::Chooser};
+    bool lotConfigWindowTestAutoOpenOnCityLoad_{true};
+    cRZAutoRefCount<cIGZDBSegmentPackedFile> lotConfigWritableSegmentFile_;
+    cRZAutoRefCount<cIGZPersistDBSegment> lotConfigWritableSegment_;
+    std::string lotConfigWritableSegmentPath_;
+    cRZAutoRefCount<cIGZPersistDBSegmentDirectoryFiles> lotConfigDirectorySegment_;
+    cRZAutoRefCount<cIGZPersistDBSegment> lotConfigDirectorySegmentBase_;
+    cRZAutoRefCount<cIGZWin> lotConfigWindowTestWin_;
+    cIGZWin* lotConfigWindowTestParent_{nullptr};
     uint32_t drawCallbackToken_{0};
     PreviewMode defaultPropPreviewMode_ = PreviewMode::Outline;
     bool defaultShowGridOverlay_ = true;

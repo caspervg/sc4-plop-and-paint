@@ -27,6 +27,9 @@ namespace {
     constexpr bool kDefaultEnableRecentPaints = true;
     constexpr size_t kDefaultRecentPaintMaxItems = 8;
     constexpr auto kDefaultPaintSwitchPolicy = PaintSwitchPolicy::KeepPending;
+    constexpr bool kDefaultEnableLotConfigWindowTest = false;
+    constexpr auto kDefaultLotConfigWindowTestTarget = LotConfigWindowTestTarget::Chooser;
+    constexpr bool kDefaultLotConfigWindowTestAutoOpenOnCityLoad = true;
 
     const std::string kSectionName = "SC4PlopAndPaint";
 
@@ -134,6 +137,32 @@ namespace {
         return kDefaultPaintSwitchPolicy;
     }
 
+    LotConfigWindowTestTarget ParseLotConfigWindowTestTarget(const std::string& value, bool& valid) {
+        const std::string normalized = ToLower(value);
+
+        if (normalized == "chooser" || normalized == "csc4winlotconfigurationchooser") {
+            valid = true;
+            return LotConfigWindowTestTarget::Chooser;
+        }
+        if (normalized == "editor" || normalized == "csc4winlotconfigurationeditor") {
+            valid = true;
+            return LotConfigWindowTestTarget::Editor;
+        }
+        if (normalized == "network_editor" || normalized == "networkeditor" ||
+            normalized == "csc4winnetworklotseditor") {
+            valid = true;
+            return LotConfigWindowTestTarget::NetworkLotEditor;
+        }
+        if (normalized == "network_chooser" || normalized == "networkchoser" ||
+            normalized == "csc4winnetworklotchooser") {
+            valid = true;
+            return LotConfigWindowTestTarget::NetworkLotChooser;
+        }
+
+        valid = false;
+        return kDefaultLotConfigWindowTestTarget;
+    }
+
     std::array<uint8_t, 4> ParseHexColor(const std::string& value, bool& valid) {
         std::string normalized;
         normalized.reserve(value.size());
@@ -198,7 +227,10 @@ Settings::Settings()
     , thumbnailBorderColor_(kDefaultThumbnailBorderColor)
     , enableRecentPaints_(kDefaultEnableRecentPaints)
     , recentPaintMaxItems_(kDefaultRecentPaintMaxItems)
-    , paintSwitchPolicy_(kDefaultPaintSwitchPolicy) {}
+    , paintSwitchPolicy_(kDefaultPaintSwitchPolicy)
+    , enableLotConfigWindowTest_(kDefaultEnableLotConfigWindowTest)
+    , lotConfigWindowTestTarget_(kDefaultLotConfigWindowTestTarget)
+    , lotConfigWindowTestAutoOpenOnCityLoad_(kDefaultLotConfigWindowTestAutoOpenOnCityLoad) {}
 
 void Settings::Load(const std::filesystem::path& settingsFilePath) {
     // Reset to defaults
@@ -386,6 +418,42 @@ void Settings::Load(const std::filesystem::path& settingsFilePath) {
                           settingsFilePath.string());
             }
         }
+
+        if (section.has("EnableLotConfigWindowTest")) {
+            bool valid = false;
+            const std::string text = section.get("EnableLotConfigWindowTest");
+            enableLotConfigWindowTest_ = ParseBool(text, valid);
+            if (!valid) {
+                enableLotConfigWindowTest_ = kDefaultEnableLotConfigWindowTest;
+                LOG_ERROR("Invalid EnableLotConfigWindowTest value '{}' in {}. Using default false.", text,
+                          settingsFilePath.string());
+            }
+        }
+
+        if (section.has("LotConfigWindowTestTarget")) {
+            bool valid = false;
+            const std::string text = section.get("LotConfigWindowTestTarget");
+            lotConfigWindowTestTarget_ = ParseLotConfigWindowTestTarget(text, valid);
+            if (!valid) {
+                lotConfigWindowTestTarget_ = kDefaultLotConfigWindowTestTarget;
+                LOG_ERROR(
+                    "Invalid LotConfigWindowTestTarget value '{}' in {}. Using default chooser.", text,
+                    settingsFilePath.string());
+            }
+        }
+
+        if (section.has("LotConfigWindowTestAutoOpenOnCityLoad")) {
+            bool valid = false;
+            const std::string text = section.get("LotConfigWindowTestAutoOpenOnCityLoad");
+            lotConfigWindowTestAutoOpenOnCityLoad_ = ParseBool(text, valid);
+            if (!valid) {
+                lotConfigWindowTestAutoOpenOnCityLoad_ = kDefaultLotConfigWindowTestAutoOpenOnCityLoad;
+                LOG_ERROR(
+                    "Invalid LotConfigWindowTestAutoOpenOnCityLoad value '{}' in {}. Using default true.",
+                    text,
+                    settingsFilePath.string());
+            }
+        }
     }
     catch (const std::exception& e) {
         LOG_ERROR("Error reading settings file {}: {}", settingsFilePath.string(), e.what());
@@ -407,3 +475,8 @@ std::array<uint8_t, 4> Settings::GetThumbnailBorderColor() const noexcept { retu
 bool Settings::GetEnableRecentPaints() const noexcept { return enableRecentPaints_; }
 size_t Settings::GetRecentPaintMaxItems() const noexcept { return recentPaintMaxItems_; }
 PaintSwitchPolicy Settings::GetPaintSwitchPolicy() const noexcept { return paintSwitchPolicy_; }
+bool Settings::GetEnableLotConfigWindowTest() const noexcept { return enableLotConfigWindowTest_; }
+LotConfigWindowTestTarget Settings::GetLotConfigWindowTestTarget() const noexcept { return lotConfigWindowTestTarget_; }
+bool Settings::GetLotConfigWindowTestAutoOpenOnCityLoad() const noexcept {
+    return lotConfigWindowTestAutoOpenOnCityLoad_;
+}

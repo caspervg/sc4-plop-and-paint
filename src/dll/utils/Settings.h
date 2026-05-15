@@ -15,6 +15,13 @@ enum class PaintSwitchPolicy : uint8_t {
     KeepPending = 2
 };
 
+enum class LotConfigWindowTestTarget : uint8_t {
+    Chooser = 0,
+    Editor = 1,
+    NetworkLotEditor = 2,
+    NetworkLotChooser = 3
+};
+
 class Settings {
 public:
     Settings();
@@ -36,6 +43,9 @@ public:
     [[nodiscard]] bool GetEnableRecentPaints() const noexcept;
     [[nodiscard]] size_t GetRecentPaintMaxItems() const noexcept;
     [[nodiscard]] PaintSwitchPolicy GetPaintSwitchPolicy() const noexcept;
+    [[nodiscard]] bool GetEnableLotConfigWindowTest() const noexcept;
+    [[nodiscard]] LotConfigWindowTestTarget GetLotConfigWindowTestTarget() const noexcept;
+    [[nodiscard]] bool GetLotConfigWindowTestAutoOpenOnCityLoad() const noexcept;
 
 private:
     spdlog::level::level_enum logLevel_;
@@ -52,4 +62,7 @@ private:
     bool enableRecentPaints_;
     size_t recentPaintMaxItems_;
     PaintSwitchPolicy paintSwitchPolicy_;
+    bool enableLotConfigWindowTest_;
+    LotConfigWindowTestTarget lotConfigWindowTestTarget_;
+    bool lotConfigWindowTestAutoOpenOnCityLoad_;
 };
