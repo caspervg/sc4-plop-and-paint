@@ -32,6 +32,7 @@
 #include "paint/PaintStatusPanel.hpp"
 #include "pick/ScenePickerInputControl.hpp"
 #include "pick/ScenePickResult.hpp"
+#include "pick/ScenePickStrategy.hpp"
 #include "props/PropPainterInputControl.hpp"
 #include "props/PropStripperInputControl.hpp"
 #include "public/ImGuiPanel.h"
@@ -98,6 +99,9 @@ public:
     bool StartPropPicking(std::function<void(const PickedProp& picked)> onPick);
     void StopPropPicking();
     [[nodiscard]] bool IsPropPicking() const;
+    bool StartFloraPicking(std::function<void(const PickedFlora& picked)> onPick);
+    void StopFloraPicking();
+    [[nodiscard]] bool IsFloraPicking() const;
     bool StartPropStripping();
     void StopPropStripping();
     [[nodiscard]] bool IsPropStripping() const;
@@ -127,6 +131,9 @@ private:
     void UpdatePaintPanels_();
     void SyncRecentPaintsCache_();
     void PersistRecentPaints_();
+    bool StartScenePicking_(std::unique_ptr<ScenePickStrategy> strategy,
+                            std::function<void(const ScenePickResult& result)> onPick,
+                            const char* logName);
     bool CanPrepareForPaintSwitch_(BasePainterInputControl* control, bool isPaintingFlag) const;
     bool PrepareForPaintSwitch_(BasePainterInputControl* control, bool& isPaintingFlag);
     bool PrepareForExclusiveActivation_(bool keepPropPainting, bool keepFloraPainting, bool keepPropStripping,

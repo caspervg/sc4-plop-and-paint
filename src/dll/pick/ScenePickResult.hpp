@@ -9,6 +9,7 @@
 
 enum class ScenePickMode : uint8_t {
     Prop = 0,
+    Flora = 1,
 };
 
 enum class PickedPropSource : uint8_t {
@@ -25,4 +26,11 @@ struct PickedProp {
     int32_t orientation{0};
 };
 
-using ScenePickResult = std::variant<PickedProp>;
+struct PickedFlora {
+    cRZAutoRefCount<cISC4Occupant> occupant{};
+    cS3DVector3 position{};
+    uint32_t floraType{0};
+    int32_t orientation{0};
+};
+
+using ScenePickResult = std::variant<PickedProp, PickedFlora>;

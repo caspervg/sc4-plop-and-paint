@@ -23,6 +23,7 @@
 #include "flora/FloraRepository.hpp"
 #include "lots/LotRepository.hpp"
 #include "paint/RecentSwapPanel.hpp"
+#include "pick/FloraPickStrategy.hpp"
 #include "pick/PropPickStrategy.hpp"
 #include "props/PropPainterInputControl.hpp"
 #include "props/PropRepository.hpp"
@@ -1018,19 +1019,16 @@ bool SC4PlopAndPaintDirector::IsDecalServiceAvailable() const {
     return terrainDecalService_ != nullptr;
 }
 
-bool SC4PlopAndPaintDirector::StartPropPicking(std::function<void(const PickedProp&)> onPick) {
+bool SC4PlopAndPaintDirector::StartScenePicking_(std::unique_ptr<ScenePickStrategy> strategy,
+                                                 std::function<void(const ScenePickResult&)> onPick,
+                                                 const char* const logName) {
     if (!pCity_ || !pView3D_) {
-        LOG_WARN("Cannot start prop picking: city or view not available");
-        return false;
-    }
-
-    if (GetPropStripperSources() == PropStripperInputControl::SourceFlagNone) {
-        LOG_WARN("Cannot start prop picking: no prop sources enabled");
+        LOG_WARN("Cannot start {} picking: city or view not available", logName);
         return false;
     }
 
     if (!PrepareForExclusiveActivation_(false, false, false, false, false, false, false, true)) {
-        LOG_INFO("Blocked prop picking while another tool still has a sketch in progress");
+        LOG_INFO("Blocked {} picking while another tool still has a sketch in progress", logName);
         return false;
     }
 
@@ -1046,12 +1044,8 @@ bool SC4PlopAndPaintDirector::StartPropPicking(std::function<void(const PickedPr
 
     scenePickerControl_->SetCity(pCity_);
     scenePickerControl_->SetWindow(pView3D_->AsIGZWin());
-    scenePickerControl_->SetStrategy(std::make_unique<PropPickStrategy>(GetPropStripperSources()));
-    scenePickerControl_->SetOnPick([callback = std::move(onPick)](const ScenePickResult& result) mutable {
-        if (const auto* prop = std::get_if<PickedProp>(&result)) {
-            callback(*prop);
-        }
-    });
+    scenePickerControl_->SetStrategy(std::move(strategy));
+    scenePickerControl_->SetOnPick(std::move(onPick));
     scenePickerControl_->SetOnCancel([this]() {
         if (pView3D_ && scenePickerControl_ &&
             pView3D_->GetCurrentViewInputControl() == scenePickerControl_) {
@@ -1069,8 +1063,24 @@ bool SC4PlopAndPaintDirector::StartPropPicking(std::function<void(const PickedPr
     }
 
     scenePicking_ = true;
-    LOG_INFO("Started prop picking");
+    LOG_INFO("Started {} picking", logName);
     return true;
+}
+
+bool SC4PlopAndPaintDirector::StartPropPicking(std::function<void(const PickedProp&)> onPick) {
+    if (GetPropStripperSources() == PropStripperInputControl::SourceFlagNone) {
+        LOG_WARN("Cannot start prop picking: no prop sources enabled");
+        return false;
+    }
+
+    return StartScenePicking_(
+        std::make_unique<PropPickStrategy>(GetPropStripperSources()),
+        [callback = std::move(onPick)](const ScenePickResult& result) mutable {
+            if (const auto* prop = std::get_if<PickedProp>(&result)) {
+                callback(*prop);
+            }
+        },
+        "prop");
 }
 
 void SC4PlopAndPaintDirector::StopPropPicking() {
@@ -1080,11 +1090,30 @@ void SC4PlopAndPaintDirector::StopPropPicking() {
         }
     }
     scenePicking_ = false;
-    LOG_INFO("Stopped prop picking");
+    LOG_INFO("Stopped scene picking");
 }
 
 bool SC4PlopAndPaintDirector::IsPropPicking() const {
     return scenePicking_ && scenePickerControl_ && scenePickerControl_->GetMode() == ScenePickMode::Prop;
+}
+
+bool SC4PlopAndPaintDirector::StartFloraPicking(std::function<void(const PickedFlora&)> onPick) {
+    return StartScenePicking_(
+        std::make_unique<FloraPickStrategy>(),
+        [callback = std::move(onPick)](const ScenePickResult& result) mutable {
+            if (const auto* flora = std::get_if<PickedFlora>(&result)) {
+                callback(*flora);
+            }
+        },
+        "flora");
+}
+
+void SC4PlopAndPaintDirector::StopFloraPicking() {
+    StopPropPicking();
+}
+
+bool SC4PlopAndPaintDirector::IsFloraPicking() const {
+    return scenePicking_ && scenePickerControl_ && scenePickerControl_->GetMode() == ScenePickMode::Flora;
 }
 
 bool SC4PlopAndPaintDirector::StartPropStripping() {

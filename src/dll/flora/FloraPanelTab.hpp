@@ -31,6 +31,7 @@ private:
     [[nodiscard]] bool RenderFloraPills_(const Flora& flora, bool startOnNewLine) const;
     void RenderPaintModal_();
     void QueuePaintForFlora_(const Flora& flora);
+    void HandlePickedFlora_(const PickedFlora& picked);
 
     FloraRepository* flora_;
     ThumbnailCache<uint64_t> thumbnailCache_{};
