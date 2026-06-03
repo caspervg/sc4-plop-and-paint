@@ -57,9 +57,9 @@ void DecalPainterInputControl::SetDecalToPaint(const uint32_t instanceId,
     stateTemplate_.textureKey = cGZPersistResourceKey{kDecalTextureType, kDecalTextureGroup, instanceId};
 
     // Configure base-class state machine for Direct-mode-only painting.
-    PropPaintSettings propSettings{};
-    propSettings.mode        = PaintMode::Direct;
-    propSettings.previewMode = PreviewMode::Outline;
+    PropPaintSettings propSettings = settings.placementSettings;
+    propSettings.mode = PaintMode::Direct;
+    propSettings.snapPlacementsToGrid = false;
 
     SetTypeToPaint(instanceId, propSettings, name);
 }

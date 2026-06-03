@@ -130,6 +130,7 @@ private:
                                         bool keepDecalStripping = false,
                                         bool keepDecalPicking = false);
     void ApplySwitchPolicy_(BasePainterInputControl* control);
+    void RememberDecalPlacementSettings_();
     [[nodiscard]] RecentPaintEntry BuildRecentPaintEntry_(RecentPaintEntry::Kind kind,
                                                           uint32_t typeId,
                                                           const PropPaintSettings& settings,
@@ -164,6 +165,7 @@ private:
     bool propStripping_{false};
     cRZAutoRefCount<DecalPainterInputControl>  decalPainterControl_;
     bool decalPainting_{false};
+    PropPaintSettings lastDecalPlacementSettings_{MakeDefaultDecalPlacementSettings()};
     cRZAutoRefCount<DecalStripperInputControl> decalStripperControl_;
     bool decalStripping_{false};
     cRZAutoRefCount<DecalPickerInputControl>   decalPickerControl_;

@@ -788,6 +788,10 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
         return false;
     }
 
+    RememberDecalPlacementSettings_();
+    DecalPaintSettings effectiveSettings = settings;
+    effectiveSettings.placementSettings = lastDecalPlacementSettings_;
+
     if (!PrepareForExclusiveActivation_(false, false, false, false, true, false)) {
         LOG_INFO("Blocked decal paint switch while another tool still has a sketch in progress");
         return false;
@@ -824,12 +828,13 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
             pView3D_->GetCurrentViewInputControl() == decalPainterControl_) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
+        RememberDecalPlacementSettings_();
         decalPainting_ = false;
         UpdatePaintPanels_();
         LOG_INFO("Stopped decal painting");
     });
 
-    decalPainterControl_->SetDecalToPaint(instanceId, settings, name);
+    decalPainterControl_->SetDecalToPaint(instanceId, effectiveSettings, name);
 
     if (!reusingActiveDecalControl) {
         if (!pView3D_->SetCurrentViewInputControl(
@@ -848,6 +853,8 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
 }
 
 void SC4PlopAndPaintDirector::StopDecalPainting() {
+    RememberDecalPlacementSettings_();
+
     if (decalPainterControl_) {
         decalPainterControl_->CancelAllPlacements();
     }
@@ -1363,6 +1370,7 @@ bool SC4PlopAndPaintDirector::PrepareForExclusiveActivation_(const bool keepProp
     }
 
     if (!keepDecalPainting) {
+        RememberDecalPlacementSettings_();
         PrepareForPaintSwitch_(decalPainterControl_, decalPainting_);
     }
 
@@ -1402,6 +1410,20 @@ void SC4PlopAndPaintDirector::ApplySwitchPolicy_(BasePainterInputControl* contro
     case PaintSwitchPolicy::KeepPending:
         break;
     }
+}
+
+void SC4PlopAndPaintDirector::RememberDecalPlacementSettings_() {
+    if (!decalPainterControl_) {
+        return;
+    }
+
+    const PropPaintSettings& current = decalPainterControl_->GetSettings();
+    PropPaintSettings remembered = MakeDefaultDecalPlacementSettings();
+    remembered.previewMode = current.previewMode;
+    remembered.showGrid = current.showGrid;
+    remembered.snapPointsToGrid = current.snapPointsToGrid;
+    remembered.gridStepMeters = current.gridStepMeters;
+    lastDecalPlacementSettings_ = remembered;
 }
 
 RecentPaintEntry SC4PlopAndPaintDirector::BuildRecentPaintEntry_(
