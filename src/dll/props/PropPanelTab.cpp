@@ -70,6 +70,35 @@ void PropPanelTab::OnRender() {
         }
     }
     RenderPropStripperControls_();
+    if (director_->IsPropPicking()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop picking##PropPicker")) {
+            director_->StopPropPicking();
+        }
+    }
+    else {
+        ImGui::SameLine();
+        const bool hasAnySource =
+            (director_->GetPropStripperSources() &
+                (PropStripperInputControl::SourceFlagCity |
+                 PropStripperInputControl::SourceFlagLot |
+                 PropStripperInputControl::SourceFlagStreet)) != 0;
+        if (!hasAnySource) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::SmallButton("Pick prop")) {
+            ReleaseImGuiInputCapture_();
+            director_->StartPropPicking([this](const PickedProp& picked) {
+                HandlePickedProp_(picked);
+            });
+        }
+        if (!hasAnySource) {
+            ImGui::EndDisabled();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click an existing city, lot, or street prop to select it here.");
+        }
+    }
 
     // Table in scrollable child region so filters stay visible
     if (ImGui::BeginChild("PropTableRegion", ImVec2(0, 0), false)) {
@@ -612,4 +641,26 @@ void PropPanelTab::RenderRotationModal_() {
 
         ImGui::EndPopup();
     }
+}
+
+void PropPanelTab::HandlePickedProp_(const PickedProp& picked) {
+    if (!props_) {
+        return;
+    }
+
+    const Prop* prop = props_->FindPropByInstanceId(picked.propType);
+    if (!prop) {
+        LOG_WARN("Picked prop 0x{:08X}, but it is not present in the prop cache", picked.propType);
+        return;
+    }
+
+    filterHelper_.ResetFilters();
+    filterHelper_.searchBuffer = PropDisplayName_(*prop);
+    filteredPropsDirty_ = true;
+
+    pendingPaint_.propId = prop->instanceId.value();
+    pendingPaint_.propName = PropDisplayName_(*prop);
+    pendingPaint_.settings.mode = PaintMode::Direct;
+    pendingPaint_.settings.rotation = picked.orientation & 3;
+    pendingPaint_.open = true;
 }

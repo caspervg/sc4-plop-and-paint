@@ -30,6 +30,8 @@
 #include "flora/FloraStripperInputControl.hpp"
 #include "imgui.h"
 #include "paint/PaintStatusPanel.hpp"
+#include "pick/ScenePickerInputControl.hpp"
+#include "pick/ScenePickResult.hpp"
 #include "props/PropPainterInputControl.hpp"
 #include "props/PropStripperInputControl.hpp"
 #include "public/ImGuiPanel.h"
@@ -93,6 +95,9 @@ public:
     void StopDecalPicking();
     [[nodiscard]] bool IsDecalPicking() const;
     [[nodiscard]] bool IsDecalServiceAvailable() const;
+    bool StartPropPicking(std::function<void(const PickedProp& picked)> onPick);
+    void StopPropPicking();
+    [[nodiscard]] bool IsPropPicking() const;
     bool StartPropStripping();
     void StopPropStripping();
     [[nodiscard]] bool IsPropStripping() const;
@@ -128,7 +133,8 @@ private:
                                         bool keepFloraStripping = false,
                                         bool keepDecalPainting = false,
                                         bool keepDecalStripping = false,
-                                        bool keepDecalPicking = false);
+                                        bool keepDecalPicking = false,
+                                        bool keepScenePicking = false);
     void ApplySwitchPolicy_(BasePainterInputControl* control);
     void RememberDecalPlacementSettings_();
     [[nodiscard]] RecentPaintEntry BuildRecentPaintEntry_(RecentPaintEntry::Kind kind,
@@ -170,6 +176,8 @@ private:
     bool decalStripping_{false};
     cRZAutoRefCount<DecalPickerInputControl>   decalPickerControl_;
     bool decalPicking_{false};
+    cRZAutoRefCount<ScenePickerInputControl>   scenePickerControl_;
+    bool scenePicking_{false};
     cIGZTerrainDecalService* terrainDecalService_{nullptr};
     std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};

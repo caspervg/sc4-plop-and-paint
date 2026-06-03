@@ -40,6 +40,8 @@ public:
 
     void BuildStripperPreview(bool cursorValid, const cS3DVector3& cursorPos,
                               float pickRadius, cISTETerrain* terrain);
+    void BuildStripperPreview(bool cursorValid, const cS3DVector3& cursorPos,
+                              float pickRadius, cISTETerrain* terrain, DWORD rectColor);
 
     void BuildDirectPreview(bool cursorValid,
                             const cS3DVector3& cursorPos,

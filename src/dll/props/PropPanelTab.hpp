@@ -43,6 +43,7 @@ private:
     void RenderPropTooltip_(const Prop& prop) const;
     void RenderFavButton_(const Prop& prop) const;
     void RenderRotationModal_();
+    void HandlePickedProp_(const PickedProp& picked);
 
     static uint64_t MakePropKey_(const Prop& prop);
 

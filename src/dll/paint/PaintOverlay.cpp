@@ -105,6 +105,11 @@ bool PaintOverlay::Empty() const {
 
 void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector3& cursorPos,
                                              const float pickRadius, cISTETerrain* terrain) {
+    BuildStripperPreview(cursorValid, cursorPos, pickRadius, terrain, 0xC0FF3333);
+}
+
+void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector3& cursorPos,
+                                             const float pickRadius, cISTETerrain* terrain, const DWORD rectColor) {
     Clear();
     if (!cursorValid) {
         return;
@@ -120,12 +125,11 @@ void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector
     const cS3DVector3 se(cx + r, SampleStableTerrainHeight(terrain, cx + r, cz + r) + kHeightOffset, cz + r);
     const cS3DVector3 sw(cx - r, SampleStableTerrainHeight(terrain, cx - r, cz + r) + kHeightOffset, cz + r);
 
-    constexpr DWORD kRectColor = 0xC0FF3333;
     constexpr float kThick = 0.5f;
-    EmitLine_(nw, ne, kThick, kRectColor, kLayerShape);
-    EmitLine_(ne, se, kThick, kRectColor, kLayerShape);
-    EmitLine_(se, sw, kThick, kRectColor, kLayerShape);
-    EmitLine_(sw, nw, kThick, kRectColor, kLayerShape);
+    EmitLine_(nw, ne, kThick, rectColor, kLayerShape);
+    EmitLine_(ne, se, kThick, rectColor, kLayerShape);
+    EmitLine_(se, sw, kThick, rectColor, kLayerShape);
+    EmitLine_(sw, nw, kThick, rectColor, kLayerShape);
 
 }
 
