@@ -35,7 +35,6 @@ constexpr auto kPropertyLotObjectsStart = 0x88EDC900u;
 constexpr auto kPropertyLotObjectsEnd = 0x88EDCFF0u;
 constexpr auto kLotConfigObjectTypeBuilding = kZero;
 constexpr auto kGrowthStage = "Growth Stage";
-constexpr auto kCapacity = "Capacity Satisfied";
 constexpr auto kIconResourceKey = "Icon Resource Key";
 constexpr auto kItemIcon = "Item Icon";
 constexpr auto kTypeIdPNG = 0x856DDBACu;
@@ -93,7 +92,6 @@ struct ParsedLotConfigExemplar {
     uint32_t buildingFamilyId = 0; // Family ID if isFamilyReference is true
     bool isFamilyReference = false; // True if lot references a family instead of specific building
     std::optional<uint8_t> growthStage;
-    std::optional<std::pair<uint8_t, uint8_t>> capacity; // (min, max)
     std::optional<uint8_t> zoneType; // LotConfigPropertyZoneTypes
     std::optional<uint8_t> wealthType; // LotConfigPropertyWealthTypes
     std::optional<uint8_t> purposeType; // LotConfigPropertyPurposeTypes

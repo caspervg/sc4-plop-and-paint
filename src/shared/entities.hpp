@@ -32,9 +32,6 @@ struct Lot {
     uint8_t sizeX;
     uint8_t sizeZ;
 
-    uint16_t minCapacity;
-    uint16_t maxCapacity;
-
     uint8_t growthStage;
 
     std::optional<uint8_t> zoneType;      // LotConfigPropertyZoneTypes (0x88edc793)

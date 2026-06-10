@@ -48,8 +48,6 @@ inline bool operator==(const Lot& lhs, const Lot& rhs) {
            lhs.name == rhs.name &&
            lhs.sizeX == rhs.sizeX &&
            lhs.sizeZ == rhs.sizeZ &&
-           lhs.minCapacity == rhs.minCapacity &&
-           lhs.maxCapacity == rhs.maxCapacity &&
            lhs.growthStage == rhs.growthStage &&
            lhs.zoneType == rhs.zoneType &&
            lhs.wealthType == rhs.wealthType &&
@@ -269,8 +267,6 @@ TEST_CASE("Building CBOR serialization and deserialization", "[cbor][building]")
                 .name = "Stage 1 Lot",
                 .sizeX = 2,
                 .sizeZ = 3,
-                .minCapacity = 50,
-                .maxCapacity = 120,
                 .growthStage = 1,
                 .zoneType = 2,
                 .wealthType = 1,
@@ -294,8 +290,6 @@ TEST_CASE("Lot CBOR serialization and deserialization", "[cbor][lot]") {
         .name = "Test Lot",
         .sizeX = 2,
         .sizeZ = 4,
-        .minCapacity = 100,
-        .maxCapacity = 500,
         .growthStage = 3,
         .zoneType = 7,
         .wealthType = 2,

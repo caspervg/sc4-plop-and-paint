@@ -946,8 +946,6 @@ Lot ExemplarParser::lotFromParsed(const ParsedLotConfigExemplar& parsed) const {
     lot.name = parsed.name;
     lot.sizeX = parsed.lotSize.first;
     lot.sizeZ = parsed.lotSize.second;
-    lot.minCapacity = parsed.capacity.has_value() ? parsed.capacity->first : 0;
-    lot.maxCapacity = parsed.capacity.has_value() ? parsed.capacity->second : 0;
     lot.growthStage = parsed.growthStage.has_value() ? parsed.growthStage.value() : 0;
     lot.zoneType = parsed.zoneType;
     lot.wealthType = parsed.wealthType;
