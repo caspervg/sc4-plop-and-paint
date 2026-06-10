@@ -6,7 +6,9 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <string_view>
 #include <thread>
@@ -291,8 +293,16 @@ namespace {
             // Use the index service to get exemplars and cohorts across all files.
             logger.info("Processing exemplar/cohort records using type index...");
 
-            // Group record TGIs by file for efficient batch processing.
-            std::unordered_map<fs::path, std::vector<DBPF::Tgi>> fileToExemplarTgis;
+            // Group record TGIs by file, keyed by load-order position so both the winning
+            // file per TGI and the processing order across files are deterministic.
+            const auto& filesInLoadOrder = indexService.dbpfFiles();
+            std::unordered_map<fs::path, size_t> loadOrderIndices;
+            loadOrderIndices.reserve(filesInLoadOrder.size());
+            for (size_t i = 0; i < filesInLoadOrder.size(); ++i) {
+                loadOrderIndices.emplace(filesInLoadOrder[i], i);
+            }
+
+            std::map<size_t, std::vector<DBPF::Tgi>> fileToExemplarTgis;
             {
                 auto exemplarTgis = indexService.typeIndex(kTypeIdExemplar);
                 auto cohortTgis = indexService.typeIndex(kTypeIdCohort);
@@ -314,10 +324,16 @@ namespace {
                         continue;
                     }
                     auto files = indexService.lookupFiles(tgi);
-                    if (!files.empty()) {
-                        // The last file in load order wins, matching the game's override rules.
-                        fileToExemplarTgis[files.back()].push_back(tgi);
+                    if (files.empty()) {
+                        continue;
                     }
+                    // The last file in load order wins, matching the game's override rules.
+                    const auto indexIt = loadOrderIndices.find(files.back());
+                    if (indexIt == loadOrderIndices.end()) {
+                        logger.warn("Indexed file {} missing from load order list", files.back().string());
+                        continue;
+                    }
+                    fileToExemplarTgis[indexIt->second].push_back(tgi);
                 }
             }
 
@@ -326,7 +342,8 @@ namespace {
             // Store lot config TGIs for second pass
             std::vector<std::pair<fs::path, DBPF::Tgi>> lotConfigTgis;
 
-            for (const auto& [filePath, tgis] : fileToExemplarTgis) {
+            for (const auto& [fileOrderIndex, tgis] : fileToExemplarTgis) {
+                const auto& filePath = filesInLoadOrder[fileOrderIndex];
                 try {
                     // Get cached reader from index service
                     auto* reader = indexService.getReader(filePath);
@@ -348,12 +365,14 @@ namespace {
                             if (tgi.type == kTypeIdCohort) {
                                 if (auto parsedFamily = parser.parsePropFamilyFromCohort(*exemplarResult)) {
                                     const uint32_t familyId = parsedFamily->familyId.value();
-                                    auto [it, inserted] = propFamilyNamesById.emplace(
+                                    auto [it, inserted] = propFamilyNamesById.try_emplace(
                                         familyId, parsedFamily->displayName);
                                     if (!inserted && it->second != parsedFamily->displayName) {
+                                        // Later cohorts override earlier ones, like the game does.
                                         spdlog::debug(
-                                            "Duplicate prop family name for 0x{:08X}: keeping '{}', ignoring '{}'",
-                                            familyId, it->second, parsedFamily->displayName);
+                                            "Duplicate prop family name for 0x{:08X}: '{}' replaces '{}'",
+                                            familyId, parsedFamily->displayName, it->second);
+                                        it->second = parsedFamily->displayName;
                                     }
                                 }
                                 continue;
@@ -371,8 +390,14 @@ namespace {
                             if (*exemplarType == ExemplarType::Building) {
                                 auto building = parser.parseBuilding(*exemplarResult, tgi);
                                 if (building) {
-                                    buildingMap[tgi.instance] = *building;
-                                    builtBuildings.try_emplace(tgi.instance, parser.buildingFromParsed(*building));
+                                    if (const auto existing = buildingMap.find(tgi.instance);
+                                        existing != buildingMap.end()) {
+                                        logger.warn("Building instance 0x{:08X} redefined by later plugin "
+                                                    "(group 0x{:08X} replaces 0x{:08X})",
+                                                    tgi.instance, tgi.group, existing->second.tgi.group);
+                                    }
+                                    buildingMap.insert_or_assign(tgi.instance, *building);
+                                    builtBuildings.insert_or_assign(tgi.instance, parser.buildingFromParsed(*building));
                                     buildingsFound++;
                                     logger.trace("  Building: {} (0x{:08X})", building->name, tgi.instance);
                                 }
@@ -437,6 +462,11 @@ namespace {
                 for (uint32_t familyId : building.familyIds) {
                     familyToBuildingsMap[familyId].push_back(instanceId);
                 }
+            }
+            // buildingMap iteration order is unspecified; sort so the representative
+            // building picked for a family lot is deterministic.
+            for (auto& buildings : familyToBuildingsMap | std::views::values) {
+                std::sort(buildings.begin(), buildings.end());
             }
 
             for (const auto& [filePath, tgi] : lotConfigTgis) {
@@ -511,6 +541,12 @@ namespace {
             }
 
             builtBuildings.clear();
+
+            // Keep the cache byte-stable across runs.
+            std::sort(allBuildings.begin(), allBuildings.end(), [](const Building& a, const Building& b) {
+                return MakeGIKey(a.groupId.value(), a.instanceId.value()) <
+                       MakeGIKey(b.groupId.value(), b.instanceId.value());
+            });
 
             logger.info("Scan complete: {} buildings with lots, {} lots, {} parse errors",
                         allBuildings.size(), lotsFound, parseErrors);
