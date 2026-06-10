@@ -552,6 +552,70 @@ namespace {
                 return a.familyId.value() < b.familyId.value();
             });
 
+            {
+                std::error_code dirEc;
+                fs::create_directories(config.userPluginsRoot, dirEc);
+                if (dirEc) {
+                    logger.error("Failed to create output directory {}: {}",
+                                 config.userPluginsRoot.string(), dirEc.message());
+                }
+            }
+
+            const auto writeThumbnailBin = [&logger](const fs::path& binPath,
+                                                     std::vector<std::pair<uint64_t, Thumbnail>> entries,
+                                                     const std::string_view label) {
+                const auto count = entries.size();
+                try {
+                    if (ThumbnailBin::Write(binPath, std::move(entries))) {
+                        logger.info("Exported {} {} thumbnails to {}", count, label, binPath.string());
+                    }
+                    else {
+                        logger.error("Failed to write {} thumbnails to {}", label, binPath.string());
+                    }
+                }
+                catch (const std::exception& error) {
+                    logger.error("Error writing {} thumbnails to {}: {}", label, binPath.string(), error.what());
+                }
+            };
+
+            const auto writeCborAtomic = [&logger](const fs::path& cborPath, const auto& data) -> bool {
+                auto tempPath = cborPath;
+                tempPath += ".tmp";
+                try {
+                    {
+                        std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+                        if (!file) {
+                            logger.error("Failed to open file for writing: {}", tempPath.string());
+                            return false;
+                        }
+                        rfl::cbor::write(data, file);
+                        file.flush();
+                        if (!file.good()) {
+                            logger.error("Failed to write cache data to {}", tempPath.string());
+                            file.close();
+                            std::error_code removeEc;
+                            fs::remove(tempPath, removeEc);
+                            return false;
+                        }
+                    }
+                    std::error_code renameEc;
+                    fs::rename(tempPath, cborPath, renameEc);
+                    if (renameEc) {
+                        logger.error("Failed to move {} into place: {}", tempPath.string(), renameEc.message());
+                        std::error_code removeEc;
+                        fs::remove(tempPath, removeEc);
+                        return false;
+                    }
+                    return true;
+                }
+                catch (const std::exception& error) {
+                    logger.error("Error writing {}: {}", cborPath.string(), error.what());
+                    std::error_code removeEc;
+                    fs::remove(tempPath, removeEc);
+                    return false;
+                }
+            };
+
             // Extract building thumbnails into a sidecar binary file, then strip them
             // from allBuildings so the CBOR stays lean.
             {
@@ -565,33 +629,18 @@ namespace {
                 }
                 if (!buildingThumbnails.empty()) {
                     NormalizeThumbnailEntries(buildingThumbnails, thumbnailSize);
-                    const auto binPath = config.userPluginsRoot / "lot_thumbnails.bin";
-                    const auto count = buildingThumbnails.size();
-                    ThumbnailBin::Write(binPath, std::move(buildingThumbnails));
-                    logger.info("Exported {} building thumbnails to {}", count, binPath.string());
+                    writeThumbnailBin(config.userPluginsRoot / "lot_thumbnails.bin",
+                                      std::move(buildingThumbnails), "building");
                 }
             }
 
             // Export grouped building/lot data to CBOR file in user plugins directory
             if (!allBuildings.empty()) {
-                try {
-                    auto cborPath = config.userPluginsRoot / "lots.cbor";
-                    fs::create_directories(config.userPluginsRoot);
-
-                    logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound,
-                                cborPath.string());
-
-                    if (std::ofstream file(cborPath, std::ios::binary); !file) {
-                        logger.error("Failed to open file for writing: {}", cborPath.string());
-                    }
-                    else {
-                        rfl::cbor::write(allBuildings, file);
-                        file.close();
-                        logger.info("Successfully exported lot configs");
-                    }
-                }
-                catch (const std::exception& error) {
-                    logger.error("Error exporting lot configs: {}", error.what());
+                const auto cborPath = config.userPluginsRoot / "lots.cbor";
+                logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound,
+                            cborPath.string());
+                if (writeCborAtomic(cborPath, allBuildings)) {
+                    logger.info("Successfully exported lot configs");
                 }
             }
 
@@ -607,36 +656,22 @@ namespace {
                 }
                 if (!propThumbnails.empty()) {
                     NormalizeThumbnailEntries(propThumbnails, thumbnailSize);
-                    const auto binPath = config.userPluginsRoot / "prop_thumbnails.bin";
-                    const auto count = propThumbnails.size();
-                    ThumbnailBin::Write(binPath, std::move(propThumbnails));
-                    logger.info("Exported {} prop thumbnails to {}", count, binPath.string());
+                    writeThumbnailBin(config.userPluginsRoot / "prop_thumbnails.bin",
+                                      std::move(propThumbnails), "prop");
                 }
             }
 
             if (!allProps.empty() || !propFamilies.empty()) {
-                try {
-                    auto cborPath = config.userPluginsRoot / "props.cbor";
-                    fs::create_directories(config.userPluginsRoot);
+                const auto cborPath = config.userPluginsRoot / "props.cbor";
 
-                    PropsCache propsCache;
-                    propsCache.props = std::move(allProps);
-                    propsCache.propFamilies = std::move(propFamilies);
+                PropsCache propsCache;
+                propsCache.props = std::move(allProps);
+                propsCache.propFamilies = std::move(propFamilies);
 
-                    logger.info("Exporting {} props and {} prop families to {}",
-                                propsCache.props.size(), propsCache.propFamilies.size(), cborPath.string());
-
-                    if (std::ofstream file(cborPath, std::ios::binary); !file) {
-                        logger.error("Failed to open file for writing: {}", cborPath.string());
-                    }
-                    else {
-                        rfl::cbor::write(propsCache, file);
-                        file.close();
-                        logger.info("Successfully exported props");
-                    }
-                }
-                catch (const std::exception& error) {
-                    logger.error("Error exporting props: {}", error.what());
+                logger.info("Exporting {} props and {} prop families to {}",
+                            propsCache.props.size(), propsCache.propFamilies.size(), cborPath.string());
+                if (writeCborAtomic(cborPath, propsCache)) {
+                    logger.info("Successfully exported props");
                 }
             }
 
@@ -652,34 +687,20 @@ namespace {
                 }
                 if (!floraThumbnails.empty()) {
                     NormalizeThumbnailEntries(floraThumbnails, thumbnailSize);
-                    const auto binPath = config.userPluginsRoot / "flora_thumbnails.bin";
-                    const auto count = floraThumbnails.size();
-                    ThumbnailBin::Write(binPath, std::move(floraThumbnails));
-                    logger.info("Exported {} flora thumbnails to {}", count, binPath.string());
+                    writeThumbnailBin(config.userPluginsRoot / "flora_thumbnails.bin",
+                                      std::move(floraThumbnails), "flora");
                 }
             }
 
             if (!allFlora.empty()) {
-                try {
-                    auto cborPath = config.userPluginsRoot / "flora.cbor";
-                    fs::create_directories(config.userPluginsRoot);
+                const auto cborPath = config.userPluginsRoot / "flora.cbor";
 
-                    FloraCache floraCache;
-                    floraCache.floraItems = std::move(allFlora);
+                FloraCache floraCache;
+                floraCache.floraItems = std::move(allFlora);
 
-                    logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), cborPath.string());
-
-                    if (std::ofstream file(cborPath, std::ios::binary); !file) {
-                        logger.error("Failed to open file for writing: {}", cborPath.string());
-                    }
-                    else {
-                        rfl::cbor::write(floraCache, file);
-                        file.close();
-                        logger.info("Successfully exported flora");
-                    }
-                }
-                catch (const std::exception& error) {
-                    logger.error("Error exporting flora: {}", error.what());
+                logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), cborPath.string());
+                if (writeCborAtomic(cborPath, floraCache)) {
+                    logger.info("Successfully exported flora");
                 }
             }
 
