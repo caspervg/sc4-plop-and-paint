@@ -196,7 +196,7 @@ namespace {
         return begin == fs::directory_iterator();
     }
 
-    void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
+    bool ScanAndAnalyzeExemplars(const PluginConfiguration& config,
                                  spdlog::logger& logger,
                                  bool renderModelThumbnails,
                                  const uint32_t thumbnailSize) {
@@ -238,7 +238,10 @@ namespace {
             }
 
             if (!mapperLoaded) {
-                logger.warn("Could not load PropertyMapper XML - some features may be limited");
+                logger.error("Could not load PropertyMapper XML - aborting scan, exemplars cannot be "
+                             "classified without property definitions");
+                indexService.shutdown();
+                return false;
             }
 
             // Wait for indexing to complete, logging progress periodically
@@ -682,9 +685,11 @@ namespace {
 
             // Shutdown the indexing service
             indexService.shutdown();
+            return true;
         }
         catch (const std::exception& error) {
             logger.error("Error during exemplar scan: {}", error.what());
+            return false;
         }
     }
 } // namespace
@@ -770,8 +775,7 @@ int main(int argc, char* argv[]) {
             if (renderThumbnailsFlag) {
                 logger->info("3D thumbnail rendering enabled");
             }
-            ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailSize);
-            return 0;
+            return ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailSize) ? 0 : 1;
         }
 
         // Default behavior - show plugin paths
