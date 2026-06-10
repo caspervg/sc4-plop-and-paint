@@ -62,7 +62,8 @@ namespace {
     };
 
     RgbaImage ResizeRgbaImage(const RgbaImage& source, const uint32_t targetWidth, const uint32_t targetHeight) {
-        if (source.width == 0 || source.height == 0 || source.pixels.empty() || targetWidth == 0 || targetHeight == 0) {
+        if (source.width == 0 || source.height == 0 || targetWidth == 0 || targetHeight == 0 ||
+            source.pixels.size() < static_cast<size_t>(source.width) * source.height * 4) {
             return {};
         }
 
@@ -104,7 +105,8 @@ namespace {
                 source.pixels.resize(variant.data.size());
                 std::memcpy(source.pixels.data(), variant.data.data(), variant.data.size());
 
-                if (source.width == 0 || source.height == 0) {
+                if (source.width == 0 || source.height == 0 ||
+                    source.pixels.size() < static_cast<size_t>(source.width) * source.height * 4) {
                     Variant normalized;
                     normalized.width = targetSize;
                     normalized.height = targetSize;

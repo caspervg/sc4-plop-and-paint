@@ -245,6 +245,13 @@ namespace {
 
         spdlog::trace("decodePngToRgba32: decoded {}x{} image with {} channels", width, height, channels);
 
+        constexpr int kMaxDecodedDimension = 4096;
+        if (width <= 0 || height <= 0 || width > kMaxDecodedDimension || height > kMaxDecodedDimension) {
+            spdlog::warn("Refusing PNG with suspicious decoded dimensions {}x{}", width, height);
+            stbi_image_free(pixels);
+            return result;
+        }
+
         // Check if image is wide enough to have the second icon
         if (static_cast<uint32_t>(width) < kIconSkipWidth + kIconCropWidth) {
             spdlog::trace("decodePngToRgba32: image too narrow ({}px), need at least {}px",
