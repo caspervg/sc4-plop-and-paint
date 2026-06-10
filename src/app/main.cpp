@@ -300,10 +300,18 @@ namespace {
                 recordTgis.insert(recordTgis.end(), exemplarTgis.begin(), exemplarTgis.end());
                 recordTgis.insert(recordTgis.end(), cohortTgis.begin(), cohortTgis.end());
 
+                // The type index holds one entry per file containing a TGI; only process each TGI once.
+                std::unordered_set<DBPF::Tgi, DBPF::TgiHash> seenRecordTgis;
+                seenRecordTgis.reserve(recordTgis.size());
+
                 for (const auto& tgi : recordTgis) {
+                    if (!seenRecordTgis.insert(tgi).second) {
+                        continue;
+                    }
                     auto files = indexService.lookupFiles(tgi);
                     if (!files.empty()) {
-                        fileToExemplarTgis[files[0]].push_back(tgi);
+                        // The last file in load order wins, matching the game's override rules.
+                        fileToExemplarTgis[files.back()].push_back(tgi);
                     }
                 }
             }
