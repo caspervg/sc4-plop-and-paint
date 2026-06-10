@@ -84,45 +84,39 @@ namespace thumb {
         }
     }
 
-    std::optional<RenderedImage> ThumbnailRenderer::renderModel(const DBPF::Tgi& tgi, const uint32_t size) {
+    ParseExpected<RenderedImage> ThumbnailRenderer::renderModel(const DBPF::Tgi& tgi, const uint32_t size) {
         if (size == 0) {
-            return std::nullopt;
+            return Fail("requested thumbnail size is 0");
         }
         if (!ensureInitialized_()) {
-            spdlog::warn("Thumbnail renderer failed to initialize raylib");
-            return std::nullopt;
+            return Fail("renderer failed to initialize (raylib window could not be created)");
         }
 
         if (tgi.type != kTypeIdS3D) {
             if (tgi.type == kTypeIdATC) {
-                spdlog::trace("Thumbnail render received an ATC {}, not supported", tgi.ToString());
-                return std::nullopt;
+                return Fail("ATC composite models are not supported");
             }
-
-            spdlog::warn("Thumbnail renderer received non-S3D unknown {}", tgi.ToString());
-            return std::nullopt;
+            return Fail("unsupported model type 0x{:08X} (expected S3D)", tgi.type);
         }
 
         const auto modelHandle = loadModel_(tgi);
         if (!modelHandle) {
-            spdlog::trace("Thumbnail renderer could not build model {}", tgi.ToString());
-            return std::nullopt;
+            return std::unexpected(modelHandle.error());
         }
 
         const uint32_t renderSize = size * kSupersampleFactor;
         const RenderTexture2D target = LoadRenderTexture(static_cast<int>(renderSize), static_cast<int>(renderSize));
         if (target.id == 0) {
-            return std::nullopt;
+            return Fail("failed to create {}x{} render texture", renderSize, renderSize);
         }
 
-        const BoundingBox bounds = GetModelBoundingBox(modelHandle->model);
+        const BoundingBox bounds = GetModelBoundingBox((*modelHandle)->model);
         const Vector3 sizeVec = Vector3Subtract(bounds.max, bounds.min);
 
         const auto maxDim = std::max(std::max(sizeVec.x, sizeVec.y), sizeVec.z);
         if (maxDim <= 0.001f) {
-            spdlog::warn("Thumbnail renderer: degenerate bounds for {} (maxDim={})", tgi.ToString(), maxDim);
             UnloadRenderTexture(target);
-            return std::nullopt;
+            return Fail("degenerate model bounds (maxDim={})", maxDim);
         }
         const Vector3 center = Vector3Scale(Vector3Add(bounds.min, bounds.max), 0.5f);
         const Vector3 framingTarget{
@@ -220,7 +214,7 @@ namespace thumb {
         ClearBackground(BLANK);
         BeginMode3D(camera);
         rlDisableBackfaceCulling();
-        DrawModelEx(modelHandle->model, Vector3Zero(), Vector3{0, 1, 0}, 0.0f,
+        DrawModelEx((*modelHandle)->model, Vector3Zero(), Vector3{0, 1, 0}, 0.0f,
                     Vector3One(), WHITE);
         rlEnableBackfaceCulling();
         EndMode3D();
@@ -237,7 +231,7 @@ namespace thumb {
                 UnloadImage(image);
                 UnloadRenderTexture(target);
                 modelCache_.erase(tgi);
-                return std::nullopt;
+                return Fail("rendered image is fully transparent (missing textures or empty geometry?)");
             }
 
             const int visibleWidth = visibleBounds->maxX - visibleBounds->minX + 1;
@@ -257,7 +251,7 @@ namespace thumb {
                 UnloadImage(image);
                 UnloadRenderTexture(target);
                 modelCache_.erase(tgi);
-                return std::nullopt;
+                return Fail("failed to crop rendered image to visible bounds");
             }
 
             const float fitScale = std::min(
@@ -328,20 +322,25 @@ namespace thumb {
         return initialized_;
     }
 
-    std::shared_ptr<LoadedModelHandle> ThumbnailRenderer::loadModel_(const DBPF::Tgi& tgi) {
+    ParseExpected<std::shared_ptr<LoadedModelHandle>> ThumbnailRenderer::loadModel_(const DBPF::Tgi& tgi) {
         if (auto it = modelCache_.find(tgi); it != modelCache_.end()) {
             return it->second;
         }
-        if (failedModels_.contains(tgi)) {
-            return nullptr;
+        if (auto it = failedModels_.find(tgi); it != failedModels_.end()) {
+            return std::unexpected(MakeParseError(it->second));
         }
+
+        const auto fail = [&](std::string reason) {
+            failedModels_.emplace(tgi, reason);
+            return std::unexpected(MakeParseError(std::move(reason)));
+        };
 
         auto filePaths = indexService_.lookupFiles(tgi);
         if (filePaths.empty()) {
-            failedModels_.insert(tgi);
-            return nullptr;
+            return fail("S3D model not found in any indexed plugin file");
         }
 
+        bool s3dParsed = false;
         for (const auto& path : filePaths) {
             DBPF::Reader* reader = indexService_.getReader(path);
             if (!reader) {
@@ -352,6 +351,7 @@ namespace thumb {
             if (!record.has_value()) {
                 continue;
             }
+            s3dParsed = true;
 
             auto model = modelFactory_->build(*record,
                                               tgi,
@@ -369,8 +369,10 @@ namespace thumb {
             }
         }
 
-        failedModels_.insert(tgi);
-        return nullptr;
+        if (s3dParsed) {
+            return fail("S3D record parsed but renderable model could not be built (missing FSH textures?)");
+        }
+        return fail(std::format("failed to parse S3D record from {} candidate file(s)", filePaths.size()));
     }
 
     std::optional<FSH::Record> ThumbnailRenderer::loadTexture_(uint32_t inst, uint32_t group) const {

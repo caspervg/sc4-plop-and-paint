@@ -837,6 +837,9 @@ Flora ExemplarParser::floraFromParsed(const ParsedFloraExemplar& parsed) const {
             flora.thumbnail = preview;
         }
         else {
+            spdlog::debug("Thumbnail render failed for flora {} ({}): {}",
+                          parsed.visibleName, parsed.modelTgi->ToString(),
+                          rendered.has_value() ? "rendered image was empty" : rendered.error().message);
             flora.thumbnail = makeRenderFailedThumbnail(thumbnailSize_, &*parsed.modelTgi);
         }
     }
@@ -937,8 +940,9 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
             building.thumbnail = preview;
         }
         else {
-            spdlog::debug("Thumbnail render failed for building {} ({})",
-                          parsed.name, parsed.modelTgi->ToString());
+            spdlog::debug("Thumbnail render failed for building {} ({}): {}",
+                          parsed.name, parsed.modelTgi->ToString(),
+                          rendered.has_value() ? "rendered image was empty" : rendered.error().message);
             building.thumbnail = makeRenderFailedThumbnail(thumbnailSize_, &*parsed.modelTgi);
         }
     }
@@ -996,8 +1000,9 @@ Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
             prop.thumbnail = preview;
         }
         else {
-            spdlog::debug("Thumbnail render failed for prop {} ({})",
-                          parsed.visibleName, parsed.modelTgi->ToString());
+            spdlog::debug("Thumbnail render failed for prop {} ({}): {}",
+                          parsed.visibleName, parsed.modelTgi->ToString(),
+                          rendered.has_value() ? "rendered image was empty" : rendered.error().message);
             prop.thumbnail = makeRenderFailedThumbnail(thumbnailSize_, &*parsed.modelTgi);
         }
     }
