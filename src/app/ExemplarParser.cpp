@@ -206,7 +206,7 @@ namespace {
 
         auto parsed = LText::Parse(std::span(data->data(), data->size()));
         if (!parsed.has_value()) {
-            spdlog::trace("Failed to parse LText {}: {}", tgi.ToString(), parsed.error().message);
+            spdlog::debug("Failed to parse LText {}: {}", tgi.ToString(), parsed.error().message);
             return std::nullopt;
         }
 
