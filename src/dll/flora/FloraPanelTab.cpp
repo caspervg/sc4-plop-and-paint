@@ -349,7 +349,16 @@ void FloraPanelTab::HandlePickedFlora_(const PickedFlora& picked) {
 
     const Flora* flora = flora_->FindFloraByInstanceId(picked.floraType);
     if (!flora) {
-        LOG_WARN("Picked flora 0x{:08X}, but it is not present in the flora cache", picked.floraType);
+        LOG_INFO("Picked flora 0x{:08X}, but it is not present in the flora cache; using ID-only paint target",
+                 picked.floraType);
+        favoritesOnly_ = false;
+
+        pendingPaint_.typeId = picked.floraType;
+        pendingPaint_.name = FormatHexId(picked.floraType);
+        pendingPaint_.settings.activePalette.clear();
+        pendingPaint_.settings.mode = PaintMode::Direct;
+        pendingPaint_.settings.rotation = picked.orientation & 3;
+        pendingPaint_.open = true;
         return;
     }
 

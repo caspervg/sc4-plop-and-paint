@@ -319,7 +319,6 @@ ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
       , pidSimulatorDateDuration_(mapper.propertyId(kSimulatorDateDuration))
       , pidSimulatorDateInterval_(mapper.propertyId(kSimulatorDateInterval))
       , pidPropRandomChance_(mapper.propertyId(kPropRandomChance))
-      , pidFloraWild_(mapper.propertyId(kFloraWild))
       , pidFloraFamily_(mapper.propertyId(kFloraFamily))
       , pidFloraClusterType_(mapper.propertyId(kFloraClusterType))
       , optBuilding_(mapper.propertyOptionId(kExemplarType, kExemplarTypeBuilding))
@@ -709,18 +708,6 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
 
 std::optional<ParsedFloraExemplar> ExemplarParser::parseFlora(const Exemplar::Record& exemplar,
                                                               const DBPF::Tgi& tgi) const {
-    // Only parse MMP flora (Flora: Wild == false). Skip wild/god-mode flora.
-    if (pidFloraWild_) {
-        if (const auto* prop = findProperty(exemplar, *pidFloraWild_)) {
-            if (const auto wild = prop->GetScalarAs<bool>()) {
-                if (*wild) {
-                    spdlog::trace("Skipping wild flora at {}", tgi.ToString());
-                    return std::nullopt;
-                }
-            }
-        }
-    }
-
     ParsedFloraExemplar parsed;
     parsed.tgi = tgi;
 
