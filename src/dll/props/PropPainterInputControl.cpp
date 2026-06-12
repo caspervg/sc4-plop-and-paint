@@ -230,15 +230,7 @@ uint32_t PropPainterInputControl::ResolveInSeasonPreviewProp_(const uint32_t pro
 
     for (const auto& member : set->members) {
         const Prop* memberProp = propRepository_->FindPropByInstanceId(member.value());
-        if (memberProp == nullptr || !memberProp->simulatorDateStart.has_value()) {
-            continue;
-        }
-        const auto window = seasonal::detail::WindowOf(*memberProp);
-        if (window.duration <= 0) {
-            continue;
-        }
-        const int offset = ((today - window.startDay) % 365 + 365) % 365;
-        if (offset < window.duration) {
+        if (memberProp != nullptr && seasonal::WindowContainsDay(*memberProp, today)) {
             return member.value();
         }
     }

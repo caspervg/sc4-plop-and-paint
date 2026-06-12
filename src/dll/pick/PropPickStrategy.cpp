@@ -4,19 +4,22 @@
 #include <limits>
 #include <unordered_set>
 
+#include "../../shared/SeasonalSetDetector.hpp"
+#include "../props/PropRepository.hpp"
 #include "../props/PropStripperInputControl.hpp"
 #include "../utils/Logger.h"
 #include "SC4List.h"
 #include "SC4Rect.h"
 #include "cISC4PropOccupant.h"
+#include "cISC4Simulator.h"
 
 namespace {
     constexpr float kPickRadiusMeters = 3.0f;
     constexpr uint32_t kHoverHighlight = 0x9u;
 }
 
-PropPickStrategy::PropPickStrategy(const uint32_t sourceFlags)
-    : sourceFlags_(sourceFlags) {}
+PropPickStrategy::PropPickStrategy(const uint32_t sourceFlags, const PropRepository* propRepository)
+    : sourceFlags_(sourceFlags), propRepository_(propRepository) {}
 
 PropPickStrategy::~PropPickStrategy() {
     ClearHover();
@@ -175,9 +178,27 @@ std::optional<PickedProp> PropPickStrategy::PickNearestProp_(const ScenePickCont
         }
     }
 
+    // Skip out-of-season seasonal props: they are invisible, and stacked
+    // seasonal sets would otherwise resolve the distance tie arbitrarily.
+    int dayOfYear = -1;
+    if (propRepository_ != nullptr) {
+        if (cISC4Simulator* simulator = context.city->GetSimulator()) {
+            uint32_t year = 0;
+            uint32_t month = 0;
+            uint32_t day = 0;
+            uint32_t simDayOfYear = 0;
+            uint32_t weekDay = 0;
+            simulator->GetSimDate(&year, &month, &day, &simDayOfYear, &weekDay);
+            dayOfYear = seasonal::detail::DayOfYear(static_cast<uint8_t>(month), static_cast<uint8_t>(day));
+        }
+    }
+
     const CollectedProp* nearest = nullptr;
     float nearestDistSq = std::numeric_limits<float>::max();
     for (const auto& candidate : candidates) {
+        if (IsOutOfSeason_(candidate.propType, dayOfYear)) {
+            continue;
+        }
         const float dx = candidate.position.fX - context.cursorWorld.fX;
         const float dz = candidate.position.fZ - context.cursorWorld.fZ;
         const float distSq = dx * dx + dz * dz;
@@ -199,6 +220,17 @@ std::optional<PickedProp> PropPickStrategy::PickNearestProp_(const ScenePickCont
     result.propType = nearest->propType;
     result.orientation = nearest->orientation;
     return result;
+}
+
+bool PropPickStrategy::IsOutOfSeason_(const uint32_t propType, const int dayOfYear) const {
+    if (propRepository_ == nullptr || dayOfYear < 0) {
+        return false;
+    }
+    const Prop* prop = propRepository_->FindPropByInstanceId(propType);
+    if (prop == nullptr || !prop->simulatorDateStart.has_value()) {
+        return false;
+    }
+    return !seasonal::WindowContainsDay(*prop, dayOfYear);
 }
 
 cISC4Occupant* PropPickStrategy::OccupantFromResult_(const ScenePickResult& result) {

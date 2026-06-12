@@ -1075,7 +1075,7 @@ bool SC4PlopAndPaintDirector::StartPropPicking(std::function<void(const PickedPr
     }
 
     return StartScenePicking_(
-        std::make_unique<PropPickStrategy>(GetPropStripperSources()),
+        std::make_unique<PropPickStrategy>(GetPropStripperSources(), propRepository_.get()),
         [callback = std::move(onPick)](const ScenePickResult& result) mutable {
             if (const auto* prop = std::get_if<PickedProp>(&result)) {
                 callback(*prop);

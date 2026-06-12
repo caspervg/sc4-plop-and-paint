@@ -8,9 +8,13 @@
 #include "cISC4PropManager.h"
 #include "cRZAutoRefCount.h"
 
+class PropRepository;
+
 class PropPickStrategy final : public ScenePickStrategy {
 public:
-    explicit PropPickStrategy(uint32_t sourceFlags);
+    // `propRepository` may be null; it is only used to skip out-of-season
+    // seasonal props (invisible in the scene) when picking.
+    PropPickStrategy(uint32_t sourceFlags, const PropRepository* propRepository);
     ~PropPickStrategy() override;
 
     [[nodiscard]] ScenePickMode Mode() const override;
@@ -36,8 +40,10 @@ private:
                                const cS3DVector3& cursorWorld,
                                PickedPropSource source) const;
     [[nodiscard]] std::optional<PickedProp> PickNearestProp_(const ScenePickContext& context) const;
+    [[nodiscard]] bool IsOutOfSeason_(uint32_t propType, int dayOfYear) const;
     static cISC4Occupant* OccupantFromResult_(const ScenePickResult& result);
 
     uint32_t sourceFlags_{0};
+    const PropRepository* propRepository_{nullptr};
     cRZAutoRefCount<cISC4Occupant> hoveredOccupant_{};
 };

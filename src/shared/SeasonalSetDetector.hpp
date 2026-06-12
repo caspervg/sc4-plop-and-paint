@@ -224,6 +224,20 @@ inline std::string PrettifyStem(const std::string_view stem) {
 
 }  // namespace detail
 
+// True when the prop has a simulator date window covering `dayOfYear`
+// (0-based, wrapping across new year). False for props without a window.
+inline bool WindowContainsDay(const Prop& prop, const int dayOfYear) {
+    if (!prop.simulatorDateStart.has_value()) {
+        return false;
+    }
+    const detail::DateWindow window = detail::WindowOf(prop);
+    if (window.duration <= 0) {
+        return false;
+    }
+    const int offset = ((dayOfYear - window.startDay) % 365 + 365) % 365;
+    return offset < window.duration;
+}
+
 // `sourceFileIndices` is parallel to `props` (load-order index of the originating
 // file per prop); pass an empty vector when unknown.
 inline std::vector<SeasonalSet> DetectSeasonalSets(const std::vector<Prop>& props,
