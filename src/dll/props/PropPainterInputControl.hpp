@@ -25,6 +25,7 @@ protected:
 
     [[nodiscard]] bool ShouldShowModelPreview_() const override;
     [[nodiscard]] bool HasActivePreviewOccupant_() const override;
+    [[nodiscard]] bool IsPreviewOccupantStale_() const override;
     void CreatePreviewOccupant_() override;
     void DestroyPreviewOccupant_() override;
     void HidePreviewForPick_() override;
@@ -41,4 +42,7 @@ private:
 
     cRZAutoRefCount<cISC4PropOccupant> previewProp_{};
     cRZAutoRefCount<cISC4Occupant> previewOccupant_{};
+    // Seasonal set member the preview occupant was created as (may differ from
+    // the selected previewOccupantTypeID_).
+    uint32_t previewDisplayedPropID_{0};
 };

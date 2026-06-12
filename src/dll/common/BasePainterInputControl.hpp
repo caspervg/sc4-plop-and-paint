@@ -80,6 +80,10 @@ protected:
     // Returns true if a preview occupant is currently alive in the city.
     [[nodiscard]] virtual bool HasActivePreviewOccupant_() const { return false; }
 
+    // Returns true when the preview occupant no longer matches what would be
+    // created now (e.g. seasonal set member changed); triggers a recreate.
+    [[nodiscard]] virtual bool IsPreviewOccupantStale_() const { return false; }
+
     // Creates the preview occupant; called when ShouldShowModelPreview_() is true
     // and HasActivePreviewOccupant_() is false.
     virtual void CreatePreviewOccupant_() {}

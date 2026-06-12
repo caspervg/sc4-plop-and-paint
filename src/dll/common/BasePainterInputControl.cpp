@@ -258,6 +258,12 @@ void BasePainterInputControl::ProcessPendingActions() {
             onCancel_();
         }
     }
+
+    // Catch sim-date driven staleness (seasonal set member changes) even when
+    // no mouse events arrive.
+    if (HasActivePreviewOccupant_() && IsPreviewOccupantStale_()) {
+        SyncPreviewForState_();
+    }
 }
 
 void BasePainterInputControl::DrawOverlay(IDirect3DDevice7* device) {
@@ -404,7 +410,8 @@ void BasePainterInputControl::TransitionTo_(const ControlState newState, const c
 
 void BasePainterInputControl::SyncPreviewForState_() {
     if (ShouldShowModelPreview_()) {
-        if (HasActivePreviewOccupant_() && previewOccupantTypeID_ != CurrentDirectTypeID_()) {
+        if (HasActivePreviewOccupant_() &&
+            (previewOccupantTypeID_ != CurrentDirectTypeID_() || IsPreviewOccupantStale_())) {
             DestroyPreviewOccupant_();
         }
         if (!HasActivePreviewOccupant_()) {

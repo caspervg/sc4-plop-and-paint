@@ -196,7 +196,15 @@ void PropPainterInputControl::CreatePreviewOccupant_() {
     // Track the selected ID, not the displayed member: SyncPreviewForState_
     // recreates the preview whenever this differs from CurrentDirectTypeID_().
     previewOccupantTypeID_ = selectedPropID;
+    previewDisplayedPropID_ = previewPropID;
     LOG_INFO("Created preview prop 0x{:08X} (selected 0x{:08X})", previewPropID, selectedPropID);
+}
+
+bool PropPainterInputControl::IsPreviewOccupantStale_() const {
+    if (!previewProp_ || previewOccupantTypeID_ == 0) {
+        return false;
+    }
+    return ResolveInSeasonPreviewProp_(previewOccupantTypeID_) != previewDisplayedPropID_;
 }
 
 uint32_t PropPainterInputControl::ResolveInSeasonPreviewProp_(const uint32_t propID) const {
@@ -252,6 +260,7 @@ void PropPainterInputControl::DestroyPreviewOccupant_() {
     previewOccupant_.Reset();
     previewProp_.Reset();
     previewOccupantTypeID_ = 0;
+    previewDisplayedPropID_ = 0;
     previewPositionValid_ = false;
     LOG_INFO("Destroyed preview prop");
 }
