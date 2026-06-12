@@ -25,6 +25,7 @@ public:
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
+    bool OnMouseWheel(int32_t x, int32_t z, uint32_t modifiers, int32_t wheelDelta) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
 
     void Activate() override;
@@ -33,6 +34,10 @@ public:
     void SetCity(cISC4City* city);
     void SetStrategy(std::unique_ptr<ScenePickStrategy> strategy);
     [[nodiscard]] ScenePickMode GetMode() const;
+    [[nodiscard]] bool IsActive() const { return active_; }
+    [[nodiscard]] const std::optional<ScenePickResult>& GetHoveredResult() const { return hoveredResult_; }
+    [[nodiscard]] uint32_t GetCandidateCount() const { return strategy_ ? strategy_->CandidateCount() : 0; }
+    [[nodiscard]] uint32_t GetCandidateIndex() const { return strategy_ ? strategy_->CandidateIndex() : 0; }
     void SetOnPick(std::function<void(const ScenePickResult&)> onPick);
     void SetOnCancel(std::function<void()> onCancel);
     void ProcessPendingActions();

@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -16,6 +17,11 @@ public:
 
     [[nodiscard]] const std::vector<uint32_t>& GetInstanceIds() const { return instanceIds_; }
     [[nodiscard]] size_t Count() const { return instanceIds_.size(); }
+
+    // instanceIds_ is kept sorted by Populate.
+    [[nodiscard]] bool Contains(const uint32_t instanceId) const {
+        return std::binary_search(instanceIds_.begin(), instanceIds_.end(), instanceId);
+    }
 
 private:
     std::vector<uint32_t> instanceIds_;

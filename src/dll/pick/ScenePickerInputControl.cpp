@@ -1,5 +1,7 @@
 #include "ScenePickerInputControl.hpp"
 
+#include <type_traits>
+#include <variant>
 #include <windows.h>
 
 #include "cISTETerrain.h"
@@ -9,6 +11,7 @@ namespace {
     constexpr auto kScenePickerControlID = 0x7F6E5D4Du;
     constexpr DWORD kPickerNoTargetColor = 0xC0FF3333;
     constexpr DWORD kPickerTargetColor = 0xC033DD66;
+    constexpr DWORD kPickerRectHighlightColor = 0xF0FFD700;
 }
 
 ScenePickerInputControl::ScenePickerInputControl()
@@ -75,6 +78,21 @@ bool ScenePickerInputControl::OnMouseMove(const int32_t x, const int32_t z, cons
     RefreshHover_();
     BuildOverlay_();
     return true;
+}
+
+bool ScenePickerInputControl::OnMouseWheel(const int32_t x, const int32_t z, const uint32_t modifiers,
+                                           const int32_t wheelDelta) {
+    // Alt+scroll cycles the stack (matching other DLLs that consume the
+    // wheel); plain scroll always stays camera zoom.
+    const bool altHeld = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    if (altHeld && active_ && IsOnTop() && strategy_ && wheelDelta != 0 && strategy_->CandidateCount() > 1) {
+        strategy_->CycleCandidates(wheelDelta > 0 ? 1 : -1);
+        UpdateCursorWorldFromScreen_(x, z);
+        RefreshHover_();
+        BuildOverlay_();
+        return true;
+    }
+    return cSC4BaseViewInputControl::OnMouseWheel(x, z, modifiers, wheelDelta);
 }
 
 bool ScenePickerInputControl::OnKeyDown(const int32_t vkCode, const uint32_t /*modifiers*/) {
@@ -197,6 +215,21 @@ void ScenePickerInputControl::BuildOverlay_() {
         strategy_->PickRadiusMeters(),
         GetTerrain_(),
         hoveredResult_.has_value() ? kPickerTargetColor : kPickerNoTargetColor);
+
+    // Outline the hovered item's world footprint (lot textures, lots) so the
+    // selection has visible feedback.
+    if (hoveredResult_) {
+        std::visit([this](const auto& picked) {
+            using T = std::decay_t<decltype(picked)>;
+            if constexpr (std::is_same_v<T, PickedDecal> || std::is_same_v<T, PickedLot>) {
+                if (picked.hasWorldRect) {
+                    overlay_.AddRectOutline(picked.worldMinX, picked.worldMinZ,
+                                            picked.worldMaxX, picked.worldMaxZ,
+                                            GetTerrain_(), kPickerRectHighlightColor);
+                }
+            }
+        }, *hoveredResult_);
+    }
 }
 
 void ScenePickerInputControl::ClearHover_() {

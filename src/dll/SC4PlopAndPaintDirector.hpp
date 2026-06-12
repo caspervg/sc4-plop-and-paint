@@ -21,7 +21,6 @@
 #include "cRZAutoRefCount.h"
 #include "cRZMessage2COMDirector.h"
 #include "decals/DecalPainterInputControl.hpp"
-#include "decals/DecalPickerInputControl.hpp"
 #include "decals/DecalStripperInputControl.hpp"
 #include "public/TerrainDecalServiceIds.h"
 #include "decals/DecalRepository.hpp"
@@ -32,6 +31,7 @@
 #include "paint/PaintStatusPanel.hpp"
 #include "pick/ScenePickerInputControl.hpp"
 #include "pick/ScenePickResult.hpp"
+#include "pick/ScenePickStatusPanel.hpp"
 #include "pick/ScenePickStrategy.hpp"
 #include "props/PropPainterInputControl.hpp"
 #include "props/PropStripperInputControl.hpp"
@@ -102,6 +102,9 @@ public:
     bool StartFloraPicking(std::function<void(const PickedFlora& picked)> onPick);
     void StopFloraPicking();
     [[nodiscard]] bool IsFloraPicking() const;
+    bool StartLotPicking(std::function<void(const PickedLot& picked)> onPick);
+    void StopLotPicking();
+    [[nodiscard]] bool IsLotPicking() const;
     bool StartPropStripping();
     void StopPropStripping();
     [[nodiscard]] bool IsPropStripping() const;
@@ -140,7 +143,6 @@ private:
                                         bool keepFloraStripping = false,
                                         bool keepDecalPainting = false,
                                         bool keepDecalStripping = false,
-                                        bool keepDecalPicking = false,
                                         bool keepScenePicking = false);
     void ApplySwitchPolicy_(BasePainterInputControl* control);
     void RememberDecalPlacementSettings_();
@@ -181,13 +183,13 @@ private:
     PropPaintSettings lastDecalPlacementSettings_{MakeDefaultDecalPlacementSettings()};
     cRZAutoRefCount<DecalStripperInputControl> decalStripperControl_;
     bool decalStripping_{false};
-    cRZAutoRefCount<DecalPickerInputControl>   decalPickerControl_;
-    bool decalPicking_{false};
     cRZAutoRefCount<ScenePickerInputControl>   scenePickerControl_;
     bool scenePicking_{false};
     cIGZTerrainDecalService* terrainDecalService_{nullptr};
     std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};
+    std::unique_ptr<ScenePickStatusPanel> pickStatusPanel_;
+    bool pickStatusPanelRegistered_{false};
     std::unique_ptr<RecentSwapPanel> swapPanel_;
     bool swapPanelRegistered_{false};
     RecentPaintHistory recentPaints_{};

@@ -64,6 +64,18 @@ void BuildingsPanelTab::OnDeviceReset(uint32_t deviceGeneration) {
     }
 }
 
+void BuildingsPanelTab::HandlePickedLot_(const PickedLot& picked) {
+    const Building* building = lots_->FindBuildingByLotInstanceId(picked.lotInstanceId);
+    if (!building) {
+        LOG_WARN("Picked lot 0x{:08X}, but it is not present in the lot cache", picked.lotInstanceId);
+        return;
+    }
+
+    filter_ = LotFilterHelper{};
+    filter_.searchBuffer = building->name;
+    selectedBuilding_ = building;
+}
+
 ImGuiTexture BuildingsPanelTab::LoadBuildingTexture_(uint64_t buildingKey) {
     ImGuiTexture texture;
 
@@ -89,9 +101,29 @@ void BuildingsPanelTab::RenderFilterUI_() {
         searchBuf[sizeof(searchBuf) - 1] = '\0';
     }
 
-    ImGui::SetNextItemWidth(-1);
+    // Leave room on the right for the pick button.
+    constexpr float kPickButtonWidth = 100.0f;
+    ImGui::SetNextItemWidth(-(kPickButtonWidth + ImGui::GetStyle().ItemSpacing.x));
     if (ImGui::InputTextWithHint("##SearchBuildings", "Search buildings...", searchBuf, sizeof(searchBuf))) {
         filter_.searchBuffer = searchBuf;
+    }
+
+    ImGui::SameLine();
+    if (director_->IsLotPicking()) {
+        if (ImGui::Button("Stop picking##LotPicker", ImVec2(kPickButtonWidth, 0.0f))) {
+            director_->StopLotPicking();
+        }
+    }
+    else {
+        if (ImGui::Button("Pick lot", ImVec2(kPickButtonWidth, 0.0f))) {
+            ReleaseImGuiInputCapture_();
+            director_->StartLotPicking([this](const PickedLot& picked) {
+                HandlePickedLot_(picked);
+            });
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click a plopped lot in the city to select it in the list.\nESC or RMB to cancel.");
+        }
     }
 
     // Zone type filter

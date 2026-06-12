@@ -16,6 +16,7 @@
 #include "../SC4PlopAndPaintDirector.hpp"
 #include "../common/Constants.hpp"
 #include "../utils/Logger.h"
+#include "DecalTextureLoader.hpp"
 #include "FSHReader.h"
 
 namespace {
@@ -303,54 +304,7 @@ void DecalPanelTab::OnRender() {
         hasSelection && favorites_ && favorites_->GetDecalFavoritePresets(selectedInstanceId_) &&
         !favorites_->GetDecalFavoritePresets(selectedInstanceId_)->empty();
 
-    ImGui::Text("Showing %zu of %zu textures", filtered.size(), decals_->Count());
-    if (director_->IsDecalPainting()) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Stop painting")) {
-            director_->StopDecalPainting();
-        }
-    }
-
-    // Decal strip controls
-    if (director_->IsDecalStripping()) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Stop stripping")) {
-            director_->StopDecalStripping();
-        }
-    }
-    else {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Strip decals")) {
-            ReleaseImGuiInputCapture_();
-            director_->StartDecalStripping();
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click decals to remove them.\nPress B for brush mode.\nCtrl+Z to undo.\nESC to stop.");
-        }
-    }
-
-    // Decal pick controls
-    if (director_->IsDecalPicking()) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Stop picking")) {
-            director_->StopDecalPicking();
-        }
-    }
-    else {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Pick decal")) {
-            ReleaseImGuiInputCapture_();
-            director_->StartDecalPicking([this](const uint32_t instanceId) {
-                selectedInstanceId_ = instanceId;
-                scrollToInstanceId_ = instanceId;
-            });
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click a placed decal to select its texture in the list.\nESC or RMB to cancel.");
-        }
-    }
-
-    ImGui::Spacing();
+    // Action row: paint actions on the left, scene tools on the right.
     if (!hasSelection) {
         ImGui::BeginDisabled();
     }
@@ -370,24 +324,56 @@ void DecalPanelTab::OnRender() {
     if (!hasSelection) {
         ImGui::EndDisabled();
     }
+
     ImGui::SameLine();
-    if (hasSelection && favorites_) {
-        if (ImGui::SmallButton(selectedIsFavorite ? "Unfavorite" : "Favorite")) {
-            favorites_->ToggleDecalFavorite(selectedInstanceId_);
+    if (director_->IsDecalPicking()) {
+        if (ImGui::Button("Stop picking", ImVec2(kActionButtonWidth, 0.0f))) {
+            director_->StopDecalPicking();
         }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip(selectedIsFavorite ? "Remove selected texture from favorites" : "Add selected texture to favorites");
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Reset")) {
-            pendingPaint_.settings.stateTemplate = MakeDefaultDecalState();
-            pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(selectedInstanceId_);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Reset the current decal settings to their defaults.");
-        }
-        ImGui::SameLine();
     }
+    else {
+        if (ImGui::Button("Pick decal", ImVec2(kActionButtonWidth, 0.0f))) {
+            ReleaseImGuiInputCapture_();
+            director_->StartDecalPicking([this](const uint32_t instanceId) {
+                selectedInstanceId_ = instanceId;
+                scrollToInstanceId_ = instanceId;
+                // Filter to the texture family: the first four nibbles are the
+                // base/overlay ID, the rest encode wealth/state/zoom variants.
+                std::snprintf(iidFilterBuf_, sizeof(iidFilterBuf_), "%04X", instanceId >> 16);
+                wealthFilter_ = 0;
+                dilapidationFilter_ = 0;
+                favoritesOnly_ = false;
+            });
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click a placed decal or a lot base/overlay texture\nto select it in the list.\nAlt+scroll to cycle overlapping textures.\nESC or RMB to cancel.");
+        }
+    }
+
+    ImGui::SameLine();
+    if (director_->IsDecalStripping()) {
+        if (ImGui::Button("Stop stripping", ImVec2(kActionButtonWidth, 0.0f))) {
+            director_->StopDecalStripping();
+        }
+    }
+    else {
+        if (ImGui::Button("Strip decals", ImVec2(kActionButtonWidth, 0.0f))) {
+            ReleaseImGuiInputCapture_();
+            director_->StartDecalStripping();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click decals to remove them.\nPress B for brush mode.\nCtrl+Z to undo.\nESC to stop.");
+        }
+    }
+
+    if (director_->IsDecalPainting()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Stop painting", ImVec2(kActionButtonWidth, 0.0f))) {
+            director_->StopDecalPainting();
+        }
+    }
+
+    // Selection status row.
     if (hasSelection) {
         if (selectedIsFavorite && selectedHasPresets) {
             ImGui::TextDisabled("Selected: 0x%08X  favorite  saved presets", selectedInstanceId_);
@@ -397,6 +383,23 @@ void DecalPanelTab::OnRender() {
         }
         else {
             ImGui::TextDisabled("Selected: 0x%08X", selectedInstanceId_);
+        }
+        if (favorites_) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton(selectedIsFavorite ? "Unfavorite" : "Favorite")) {
+                favorites_->ToggleDecalFavorite(selectedInstanceId_);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(selectedIsFavorite ? "Remove selected texture from favorites" : "Add selected texture to favorites");
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Reset")) {
+                pendingPaint_.settings.stateTemplate = MakeDefaultDecalState();
+                pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(selectedInstanceId_);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Reset the current decal settings to their defaults.");
+            }
         }
     }
     else {
@@ -411,6 +414,7 @@ void DecalPanelTab::OnRender() {
     }
 
     ImGui::Separator();
+    ImGui::Text("Showing %zu of %zu textures", filtered.size(), decals_->Count());
     RenderDecalGrid_(filtered);
     RenderSettingsModal_();
 }
@@ -1081,67 +1085,7 @@ bool DecalPanelTab::EnsureUvPickerTextureLoaded_() {
 
 bool DecalPanelTab::LoadDecalTexture_(const uint32_t instanceId, ImGuiTexture& outTexture, ImVec2& outSourceSize) const {
     outSourceSize = ImVec2(0.0f, 0.0f);
-
-    if (!pRM_ || !imguiService_) {
-        return false;
-    }
-
-    const cGZPersistResourceKey key = MakeDecalTextureKey(instanceId);
-
-    // Find the DB segment containing this key and read raw bytes
-    cRZAutoRefCount<cIGZPersistDBSegment> segment;
-    if (!pRM_->FindDBSegment(key, segment.AsPPObj()) || !segment) {
-        LOG_DEBUG("DecalPanelTab: no segment for decal 0x{:08X}", instanceId);
-        return false;
-    }
-
-    const uint32_t size = segment->GetRecordSize(key);
-    if (size == 0) {
-        LOG_WARN("DecalPanelTab: zero-size record for decal 0x{:08X}", instanceId);
-        return false;
-    }
-
-    std::vector<uint8_t> buf(size);
-    uint32_t readSize = size;
-    if (segment->ReadRecord(key, buf.data(), readSize) == 0) {
-        LOG_WARN("DecalPanelTab: failed to read record for decal 0x{:08X}", instanceId);
-        return false;
-    }
-
-    // Parse FSH record
-    auto parseResult = FSH::Reader::Parse(std::span<const uint8_t>(buf.data(), readSize));
-    if (!parseResult) {
-        LOG_WARN("DecalPanelTab: FSH parse failed for decal 0x{:08X}", instanceId);
-        return false;
-    }
-
-    const FSH::Record& record = *parseResult;
-    if (record.entries.empty() || record.entries[0].bitmaps.empty()) {
-        LOG_WARN("DecalPanelTab: FSH has no bitmaps for decal 0x{:08X}", instanceId);
-        return false;
-    }
-
-    // Use the first (highest-resolution) bitmap from the first entry
-    const FSH::Bitmap& bitmap = record.entries[0].bitmaps[0];
-
-    std::vector<uint8_t> rgba;
-    if (!FSH::Reader::ConvertToRGBA8(bitmap, rgba)) {
-        LOG_WARN("DecalPanelTab: RGBA conversion failed for decal 0x{:08X}", instanceId);
-        return false;
-    }
-
-    // ImGuiTexture::Create expects BGRA8 - swap R and B channels
-    for (size_t i = 0; i + 3 < rgba.size(); i += 4) {
-        std::swap(rgba[i], rgba[i + 2]);
-    }
-
-    if (!outTexture.Create(imguiService_, bitmap.width, bitmap.height, rgba.data())) {
-        LOG_WARN("DecalPanelTab: texture upload failed for decal 0x{:08X}", instanceId);
-        return false;
-    }
-
-    outSourceSize = ImVec2(static_cast<float>(bitmap.width), static_cast<float>(bitmap.height));
-    return true;
+    return decals::LoadDecalTexture(pRM_, imguiService_, instanceId, outTexture, outSourceSize);
 }
 
 ImGuiTexture DecalPanelTab::LoadDecalThumbnail_(const uint32_t instanceId) const {

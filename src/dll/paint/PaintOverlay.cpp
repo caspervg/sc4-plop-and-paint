@@ -133,6 +133,40 @@ void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector
 
 }
 
+void PaintOverlay::AddRectOutline(const float minX, const float minZ, const float maxX, const float maxZ,
+                                  cISTETerrain* terrain, const DWORD color) {
+    constexpr float kThick = 0.5f;
+    constexpr float kMaxSegmentLength = 4.0f;
+
+    // Use the game's own continuous altitude query so the outline hugs the
+    // rendered (triangulated) mesh; bilinear corner interpolation visibly
+    // drifts from the surface inside sloped cells.
+    const auto surfaceHeight = [&](const float x, const float z) {
+        return terrain ? terrain->GetAltitude(x, z) + kHeightOffset : kHeightOffset;
+    };
+
+    const auto emitEdge = [&](const float x0, const float z0, const float x1, const float z1) {
+        const float length = std::max(std::abs(x1 - x0), std::abs(z1 - z0));
+        const int segments = std::max(1, static_cast<int>(std::ceil(length / kMaxSegmentLength)));
+        for (int i = 0; i < segments; ++i) {
+            const float t0 = static_cast<float>(i) / static_cast<float>(segments);
+            const float t1 = static_cast<float>(i + 1) / static_cast<float>(segments);
+            const float ax = x0 + (x1 - x0) * t0;
+            const float az = z0 + (z1 - z0) * t0;
+            const float bx = x0 + (x1 - x0) * t1;
+            const float bz = z0 + (z1 - z0) * t1;
+            const cS3DVector3 a(ax, surfaceHeight(ax, az), az);
+            const cS3DVector3 b(bx, surfaceHeight(bx, bz), bz);
+            EmitLine_(a, b, kThick, color, kLayerShape);
+        }
+    };
+
+    emitEdge(minX, minZ, maxX, minZ);
+    emitEdge(maxX, minZ, maxX, maxZ);
+    emitEdge(maxX, maxZ, minX, maxZ);
+    emitEdge(minX, maxZ, minX, minZ);
+}
+
 void PaintOverlay::BuildDirectPreview(const bool cursorValid,
                                           const cS3DVector3& cursorPos,
                                           cISTETerrain* terrain,
