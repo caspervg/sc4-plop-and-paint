@@ -23,6 +23,7 @@
 
 #include "../shared/entities.hpp"
 #include "../shared/index.hpp"
+#include "../shared/SeasonalSetDetector.hpp"
 #include "DBPFReader.h"
 #include "DbpfIndexService.hpp"
 #include "ExemplarParser.hpp"
@@ -282,6 +283,7 @@ namespace {
             ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails, thumbnailSize);
             std::vector<Building> allBuildings;
             std::vector<Prop> allProps;
+            std::vector<size_t> propSourceFiles;  // parallel to allProps; load-order file index
             std::vector<Flora> allFlora;
             std::unordered_map<uint32_t, std::string> propFamilyNamesById;
             std::unordered_map<uint32_t, ParsedBuildingExemplar> buildingMap;
@@ -417,6 +419,7 @@ namespace {
                                     allProps.emplace_back(
                                         parser.propFromParsed(*prop)
                                     );
+                                    propSourceFiles.push_back(fileOrderIndex);
                                     seenPropKeys.insert(MakeGIKey(tgi.group, tgi.instance));
                                 }
                             }
@@ -705,9 +708,37 @@ namespace {
                 PropsCache propsCache;
                 propsCache.props = std::move(allProps);
                 propsCache.propFamilies = std::move(propFamilies);
+                propsCache.seasonalSets = seasonal::DetectSeasonalSets(propsCache.props, propSourceFiles);
 
-                logger.info("Exporting {} props and {} prop families to {}",
-                            propsCache.props.size(), propsCache.propFamilies.size(), cborPath.string());
+                std::unordered_map<uint32_t, const Prop*> propsByInstance;
+                propsByInstance.reserve(propsCache.props.size());
+                for (const auto& prop : propsCache.props) {
+                    propsByInstance.try_emplace(prop.instanceId.value(), &prop);
+                }
+                for (const auto& set : propsCache.seasonalSets) {
+                    std::string memberSummary;
+                    for (const auto& member : set.members) {
+                        if (!memberSummary.empty()) {
+                            memberSummary += ", ";
+                        }
+                        const auto it = propsByInstance.find(member.value());
+                        if (it != propsByInstance.end()) {
+                            memberSummary += it->second->exemplarName;
+                        }
+                        else {
+                            char buffer[16];
+                            std::snprintf(buffer, sizeof(buffer), "0x%08X", member.value());
+                            memberSummary += buffer;
+                        }
+                    }
+                    logger.debug("Seasonal set '{}' ({}, {} members): {}",
+                                 set.name, set.confidence == 1 ? "fuzzy" : "stem", set.members.size(),
+                                 memberSummary);
+                }
+
+                logger.info("Exporting {} props, {} prop families and {} seasonal sets to {}",
+                            propsCache.props.size(), propsCache.propFamilies.size(),
+                            propsCache.seasonalSets.size(), cborPath.string());
                 if (writeCborAtomic(cborPath, propsCache)) {
                     logger.info("Successfully exported props");
                 }

@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <string>
+#include <utility>
 
 #include "imgui.h"
 #include "shared/entities.hpp"
@@ -15,6 +16,8 @@ namespace Badges {
     constexpr ImU32 kTimedHoverColor = IM_COL32(160, 114, 46, 255);
     constexpr ImU32 kSeasonalColor = IM_COL32(70, 120, 62, 255);
     constexpr ImU32 kSeasonalHoverColor = IM_COL32(84, 142, 74, 255);
+    constexpr ImU32 kSeasonalLooseColor = IM_COL32(104, 108, 52, 255);
+    constexpr ImU32 kSeasonalLooseHoverColor = IM_COL32(122, 126, 62, 255);
     constexpr ImU32 kChanceColor = IM_COL32(128, 72, 44, 255);
     constexpr ImU32 kChanceHoverColor = IM_COL32(150, 86, 54, 255);
 
@@ -24,34 +27,29 @@ namespace Badges {
             prop.simulatorDateInterval.has_value();
     }
 
-    inline std::string BuildBehaviorSummary(const Prop& prop) {
-        const bool hasDayNight = prop.nighttimeStateChange.value_or(false);
-        const bool hasTimeWindow = prop.timeOfDay.has_value();
-        const bool hasSeasonalTiming = HasSeasonalTiming(prop);
+    inline std::string BuildBehaviorSummary(const Prop& prop, const SeasonalSet* seasonalSet = nullptr) {
+        std::string summary;
+        const auto append = [&summary](const char* part) {
+            if (!summary.empty()) {
+                summary += " + ";
+            }
+            summary += part;
+        };
 
-        if (hasDayNight && hasTimeWindow && hasSeasonalTiming) {
-            return "Day/Night + Timed + Seasonal";
+        if (prop.nighttimeStateChange.value_or(false)) {
+            append("Day/Night");
         }
-        if (hasDayNight && hasTimeWindow) {
-            return "Day/Night + Timed";
+        if (prop.timeOfDay.has_value()) {
+            append("Timed");
         }
-        if (hasDayNight && hasSeasonalTiming) {
-            return "Day/Night + Seasonal";
+        if (seasonalSet != nullptr) {
+            append("Seasonal set");
         }
-        if (hasTimeWindow && hasSeasonalTiming) {
-            return "Timed + Seasonal";
-        }
-        if (hasDayNight) {
-            return "Day/Night";
-        }
-        if (hasTimeWindow) {
-            return "Timed";
-        }
-        if (hasSeasonalTiming) {
-            return "Seasonal";
+        else if (HasSeasonalTiming(prop)) {
+            append("Seasonal (no set)");
         }
 
-        return "Static";
+        return summary.empty() ? "Static" : summary;
     }
 
     inline void RenderPill(const char* label, const ImU32 baseColor, const ImU32 hoverColor) {
@@ -67,7 +65,7 @@ namespace Badges {
     }
 
     template <typename F>
-    inline void ForEachBadge(const Prop& prop, F&& fn) {
+    inline void ForEachBadge(const Prop& prop, const SeasonalSet* seasonalSet, F&& fn) {
         if (!prop.familyIds.empty()) {
             fn("Family", kFamilyColor, kFamilyHoverColor);
         }
@@ -77,13 +75,23 @@ namespace Badges {
         if (prop.timeOfDay.has_value()) {
             fn("Timed", kTimedColor, kTimedHoverColor);
         }
-        if (HasSeasonalTiming(prop)) {
-            fn("Seasonal", kSeasonalColor, kSeasonalHoverColor);
+        if (seasonalSet != nullptr) {
+            char buffer[24]{};
+            std::snprintf(buffer, sizeof(buffer), "Seasonal set (%zu)", seasonalSet->members.size());
+            fn(buffer, kSeasonalColor, kSeasonalHoverColor);
+        }
+        else if (HasSeasonalTiming(prop)) {
+            fn("Seasonal", kSeasonalLooseColor, kSeasonalLooseHoverColor);
         }
         if (prop.randomChance.has_value() && *prop.randomChance < 100) {
             char buffer[24]{};
             std::snprintf(buffer, sizeof(buffer), "%u%% Chance", *prop.randomChance);
             fn(buffer, kChanceColor, kChanceHoverColor);
         }
+    }
+
+    template <typename F>
+    inline void ForEachBadge(const Prop& prop, F&& fn) {
+        ForEachBadge(prop, nullptr, std::forward<F>(fn));
     }
 }

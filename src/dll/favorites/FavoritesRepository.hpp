@@ -61,10 +61,19 @@ public:
     void AddPropToNewUserFamily(uint32_t propID, const std::string& baseName);
     bool AddPropFamilyToNewUserFamily(uint32_t familyID);
 
+    // User-created seasonal sets
+    [[nodiscard]] const std::vector<SeasonalSet>& GetUserSeasonalSets() const;
+    bool CreateUserSeasonalSet(const std::string& name);
+    bool DeleteUserSeasonalSet(size_t index);
+    bool RenameUserSeasonalSet(size_t index, const std::string& newName);
+    bool AddPropToUserSeasonalSet(uint32_t propID, size_t index);
+    bool RemovePropFromUserSeasonalSet(uint32_t propID, size_t index);
+
 private:
     static std::filesystem::path GetPluginsPath_();
     static std::string BuildDefaultFamilyName_(const std::string& baseName);
     [[nodiscard]] uint64_t GenerateNextUserFamilyId_() const;
+    [[nodiscard]] uint64_t GenerateNextUserSeasonalSetId_() const;
 
     const PropRepository& props_;
     std::unordered_set<uint32_t> favoriteLotIds_;
@@ -73,6 +82,7 @@ private:
     std::unordered_set<uint32_t> favoriteDecalIds_;
     std::unordered_map<uint32_t, std::vector<NamedDecalPreset>> favoriteDecalPresets_;
     std::vector<PropFamily> userFamilies_;
+    std::vector<SeasonalSet> userSeasonalSets_;
     std::vector<RecentPaintEntryData> recentPaintsCache_;
     size_t activeUserFamilyIndex_{0};
 };

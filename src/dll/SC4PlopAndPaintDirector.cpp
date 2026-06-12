@@ -251,6 +251,7 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         propRepository_->Load();
         floraRepository_->Load();
         favoritesRepository_->Load();
+        propRepository_->ApplyUserSeasonalSets(favoritesRepository_->GetUserSeasonalSets());
 
         cIGZPersistResourceManagerPtr pRMForPanel;
         panel_ = std::make_unique<PlopAndPaintPanel>(
@@ -1143,6 +1144,7 @@ bool SC4PlopAndPaintDirector::StartPropStripping() {
     }
 
     propStripperControl_->SetCity(pCity_);
+    propStripperControl_->SetPropRepository(propRepository_.get());
     propStripperControl_->SetWindow(pView3D_->AsIGZWin());
     propStripperControl_->SetOnCancel([this]() {
         if (pView3D_ && propStripperControl_ &&

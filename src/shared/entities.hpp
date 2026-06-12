@@ -95,10 +95,18 @@ struct PropFamilyInfo {
     std::string displayName;
 };
 
+struct SeasonalSet {
+    std::string name;
+    std::vector<rfl::Hex<uint32_t>> members;  // prop instance IDs; date windows live on the Prop
+    uint8_t confidence = 0;  // 0 = stem match, 1 = fuzzy match, 2 = user-defined
+    std::optional<rfl::Hex<uint64_t>> persistentId;  // set only for user-curated sets
+};
+
 struct PropsCache {
-    uint32_t version = 4;
+    uint32_t version = 5;
     std::vector<Prop> props;
     std::vector<PropFamilyInfo> propFamilies;
+    std::vector<SeasonalSet> seasonalSets;
 };
 
 struct FamilyEntry {
@@ -205,12 +213,13 @@ struct RecentPaintEntryData {
 };
 
 struct AllFavorites {
-    uint32_t version = 6;
+    uint32_t version = 7;
     TabFavorites lots;
     std::optional<TabFavorites> props;
     std::optional<TabFavorites> flora;
     std::optional<std::vector<FavoriteDecalEntry>> decals;
     std::optional<std::vector<PropFamily>> families;
     std::optional<std::vector<RecentPaintEntryData>> recentPaints;
+    std::optional<std::vector<SeasonalSet>> seasonalSets;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

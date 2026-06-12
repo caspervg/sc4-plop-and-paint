@@ -50,6 +50,7 @@ void FavoritesRepository::Load() {
     favoriteDecalIds_.clear();
     favoriteDecalPresets_.clear();
     userFamilies_.clear();
+    userSeasonalSets_.clear();
     recentPaintsCache_.clear();
     activeUserFamilyIndex_ = 0;
 
@@ -102,6 +103,19 @@ void FavoritesRepository::Load() {
                     }
                 }
             }
+            if (result->seasonalSets) {
+                userSeasonalSets_ = *result->seasonalSets;
+                for (auto& set : userSeasonalSets_) {
+                    set.confidence = 2;
+                    if (!set.persistentId.has_value()) {
+                        set.persistentId = rfl::Hex<uint64_t>(GenerateNextUserSeasonalSetId_());
+                    }
+                    std::erase_if(set.members, [this](const rfl::Hex<uint32_t>& member) {
+                        return props_.FindPropByInstanceId(member.value()) == nullptr;
+                    });
+                }
+                std::erase_if(userSeasonalSets_, [](const SeasonalSet& set) { return set.name.empty(); });
+            }
             if (result->recentPaints) {
                 recentPaintsCache_ = *result->recentPaints;
             }
@@ -124,7 +138,7 @@ void FavoritesRepository::Save() const {
         const auto cborPath = pluginsPath / "favorites.cbor";
 
         AllFavorites allFavorites;
-        allFavorites.version = 6;
+        allFavorites.version = 7;
 
         for (const uint32_t id : favoriteLotIds_) {
             allFavorites.lots.items.emplace_back(id);
@@ -173,6 +187,7 @@ void FavoritesRepository::Save() const {
             allFavorites.decals = std::nullopt;
         }
         allFavorites.families = userFamilies_.empty() ? std::nullopt : std::make_optional(userFamilies_);
+        allFavorites.seasonalSets = userSeasonalSets_.empty() ? std::nullopt : std::make_optional(userSeasonalSets_);
         allFavorites.recentPaints = recentPaintsCache_.empty()
             ? std::nullopt
             : std::make_optional(recentPaintsCache_);
@@ -550,6 +565,84 @@ bool FavoritesRepository::AddPropFamilyToNewUserFamily(const uint32_t familyID) 
     return true;
 }
 
+const std::vector<SeasonalSet>& FavoritesRepository::GetUserSeasonalSets() const {
+    return userSeasonalSets_;
+}
+
+bool FavoritesRepository::CreateUserSeasonalSet(const std::string& name) {
+    if (name.empty()) {
+        return false;
+    }
+    for (const auto& set : userSeasonalSets_) {
+        if (set.name == name) {
+            return false;
+        }
+    }
+    SeasonalSet set;
+    set.name = name;
+    set.confidence = 2;
+    set.persistentId = rfl::Hex<uint64_t>(GenerateNextUserSeasonalSetId_());
+    userSeasonalSets_.push_back(std::move(set));
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::DeleteUserSeasonalSet(const size_t index) {
+    if (index >= userSeasonalSets_.size()) {
+        return false;
+    }
+    userSeasonalSets_.erase(userSeasonalSets_.begin() + static_cast<std::ptrdiff_t>(index));
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::RenameUserSeasonalSet(const size_t index, const std::string& newName) {
+    if (index >= userSeasonalSets_.size() || newName.empty()) {
+        return false;
+    }
+    for (size_t i = 0; i < userSeasonalSets_.size(); ++i) {
+        if (i != index && userSeasonalSets_[i].name == newName) {
+            return false;
+        }
+    }
+    userSeasonalSets_[index].name = newName;
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::AddPropToUserSeasonalSet(const uint32_t propID, const size_t index) {
+    if (index >= userSeasonalSets_.size() || propID == 0) {
+        return false;
+    }
+    if (!props_.FindPropByInstanceId(propID)) {
+        LOG_WARN("Cannot add prop 0x{:08X} to seasonal set: prop not found", propID);
+        return false;
+    }
+    auto& set = userSeasonalSets_[index];
+    for (const auto& member : set.members) {
+        if (member.value() == propID) {
+            return false;
+        }
+    }
+    set.members.emplace_back(propID);
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::RemovePropFromUserSeasonalSet(const uint32_t propID, const size_t index) {
+    if (index >= userSeasonalSets_.size()) {
+        return false;
+    }
+    auto& members = userSeasonalSets_[index].members;
+    const auto oldSize = members.size();
+    std::erase_if(members, [propID](const rfl::Hex<uint32_t>& member) { return member.value() == propID; });
+    if (members.size() == oldSize) {
+        return false;
+    }
+    Save();
+    return true;
+}
+
 std::filesystem::path FavoritesRepository::GetPluginsPath_() {
     try {
         const auto modulePath = wil::GetModuleFileNameW(wil::GetModuleInstanceHandle());
@@ -572,6 +665,16 @@ uint64_t FavoritesRepository::GenerateNextUserFamilyId_() const {
     for (const auto& family : userFamilies_) {
         if (family.persistentId.has_value()) {
             nextId = std::max(nextId, family.persistentId->value() + 1);
+        }
+    }
+    return nextId;
+}
+
+uint64_t FavoritesRepository::GenerateNextUserSeasonalSetId_() const {
+    uint64_t nextId = 1;
+    for (const auto& set : userSeasonalSets_) {
+        if (set.persistentId.has_value()) {
+            nextId = std::max(nextId, set.persistentId->value() + 1);
         }
     }
     return nextId;

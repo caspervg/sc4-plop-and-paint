@@ -38,6 +38,7 @@ struct PropPaintSettings {
     bool showGrid = true;
     bool snapPointsToGrid = false;
     bool snapPlacementsToGrid = false;
+    bool paintSeasonalSets = true;  // expand a seasonal set member into the full set on placement
     uint32_t randomSeed = 0;
     std::vector<FamilyEntry> activePalette{};
     float densityVariation = 0.0f;

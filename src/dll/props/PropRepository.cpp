@@ -1,6 +1,7 @@
 #include "PropRepository.hpp"
 
 #include <algorithm>
+#include <unordered_set>
 #include <wil/resource.h>
 #include <wil/win32_helpers.h>
 
@@ -25,22 +26,27 @@ void PropRepository::Load() {
         propFamilyInfos_.clear();
         autoFamilies_.clear();
         autoFamilyIds_.clear();
+        autoSeasonalSets_.clear();
+        seasonalSets_.clear();
+        seasonalSetByMember_.clear();
 
         propThumbnails_.Load(pluginsPath / "prop_thumbnails.bin");
 
         if (auto result = rfl::cbor::load<PropsCache>(cborPath.string())) {
             props_ = std::move(result->props);
             propFamilyInfos_ = std::move(result->propFamilies);
+            autoSeasonalSets_ = std::move(result->seasonalSets);
             for (const auto& family : propFamilyInfos_) {
                 if (!family.displayName.empty()) {
                     propFamilyNames_.emplace(family.familyId.value(), family.displayName);
                 }
             }
+            RebuildSeasonalSets_({});
             RebuildIndexes_();
             BuildAutoFamilies_();
 
-            LOG_INFO("Loaded {} props and {} prop families from {}",
-                     props_.size(), propFamilyNames_.size(), cborPath.string());
+            LOG_INFO("Loaded {} props, {} prop families and {} seasonal sets from {}",
+                     props_.size(), propFamilyNames_.size(), seasonalSets_.size(), cborPath.string());
         }
         else {
             LOG_ERROR("Failed to load props from CBOR file: {}", result.error().what());
@@ -58,6 +64,54 @@ const Prop* PropRepository::FindPropByInstanceId(const uint32_t instanceId) cons
     }
 
     return nullptr;
+}
+
+const SeasonalSet* PropRepository::FindSeasonalSetForProp(const uint32_t instanceId) const {
+    const auto it = seasonalSetByMember_.find(instanceId);
+    if (it != seasonalSetByMember_.end()) {
+        return &seasonalSets_[it->second];
+    }
+
+    return nullptr;
+}
+
+void PropRepository::ApplyUserSeasonalSets(const std::vector<SeasonalSet>& userSets) {
+    RebuildSeasonalSets_(userSets);
+}
+
+// User sets win: an auto-detected set is dropped as soon as a user set claims any
+// of its members, so correcting a bad detection and adding a missed set are the
+// same operation.
+void PropRepository::RebuildSeasonalSets_(const std::vector<SeasonalSet>& userSets) {
+    seasonalSets_.clear();
+    seasonalSetByMember_.clear();
+
+    std::unordered_set<uint32_t> userClaimedMembers;
+    for (const auto& set : userSets) {
+        if (set.members.size() < 2) {
+            continue;
+        }
+        for (const auto& member : set.members) {
+            userClaimedMembers.insert(member.value());
+        }
+        seasonalSets_.push_back(set);
+    }
+
+    for (const auto& set : autoSeasonalSets_) {
+        const bool claimed = std::any_of(set.members.begin(), set.members.end(),
+            [&userClaimedMembers](const rfl::Hex<uint32_t>& member) {
+                return userClaimedMembers.contains(member.value());
+            });
+        if (!claimed) {
+            seasonalSets_.push_back(set);
+        }
+    }
+
+    for (size_t i = 0; i < seasonalSets_.size(); ++i) {
+        for (const auto& member : seasonalSets_[i].members) {
+            seasonalSetByMember_.try_emplace(member.value(), i);
+        }
+    }
 }
 
 void PropRepository::RebuildIndexes_() {

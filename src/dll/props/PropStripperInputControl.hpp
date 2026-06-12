@@ -11,6 +11,7 @@
 #include "cSC4BaseViewInputControl.h"
 
 class cISTETerrain;
+class PropRepository;
 
 class PropStripperInputControl : public cSC4BaseViewInputControl {
 public:
@@ -43,6 +44,7 @@ public:
     void Deactivate() override;
 
     void SetCity(cISC4City* pCity);
+    void SetPropRepository(const PropRepository* propRepository);
     void SetOnCancel(std::function<void()> onCancel);
     void SetEnabledSources(uint32_t sourceFlags);
     [[nodiscard]] uint32_t GetEnabledSources() const noexcept;
@@ -85,9 +87,14 @@ private:
         int32_t orientation = 0;
     };
 
+    void RemoveSeasonalSetSiblings_(const std::vector<CollectedProp>& candidates, cISC4Occupant* removedOccupant,
+                                    uint32_t removedPropType, const cS3DVector3& removedPosition,
+                                    std::vector<DeletedPropInfo>& deletionGroup) const;
+
     cRZAutoRefCount<cISC4City> city_;
     cRZAutoRefCount<cISC4PropManager> propManager_;
     cRZAutoRefCount<cISC4Occupant> hoveredOccupant_;
+    const PropRepository* propRepository_ = nullptr;
 
     bool active_ = false;
     bool cancelPending_ = false;
@@ -98,6 +105,6 @@ private:
     bool cursorValid_ = false;
 
     std::function<void()> onCancel_;
-    std::vector<DeletedPropInfo> undoStack_;
+    std::vector<std::vector<DeletedPropInfo>> undoStack_;
     PaintOverlay overlay_{};
 };

@@ -113,6 +113,12 @@ protected:
     // When false, creates a single-item group immediately (for direct paint).
     void AddOccupantToUndo_(cISC4Occupant* occupant);
 
+    // Groups subsequent AddOccupantToUndo_ calls into one undo group. Returns false
+    // (and stays a no-op) when a group is already open, so multi-occupant placements
+    // nest safely inside line/polygon batches. Only call EndUndoGroup_ on true.
+    bool BeginUndoGroup_();
+    void EndUndoGroup_();
+
     [[nodiscard]] bool IsBatchingPlacements_() const { return batchingPlacements_; }
 
     [[nodiscard]] uint32_t CurrentDirectTypeID_() const;

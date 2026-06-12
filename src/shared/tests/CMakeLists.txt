@@ -3,6 +3,7 @@ set(SHARED_TESTS_NAME SC4PlopAndPaintCore_Tests)
 set(SHARED_TEST_SOURCES
     test_main.cpp
     test_entities.cpp
+    test_seasonal_sets.cpp
 )
 
 add_executable(${SHARED_TESTS_NAME} ${SHARED_TEST_SOURCES})
