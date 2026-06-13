@@ -67,14 +67,19 @@ jobs:
           output-file: SC4PlopAndPaint.spdx.json
           upload-artifact: false
 
+      - name: Stage DLL artifacts
+        shell: bash
+        run: |
+          mkdir -p staging-dll
+          cp cmake-build-release-visual-studio/src/dll/Release/SC4PlopAndPaint.dll staging-dll/
+          cp SC4PlopAndPaint.spdx.json staging-dll/
+
       - name: Upload raw DLL artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.DLL_ARTIFACT_NAME }}
           compression-level: 0
-          path: |
-            cmake-build-release-visual-studio/src/dll/Release/SC4PlopAndPaint.dll
-            SC4PlopAndPaint.spdx.json
+          path: staging-dll/
 
   build-cli:
     runs-on: windows-2022
@@ -131,14 +136,19 @@ jobs:
           output-file: SC4PlopAndPaintCacheBuilder.spdx.json
           upload-artifact: false
 
+      - name: Stage CLI artifacts
+        shell: bash
+        run: |
+          mkdir -p staging-cli
+          cp cmake-build-release-visual-studio-x64/src/app/Release/SC4PlopAndPaintCli.exe staging-cli/
+          cp SC4PlopAndPaintCacheBuilder.spdx.json staging-cli/
+
       - name: Upload raw CLI artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.CLI_ARTIFACT_NAME }}
           compression-level: 0
-          path: |
-            cmake-build-release-visual-studio-x64/src/app/Release/SC4PlopAndPaintCli.exe
-            SC4PlopAndPaintCacheBuilder.spdx.json
+          path: staging-cli/
 
   package-installer:
     needs: [build-dll, build-cli]
