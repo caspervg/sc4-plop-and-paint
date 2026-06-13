@@ -24,6 +24,7 @@ void LotRepository::Load() {
         if (result) {
             buildings_ = std::move(*result);
             buildingsById_ = std::unordered_map<uint64_t, const Building*>(buildings_.size());
+            buildingsByLotId_.clear();
 
             size_t lotCount = 0;
             std::unordered_set<uint64_t> lotKeys;
@@ -32,6 +33,7 @@ void LotRepository::Load() {
                 buildingsById_.emplace(MakeGIKey(b.groupId.value(), b.instanceId.value()), &b);
                 for (const auto& lot : b.lots) {
                     ++lotCount;
+                    buildingsByLotId_.emplace(lot.instanceId.value(), &b);
                     const uint64_t key = MakeGIKey(lot.groupId.value(), lot.instanceId.value());
                     if (!lotKeys.insert(key).second) {
                         ++duplicateLots;

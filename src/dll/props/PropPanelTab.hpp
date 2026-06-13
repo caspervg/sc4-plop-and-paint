@@ -43,6 +43,13 @@ private:
     void RenderPropTooltip_(const Prop& prop) const;
     void RenderFavButton_(const Prop& prop) const;
     void RenderRotationModal_();
+    void HandlePickedProp_(const PickedProp& picked);
+    void RenderSeasonalSetRowActions_(const Prop& prop);
+    void RenderSeasonalSetEditor_();
+    void ApplyUserSeasonalSetsToRepository_() const;
+    void AddPropToNewSeasonalSet_(const Prop& prop);
+    void ConvertAutoSetToUserSet_(const SeasonalSet& autoSet);
+    [[nodiscard]] std::vector<const Prop*> SuggestSeasonalSetMembers_(const SeasonalSet& set) const;
 
     static uint64_t MakePropKey_(const Prop& prop);
 
@@ -59,6 +66,9 @@ private:
     };
 
     PendingPaintState pendingPaint_{};
+    bool seasonalSetEditorOpen_ = false;
+    char newSeasonalSetName_[64] = {};
+    char renameSeasonalSetName_[64] = {};
     PropFilterHelper filterHelper_;
     std::vector<PropFilterHelper::SortSpec> sortSpecs_ = {
         {PropFilterHelper::SortColumn::Name, false}

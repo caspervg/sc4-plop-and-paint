@@ -27,6 +27,7 @@ public:
     [[nodiscard]] auto ListDbpfFiles() const -> std::vector<std::filesystem::path>;
 
 private:
+    static auto CollectTreeSorted_(const std::filesystem::path& root, bool recursive, std::vector<std::filesystem::path>& out) -> void;
     static auto CollectFiles_(const std::filesystem::path& root, bool recursive, std::vector<std::filesystem::path>& out) -> void;
 
 private:

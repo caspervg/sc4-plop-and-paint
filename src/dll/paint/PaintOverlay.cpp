@@ -55,6 +55,15 @@ namespace {
         }
     }
 
+    cS3DVector3 RotateLocalPoint(const cS3DVector3& local, const float yawRadians) {
+        const float cosYaw = std::cos(yawRadians);
+        const float sinYaw = std::sin(yawRadians);
+        return cS3DVector3(
+            local.fX * cosYaw - local.fZ * sinYaw,
+            local.fY,
+            local.fX * sinYaw + local.fZ * cosYaw);
+    }
+
     float SampleStableTerrainHeight(cISTETerrain* terrain, const float x, const float z) {
         if (!terrain) {
             return 0.0f;
@@ -96,6 +105,11 @@ bool PaintOverlay::Empty() const {
 
 void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector3& cursorPos,
                                              const float pickRadius, cISTETerrain* terrain) {
+    BuildStripperPreview(cursorValid, cursorPos, pickRadius, terrain, 0xC0FF3333);
+}
+
+void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector3& cursorPos,
+                                             const float pickRadius, cISTETerrain* terrain, const DWORD rectColor) {
     Clear();
     if (!cursorValid) {
         return;
@@ -111,13 +125,46 @@ void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector
     const cS3DVector3 se(cx + r, SampleStableTerrainHeight(terrain, cx + r, cz + r) + kHeightOffset, cz + r);
     const cS3DVector3 sw(cx - r, SampleStableTerrainHeight(terrain, cx - r, cz + r) + kHeightOffset, cz + r);
 
-    constexpr DWORD kRectColor = 0xC0FF3333;
     constexpr float kThick = 0.5f;
-    EmitLine_(nw, ne, kThick, kRectColor, kLayerShape);
-    EmitLine_(ne, se, kThick, kRectColor, kLayerShape);
-    EmitLine_(se, sw, kThick, kRectColor, kLayerShape);
-    EmitLine_(sw, nw, kThick, kRectColor, kLayerShape);
+    EmitLine_(nw, ne, kThick, rectColor, kLayerShape);
+    EmitLine_(ne, se, kThick, rectColor, kLayerShape);
+    EmitLine_(se, sw, kThick, rectColor, kLayerShape);
+    EmitLine_(sw, nw, kThick, rectColor, kLayerShape);
 
+}
+
+void PaintOverlay::AddRectOutline(const float minX, const float minZ, const float maxX, const float maxZ,
+                                  cISTETerrain* terrain, const DWORD color) {
+    constexpr float kThick = 0.5f;
+    constexpr float kMaxSegmentLength = 4.0f;
+
+    // Use the game's own continuous altitude query so the outline hugs the
+    // rendered (triangulated) mesh; bilinear corner interpolation visibly
+    // drifts from the surface inside sloped cells.
+    const auto surfaceHeight = [&](const float x, const float z) {
+        return terrain ? terrain->GetAltitude(x, z) + kHeightOffset : kHeightOffset;
+    };
+
+    const auto emitEdge = [&](const float x0, const float z0, const float x1, const float z1) {
+        const float length = std::max(std::abs(x1 - x0), std::abs(z1 - z0));
+        const int segments = std::max(1, static_cast<int>(std::ceil(length / kMaxSegmentLength)));
+        for (int i = 0; i < segments; ++i) {
+            const float t0 = static_cast<float>(i) / static_cast<float>(segments);
+            const float t1 = static_cast<float>(i + 1) / static_cast<float>(segments);
+            const float ax = x0 + (x1 - x0) * t0;
+            const float az = z0 + (z1 - z0) * t0;
+            const float bx = x0 + (x1 - x0) * t1;
+            const float bz = z0 + (z1 - z0) * t1;
+            const cS3DVector3 a(ax, surfaceHeight(ax, az), az);
+            const cS3DVector3 b(bx, surfaceHeight(bx, bz), bz);
+            EmitLine_(a, b, kThick, color, kLayerShape);
+        }
+    };
+
+    emitEdge(minX, minZ, maxX, minZ);
+    emitEdge(maxX, minZ, maxX, maxZ);
+    emitEdge(maxX, maxZ, minX, maxZ);
+    emitEdge(minX, maxZ, minX, minZ);
 }
 
 void PaintOverlay::BuildDirectPreview(const bool cursorValid,
@@ -487,7 +534,10 @@ void PaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, cISTET
     const float maxZ = hasBounds ? preview.maxZ : preview.depth * 0.5f;
 
     const auto makeWorldPoint = [&](const float localX, const float localY, const float localZ) {
-        cS3DVector3 rotated = RotateLocalPoint(cS3DVector3(localX, localY, localZ), preview.placement.rotation);
+        const cS3DVector3 local(localX, localY, localZ);
+        cS3DVector3 rotated = preview.hasContinuousRotation
+            ? RotateLocalPoint(local, preview.continuousRotationRadians)
+            : RotateLocalPoint(local, preview.placement.rotation);
         return cS3DVector3(
             preview.placement.position.fX + rotated.fX,
             preview.placement.position.fY + rotated.fY + kHeightOffset,

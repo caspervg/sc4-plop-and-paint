@@ -35,7 +35,6 @@ constexpr auto kPropertyLotObjectsStart = 0x88EDC900u;
 constexpr auto kPropertyLotObjectsEnd = 0x88EDCFF0u;
 constexpr auto kLotConfigObjectTypeBuilding = kZero;
 constexpr auto kGrowthStage = "Growth Stage";
-constexpr auto kCapacity = "Capacity Satisfied";
 constexpr auto kIconResourceKey = "Icon Resource Key";
 constexpr auto kItemIcon = "Item Icon";
 constexpr auto kTypeIdPNG = 0x856DDBACu;
@@ -45,7 +44,6 @@ constexpr auto kLotIconGroup = 0x6A386D26u;
 constexpr auto kBuildingPropFamily = "Building/prop Family";
 constexpr auto kBuildingFamilyAlt = "Building/Prop Family";
 constexpr auto kExemplarTypeFlora = "Flora";        // ExemplarType value 0x0F
-constexpr auto kFloraWild = "Flora: Wild";           // 0x6a37ebb6
 constexpr auto kFloraFamily = "kSC4FloraFamilyProperty"; // 0xa8f149c5
 constexpr auto kFloraClusterType = "Flora: Cluster type"; // 0x2a0348ba
 constexpr auto kRkt0PropertyId = 0x27812820u;
@@ -93,7 +91,6 @@ struct ParsedLotConfigExemplar {
     uint32_t buildingFamilyId = 0; // Family ID if isFamilyReference is true
     bool isFamilyReference = false; // True if lot references a family instead of specific building
     std::optional<uint8_t> growthStage;
-    std::optional<std::pair<uint8_t, uint8_t>> capacity; // (min, max)
     std::optional<uint8_t> zoneType; // LotConfigPropertyZoneTypes
     std::optional<uint8_t> wealthType; // LotConfigPropertyWealthTypes
     std::optional<uint8_t> purposeType; // LotConfigPropertyPurposeTypes
@@ -218,7 +215,6 @@ private:
     std::optional<uint32_t> pidSimulatorDateInterval_;
     std::optional<uint32_t> pidPropRandomChance_;
 
-    std::optional<uint32_t> pidFloraWild_;
     std::optional<uint32_t> pidFloraFamily_;
     std::optional<uint32_t> pidFloraClusterType_;
 

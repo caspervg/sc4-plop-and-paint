@@ -1,5 +1,6 @@
 #pragma once
 #include "../common/PanelTab.hpp"
+#include "../pick/ScenePickResult.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
 #include "LotFilterHelper.hpp"
 #include "public/ImGuiTexture.h"
@@ -28,6 +29,7 @@ private:
     void RenderLotRow_(const Lot& lot);
     void RenderOccupantGroupFilter_();
     void RenderFavButton_(uint32_t lotInstanceId) const;
+    void HandlePickedLot_(const PickedLot& picked);
 
     void ApplyFilters_();
 

@@ -53,9 +53,9 @@ public:
     void ProcessPendingActions();
     void DrawOverlay(IDirect3DDevice7* device);
 
-    void UndoLastPlacement();
-    void CancelAllPlacements();
-    void CommitPlacements();
+    virtual void UndoLastPlacement();
+    virtual void CancelAllPlacements();
+    virtual void CommitPlacements();
 
 protected:
     struct CollectedPoint {
@@ -79,6 +79,10 @@ protected:
 
     // Returns true if a preview occupant is currently alive in the city.
     [[nodiscard]] virtual bool HasActivePreviewOccupant_() const { return false; }
+
+    // Returns true when the preview occupant no longer matches what would be
+    // created now (e.g. seasonal set member changed); triggers a recreate.
+    [[nodiscard]] virtual bool IsPreviewOccupantStale_() const { return false; }
 
     // Creates the preview occupant; called when ShouldShowModelPreview_() is true
     // and HasActivePreviewOccupant_() is false.
@@ -113,6 +117,12 @@ protected:
     // When false, creates a single-item group immediately (for direct paint).
     void AddOccupantToUndo_(cISC4Occupant* occupant);
 
+    // Groups subsequent AddOccupantToUndo_ calls into one undo group. Returns false
+    // (and stays a no-op) when a group is already open, so multi-occupant placements
+    // nest safely inside line/polygon batches. Only call EndUndoGroup_ on true.
+    bool BeginUndoGroup_();
+    void EndUndoGroup_();
+
     [[nodiscard]] bool IsBatchingPlacements_() const { return batchingPlacements_; }
 
     [[nodiscard]] uint32_t CurrentDirectTypeID_() const;
@@ -132,6 +142,8 @@ protected:
     [[nodiscard]] cS3DVector3 ResolveDirectPosition_(const cS3DVector3& terrainPosition) const;
     void CaptureDirectAbsoluteHeight_();
     void ClearDirectAbsoluteHeight_();
+    void RefreshPreviewOverlay_();
+    [[nodiscard]] virtual size_t PendingPlacementCount_() const;
 
     // Shared state
     cRZAutoRefCount<cISC4City> city_;
@@ -183,7 +195,6 @@ private:
 
     void UndoLastPlacementInGroup_();
     void TrimUndoStack_();
-    [[nodiscard]] size_t PendingPlacementCount_() const;
     [[nodiscard]] bool ShouldShowOutlinePreview_() const;
 
     ControlState state_{ControlState::Uninitialized};

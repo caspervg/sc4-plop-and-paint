@@ -1,7 +1,9 @@
 #include "PropPanelTab.hpp"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
+#include "../../shared/SeasonalSetDetector.hpp"
 #include "../common/BadgeUtils.hpp"
 #include "../common/Constants.hpp"
 #include "../common/Utils.hpp"
@@ -43,6 +45,17 @@ namespace {
         return "<unnamed prop>";
     }
 
+    std::string DateWindowText_(const Prop& prop) {
+        if (!prop.simulatorDateStart.has_value()) {
+            return "all year";
+        }
+        char buffer[32]{};
+        std::snprintf(buffer, sizeof(buffer), "%u/%u +%ud",
+                      prop.simulatorDateStart->month, prop.simulatorDateStart->day,
+                      prop.simulatorDateDuration.value_or(0));
+        return buffer;
+    }
+
 }
 
 const char* PropPanelTab::GetTabName() const {
@@ -70,6 +83,35 @@ void PropPanelTab::OnRender() {
         }
     }
     RenderPropStripperControls_();
+    if (director_->IsPropPicking()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop picking##PropPicker")) {
+            director_->StopPropPicking();
+        }
+    }
+    else {
+        ImGui::SameLine();
+        const bool hasAnySource =
+            (director_->GetPropStripperSources() &
+                (PropStripperInputControl::SourceFlagCity |
+                 PropStripperInputControl::SourceFlagLot |
+                 PropStripperInputControl::SourceFlagStreet)) != 0;
+        if (!hasAnySource) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::SmallButton("Pick prop")) {
+            ReleaseImGuiInputCapture_();
+            director_->StartPropPicking([this](const PickedProp& picked) {
+                HandlePickedProp_(picked);
+            });
+        }
+        if (!hasAnySource) {
+            ImGui::EndDisabled();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click an existing city, lot, or street prop to select it here.");
+        }
+    }
 
     // Table in scrollable child region so filters stay visible
     if (ImGui::BeginChild("PropTableRegion", ImVec2(0, 0), false)) {
@@ -78,6 +120,7 @@ void PropPanelTab::OnRender() {
     ImGui::EndChild();
 
     RenderRotationModal_();
+    RenderSeasonalSetEditor_();
 }
 
 void PropPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
@@ -371,6 +414,9 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                     ImGui::EndPopup();
                 }
 
+                ImGui::SameLine();
+                RenderSeasonalSetRowActions_(prop);
+
                 ImGui::PopID();
             }
         }
@@ -394,6 +440,307 @@ void PropPanelTab::RenderFavButton_(const Prop& prop) const {
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(isFavorite ? "Remove from favorites" : "Add to favorites");
     }
+}
+
+void PropPanelTab::RenderSeasonalSetRowActions_(const Prop& prop) {
+    if (ImGui::Button("Set")) {
+        ImGui::OpenPopup("AddToSeasonalSet");
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Add to a custom seasonal set");
+    }
+
+    if (!ImGui::BeginPopup("AddToSeasonalSet")) {
+        return;
+    }
+
+    const uint32_t propId = prop.instanceId.value();
+    const SeasonalSet* currentSet = props_->FindSeasonalSetForProp(propId);
+    if (currentSet != nullptr && currentSet->confidence != 2) {
+        char label[96]{};
+        std::snprintf(label, sizeof(label), "Convert detected set '%s' to custom", currentSet->name.c_str());
+        if (ImGui::Selectable(label)) {
+            ConvertAutoSetToUserSet_(*currentSet);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::Separator();
+    }
+
+    const auto& userSets = favorites_->GetUserSeasonalSets();
+    for (size_t setIndex = 0; setIndex < userSets.size(); ++setIndex) {
+        if (ImGui::Selectable(userSets[setIndex].name.c_str())) {
+            if (favorites_->AddPropToUserSeasonalSet(propId, setIndex)) {
+                ApplyUserSeasonalSetsToRepository_();
+            }
+            ImGui::CloseCurrentPopup();
+            break;
+        }
+    }
+    if (!userSets.empty()) {
+        ImGui::Separator();
+    }
+
+    if (ImGui::Selectable("New custom set from this prop")) {
+        AddPropToNewSeasonalSet_(prop);
+        ImGui::CloseCurrentPopup();
+    }
+    if (ImGui::Selectable("Manage seasonal sets...")) {
+        seasonalSetEditorOpen_ = true;
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+void PropPanelTab::ApplyUserSeasonalSetsToRepository_() const {
+    props_->ApplyUserSeasonalSets(favorites_->GetUserSeasonalSets());
+}
+
+void PropPanelTab::AddPropToNewSeasonalSet_(const Prop& prop) {
+    std::string baseName = seasonal::detail::PrettifyStem(seasonal::detail::Stem(prop.exemplarName));
+    if (baseName.empty()) {
+        baseName = PropDisplayName_(prop);
+    }
+
+    std::string candidateName = baseName;
+    int suffix = 2;
+    while (!favorites_->CreateUserSeasonalSet(candidateName)) {
+        candidateName = baseName + " (" + std::to_string(suffix++) + ")";
+        if (suffix > 20) {
+            return;
+        }
+    }
+    favorites_->AddPropToUserSeasonalSet(prop.instanceId.value(), favorites_->GetUserSeasonalSets().size() - 1);
+    ApplyUserSeasonalSetsToRepository_();
+    seasonalSetEditorOpen_ = true;
+}
+
+void PropPanelTab::ConvertAutoSetToUserSet_(const SeasonalSet& autoSet) {
+    // Copy before mutating favorites: autoSet points into the repository's merged
+    // view, which ApplyUserSeasonalSets rebuilds.
+    const std::string baseName = autoSet.name;
+    const std::vector<rfl::Hex<uint32_t>> members = autoSet.members;
+
+    std::string candidateName = baseName;
+    int suffix = 2;
+    while (!favorites_->CreateUserSeasonalSet(candidateName)) {
+        candidateName = baseName + " (" + std::to_string(suffix++) + ")";
+        if (suffix > 20) {
+            return;
+        }
+    }
+    const size_t setIndex = favorites_->GetUserSeasonalSets().size() - 1;
+    for (const auto& member : members) {
+        favorites_->AddPropToUserSeasonalSet(member.value(), setIndex);
+    }
+    ApplyUserSeasonalSetsToRepository_();
+    seasonalSetEditorOpen_ = true;
+}
+
+std::vector<const Prop*> PropPanelTab::SuggestSeasonalSetMembers_(const SeasonalSet& set) const {
+    namespace sd = seasonal::detail;
+
+    std::vector<const Prop*> memberProps;
+    std::vector<sd::DateWindow> memberWindows;
+    for (const auto& member : set.members) {
+        if (const Prop* memberProp = props_->FindPropByInstanceId(member.value())) {
+            memberProps.push_back(memberProp);
+            if (memberProp->simulatorDateStart.has_value()) {
+                memberWindows.push_back(sd::WindowOf(*memberProp));
+            }
+        }
+    }
+    if (memberProps.empty()) {
+        return {};
+    }
+
+    const uint32_t groupId = memberProps.front()->groupId.value();
+    const auto isMember = [&set](const uint32_t instanceId) {
+        return std::any_of(set.members.begin(), set.members.end(),
+            [instanceId](const rfl::Hex<uint32_t>& member) { return member.value() == instanceId; });
+    };
+
+    std::vector<const Prop*> suggestions;
+    for (const auto& prop : props_->GetProps()) {
+        if (prop.groupId.value() != groupId || isMember(prop.instanceId.value())) {
+            continue;
+        }
+        if (!prop.simulatorDateStart.has_value() ||
+            prop.simulatorDateDuration.value_or(0) < seasonal::kMinSeasonDays) {
+            continue;
+        }
+        const SeasonalSet* existing = props_->FindSeasonalSetForProp(prop.instanceId.value());
+        if (existing != nullptr && existing->confidence == 2) {
+            continue;
+        }
+
+        const auto window = sd::WindowOf(prop);
+        const bool windowFits = std::all_of(memberWindows.begin(), memberWindows.end(),
+            [&window](const sd::DateWindow& memberWindow) {
+                return sd::OverlapDays(window, memberWindow) <= seasonal::kMaxRescueOverlapDays;
+            });
+        if (!windowFits) {
+            continue;
+        }
+
+        const bool nameFits = std::any_of(memberProps.begin(), memberProps.end(),
+            [&prop](const Prop* memberProp) {
+                const size_t prefix = sd::CommonPrefixLength(prop.exemplarName, memberProp->exemplarName);
+                const size_t minLength = std::min(prop.exemplarName.size(), memberProp->exemplarName.size());
+                return prefix >= 6 && prefix * 2 >= minLength;
+            });
+        if (!nameFits) {
+            continue;
+        }
+
+        suggestions.push_back(&prop);
+        if (suggestions.size() >= 8) {
+            break;
+        }
+    }
+    return suggestions;
+}
+
+void PropPanelTab::RenderSeasonalSetEditor_() {
+    if (!seasonalSetEditorOpen_) {
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(540, 460), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Seasonal sets", &seasonalSetEditorOpen_)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextWrapped("Custom seasonal sets are painted and stripped as one stack. "
+                       "A custom set overrides any auto-detected set that shares a member.");
+    ImGui::InputTextWithHint("##NewSetName", "New set name", newSeasonalSetName_, sizeof(newSeasonalSetName_));
+    ImGui::SameLine();
+    if (ImGui::Button("Create") && newSeasonalSetName_[0] != '\0') {
+        if (favorites_->CreateUserSeasonalSet(newSeasonalSetName_)) {
+            newSeasonalSetName_[0] = '\0';
+            ApplyUserSeasonalSetsToRepository_();
+        }
+    }
+    ImGui::Separator();
+
+    const auto& userSets = favorites_->GetUserSeasonalSets();
+    if (userSets.empty()) {
+        ImGui::TextDisabled("No custom sets yet. Use the Set button in the prop table to start one.");
+    }
+
+    struct PendingAction {
+        enum class Kind { AddMember, RemoveMember, Rename, DeleteSet } kind;
+        size_t setIndex = 0;
+        uint32_t propId = 0;
+        std::string name;
+    };
+    std::optional<PendingAction> pending;
+
+    for (size_t setIndex = 0; setIndex < userSets.size(); ++setIndex) {
+        const auto& set = userSets[setIndex];
+        ImGui::PushID(static_cast<int>(setIndex));
+
+        char header[96]{};
+        std::snprintf(header, sizeof(header), "%s (%zu member%s)###SetHeader",
+                      set.name.c_str(), set.members.size(), set.members.size() == 1 ? "" : "s");
+        if (ImGui::CollapsingHeader(header)) {
+            ImGui::InputTextWithHint("##RenameSet", "New name", renameSeasonalSetName_,
+                                     sizeof(renameSeasonalSetName_));
+            ImGui::SameLine();
+            if (ImGui::Button("Rename") && renameSeasonalSetName_[0] != '\0') {
+                pending = PendingAction{PendingAction::Kind::Rename, setIndex, 0, renameSeasonalSetName_};
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Delete set")) {
+                pending = PendingAction{PendingAction::Kind::DeleteSet, setIndex, 0, {}};
+            }
+
+            // Year coverage over the members that carry date windows.
+            std::array<uint8_t, 365> coverage{};
+            for (const auto& member : set.members) {
+                if (const Prop* memberProp = props_->FindPropByInstanceId(member.value());
+                    memberProp != nullptr && memberProp->simulatorDateStart.has_value()) {
+                    seasonal::detail::MarkWindow(seasonal::detail::WindowOf(*memberProp), coverage);
+                }
+            }
+            int coveredDays = 0;
+            int overlapDays = 0;
+            for (const uint8_t count : coverage) {
+                coveredDays += count > 0 ? 1 : 0;
+                overlapDays += count > 1 ? 1 : 0;
+            }
+            ImGui::Text("Year coverage: %d/365 days%s", coveredDays,
+                        overlapDays > 0 ? "" : "  (no overlap)");
+            if (overlapDays > 0) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%d days double-covered)", overlapDays);
+            }
+
+            for (const auto& member : set.members) {
+                const uint32_t memberId = member.value();
+                ImGui::PushID(static_cast<int>(memberId));
+                if (const Prop* memberProp = props_->FindPropByInstanceId(memberId)) {
+                    ImGui::BulletText("%s  [%s]", PropDisplayName_(*memberProp).c_str(),
+                                      DateWindowText_(*memberProp).c_str());
+                }
+                else {
+                    ImGui::BulletText("0x%08X (missing)", memberId);
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) {
+                    pending = PendingAction{PendingAction::Kind::RemoveMember, setIndex, memberId, {}};
+                }
+                ImGui::PopID();
+            }
+
+            if (!set.members.empty()) {
+                const auto suggestions = SuggestSeasonalSetMembers_(set);
+                if (!suggestions.empty()) {
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Suggested members (same group, complementary dates):");
+                    for (const Prop* suggestion : suggestions) {
+                        const uint32_t suggestionId = suggestion->instanceId.value();
+                        ImGui::PushID(static_cast<int>(suggestionId));
+                        ImGui::BulletText("%s  [%s]", PropDisplayName_(*suggestion).c_str(),
+                                          DateWindowText_(*suggestion).c_str());
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Add")) {
+                            pending = PendingAction{PendingAction::Kind::AddMember, setIndex, suggestionId, {}};
+                        }
+                        ImGui::PopID();
+                    }
+                }
+            }
+        }
+        ImGui::PopID();
+    }
+
+    if (pending.has_value()) {
+        bool changed = false;
+        switch (pending->kind) {
+        case PendingAction::Kind::AddMember:
+            changed = favorites_->AddPropToUserSeasonalSet(pending->propId, pending->setIndex);
+            break;
+        case PendingAction::Kind::RemoveMember:
+            changed = favorites_->RemovePropFromUserSeasonalSet(pending->propId, pending->setIndex);
+            break;
+        case PendingAction::Kind::Rename:
+            changed = favorites_->RenameUserSeasonalSet(pending->setIndex, pending->name);
+            if (changed) {
+                renameSeasonalSetName_[0] = '\0';
+            }
+            break;
+        case PendingAction::Kind::DeleteSet:
+            changed = favorites_->DeleteUserSeasonalSet(pending->setIndex);
+            break;
+        }
+        if (changed) {
+            ApplyUserSeasonalSetsToRepository_();
+        }
+    }
+
+    ImGui::End();
 }
 
 bool PropPanelTab::HasPropTooltipContent_(const Prop& prop) const {
@@ -425,7 +772,8 @@ bool PropPanelTab::RenderPropPills_(const Prop& prop, const bool startOnNewLine)
         hoveredAny = hoveredAny || ImGui::IsItemHovered();
     };
 
-    Badges::ForEachBadge(prop, renderInlinePill);
+    const SeasonalSet* seasonalSet = props_ ? props_->FindSeasonalSetForProp(prop.instanceId.value()) : nullptr;
+    Badges::ForEachBadge(prop, seasonalSet, renderInlinePill);
 
     return hoveredAny;
 }
@@ -448,6 +796,8 @@ void PropPanelTab::RenderPropTooltip_(const Prop& prop) const {
         }
     }
 
+    const SeasonalSet* seasonalSet = props_ ? props_->FindSeasonalSetForProp(prop.instanceId.value()) : nullptr;
+
     const bool hasTimedData =
         prop.nighttimeStateChange.has_value() ||
         prop.timeOfDay.has_value() ||
@@ -461,7 +811,25 @@ void PropPanelTab::RenderPropTooltip_(const Prop& prop) const {
             ImGui::Separator();
         }
 
-        ImGui::Text("Behavior: %s", Badges::BuildBehaviorSummary(prop).c_str());
+        ImGui::Text("Behavior: %s", Badges::BuildBehaviorSummary(prop, seasonalSet).c_str());
+    }
+
+    if (seasonalSet != nullptr) {
+        const char* origin = seasonalSet->confidence == 2 ? "custom"
+                           : seasonalSet->confidence == 1 ? "auto-detected, fuzzy"
+                                                          : "auto-detected";
+        ImGui::Text("Seasonal set: %s (%s)", seasonalSet->name.c_str(), origin);
+        for (const auto& member : seasonalSet->members) {
+            if (const Prop* memberProp = props_->FindPropByInstanceId(member.value())) {
+                ImGui::BulletText("%s", PropDisplayName_(*memberProp).c_str());
+            }
+            else {
+                ImGui::BulletText("0x%08X", member.value());
+            }
+        }
+    }
+    else if (hasTimedData && Badges::HasSeasonalTiming(prop)) {
+        ImGui::TextDisabled("Has seasonal timing but is not linked to a set.");
     }
 
     if (hasTimedData) {
@@ -598,6 +966,15 @@ void PropPanelTab::RenderRotationModal_() {
             ImGui::TextWrapped("Click to place props directly. Enter commits placed props.");
         }
 
+        if (const SeasonalSet* set = props_ ? props_->FindSeasonalSetForProp(pendingPaint_.propId) : nullptr) {
+            ImGui::Separator();
+            ImGui::Checkbox("Paint full seasonal set", &pendingPaint_.settings.paintSeasonalSets);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Places all %zu members of '%s' at the same spot so the model follows the seasons.",
+                                  set->members.size(), set->name.c_str());
+            }
+        }
+
         const bool canStart = true;
 
         if (ImGui::Button("Start") && canStart) {
@@ -612,4 +989,26 @@ void PropPanelTab::RenderRotationModal_() {
 
         ImGui::EndPopup();
     }
+}
+
+void PropPanelTab::HandlePickedProp_(const PickedProp& picked) {
+    if (!props_) {
+        return;
+    }
+
+    const Prop* prop = props_->FindPropByInstanceId(picked.propType);
+    if (!prop) {
+        LOG_WARN("Picked prop 0x{:08X}, but it is not present in the prop cache", picked.propType);
+        return;
+    }
+
+    filterHelper_.ResetFilters();
+    filterHelper_.searchBuffer = PropDisplayName_(*prop);
+    filteredPropsDirty_ = true;
+
+    pendingPaint_.propId = prop->instanceId.value();
+    pendingPaint_.propName = PropDisplayName_(*prop);
+    pendingPaint_.settings.mode = PaintMode::Direct;
+    pendingPaint_.settings.rotation = picked.orientation & 3;
+    pendingPaint_.open = true;
 }

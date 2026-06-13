@@ -25,6 +25,7 @@ protected:
 
     [[nodiscard]] bool ShouldShowModelPreview_() const override;
     [[nodiscard]] bool HasActivePreviewOccupant_() const override;
+    [[nodiscard]] bool IsPreviewOccupantStale_() const override;
     void CreatePreviewOccupant_() override;
     void DestroyPreviewOccupant_() override;
     void HidePreviewForPick_() override;
@@ -33,9 +34,15 @@ protected:
     void PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement, uint32_t typeID) const override;
 
 private:
+    bool PlaceSingleProp_(uint32_t propToCreate, const cS3DVector3& pos, int32_t rotation);
+    [[nodiscard]] uint32_t ResolveInSeasonPreviewProp_(uint32_t propID) const;
+
     cRZAutoRefCount<cISC4PropManager> propManager_;
     const PropRepository* propRepository_{nullptr};
 
     cRZAutoRefCount<cISC4PropOccupant> previewProp_{};
     cRZAutoRefCount<cISC4Occupant> previewOccupant_{};
+    // Seasonal set member the preview occupant was created as (may differ from
+    // the selected previewOccupantTypeID_).
+    uint32_t previewDisplayedPropID_{0};
 };

@@ -7,6 +7,7 @@
 
 #include "cISC4PropOccupant.h"
 #include "cISTETerrain.h"
+#include "PropRepository.hpp"
 #include "SC4List.h"
 #include "SC4Rect.h"
 #include "../utils/Logger.h"
@@ -14,6 +15,7 @@
 namespace {
     constexpr auto kPropStripperControlID = 0x3B7C4E1Fu;
     constexpr float kPickRadiusMeters = 3.0f;
+    constexpr float kSetSiblingEpsilonMeters = 0.25f;
     constexpr uint32_t kHoverHighlight = 0x9u;
 
     const char* SourceKindToString(const PropStripperInputControl::SourceKind sourceKind) {
@@ -178,6 +180,10 @@ void PropStripperInputControl::SetCity(cISC4City* pCity) {
     }
 }
 
+void PropStripperInputControl::SetPropRepository(const PropRepository* propRepository) {
+    propRepository_ = propRepository;
+}
+
 void PropStripperInputControl::SetOnCancel(std::function<void()> onCancel) {
     onCancel_ = std::move(onCancel);
 }
@@ -224,55 +230,59 @@ void PropStripperInputControl::UndoLastDeletion() {
         return;
     }
 
-    const DeletedPropInfo info = undoStack_.back();
+    const std::vector<DeletedPropInfo> group = std::move(undoStack_.back());
     undoStack_.pop_back();
 
-    cISC4PropOccupant* prop = nullptr;
-    if (!propManager_->CreateProp(info.propType, prop)) {
-        LOG_WARN("PropStripperInputControl: Failed to re-create prop 0x{:08X} for undo", info.propType);
-        return;
+    size_t restoredCount = 0;
+    for (const auto& info : group) {
+        cISC4PropOccupant* prop = nullptr;
+        if (!propManager_->CreateProp(info.propType, prop)) {
+            LOG_WARN("PropStripperInputControl: Failed to re-create prop 0x{:08X} for undo", info.propType);
+            continue;
+        }
+
+        cRZAutoRefCount<cISC4PropOccupant> propRef(prop);
+        cISC4Occupant* occupant = prop->AsOccupant();
+        if (!occupant) {
+            LOG_WARN("PropStripperInputControl: Failed to get occupant interface for undo");
+            continue;
+        }
+
+        cRZAutoRefCount<cISC4Occupant> occRef(occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
+        cS3DVector3 pos = info.position;
+        if (!occRef->SetPosition(&pos)) {
+            LOG_WARN("PropStripperInputControl: Failed to restore prop position");
+            continue;
+        }
+
+        if (!prop->SetOrientation(info.orientation)) {
+            LOG_WARN("PropStripperInputControl: Failed to restore prop orientation");
+            continue;
+        }
+
+        bool restored = false;
+        switch (info.source) {
+        case SourceKind::City:
+            restored = propManager_->AddCityProp(occRef);
+            break;
+        case SourceKind::Lot:
+            restored = propManager_->AddLotProp(info.propType, pos, info.orientation) != nullptr;
+            break;
+        case SourceKind::Street:
+            restored = propManager_->AddStreetProp(info.propType, pos, info.orientation) != nullptr;
+            break;
+        }
+
+        if (!restored) {
+            LOG_WARN("PropStripperInputControl: Failed to restore {} prop 0x{:08X}",
+                     SourceKindToString(info.source), info.propType);
+            continue;
+        }
+        ++restoredCount;
     }
 
-    cRZAutoRefCount<cISC4PropOccupant> propRef(prop);
-    cISC4Occupant* occupant = prop->AsOccupant();
-    if (!occupant) {
-        LOG_WARN("PropStripperInputControl: Failed to get occupant interface for undo");
-        return;
-    }
-
-    cRZAutoRefCount<cISC4Occupant> occRef(occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
-    cS3DVector3 pos = info.position;
-    if (!occRef->SetPosition(&pos)) {
-        LOG_WARN("PropStripperInputControl: Failed to restore prop position");
-        return;
-    }
-
-    if (!prop->SetOrientation(info.orientation)) {
-        LOG_WARN("PropStripperInputControl: Failed to restore prop orientation");
-        return;
-    }
-
-    bool restored = false;
-    switch (info.source) {
-    case SourceKind::City:
-        restored = propManager_->AddCityProp(occRef);
-        break;
-    case SourceKind::Lot:
-        restored = propManager_->AddLotProp(info.propType, pos, info.orientation) != nullptr;
-        break;
-    case SourceKind::Street:
-        restored = propManager_->AddStreetProp(info.propType, pos, info.orientation) != nullptr;
-        break;
-    }
-
-    if (!restored) {
-        LOG_WARN("PropStripperInputControl: Failed to restore {} prop 0x{:08X}",
-                 SourceKindToString(info.source), info.propType);
-        return;
-    }
-
-    LOG_INFO("PropStripperInputControl: Restored {} prop 0x{:08X} at ({:.2f}, {:.2f}, {:.2f}), {} undo(s) remaining",
-             SourceKindToString(info.source), info.propType, pos.fX, pos.fY, pos.fZ, undoStack_.size());
+    LOG_INFO("PropStripperInputControl: Restored {} of {} prop(s), {} undo(s) remaining",
+             restoredCount, group.size(), undoStack_.size());
 }
 
 void PropStripperInputControl::ProcessPendingActions() {
@@ -451,7 +461,7 @@ void PropStripperInputControl::DeletePropsInBrush_() {
     std::vector<CollectedProp> candidates;
     CollectCandidateProps_(candidates);
 
-    size_t removedCount = 0;
+    std::vector<DeletedPropInfo> deletionGroup;
     for (const auto& candidate : candidates) {
         if (!candidate.occupant) {
             continue;
@@ -470,11 +480,12 @@ void PropStripperInputControl::DeletePropsInBrush_() {
             continue;
         }
 
-        undoStack_.push_back({candidate.source, candidate.propType, candidate.position, candidate.orientation});
-        ++removedCount;
+        deletionGroup.push_back({candidate.source, candidate.propType, candidate.position, candidate.orientation});
     }
 
-    if (removedCount > 0) {
+    if (!deletionGroup.empty()) {
+        const size_t removedCount = deletionGroup.size();
+        undoStack_.push_back(std::move(deletionGroup));
         LOG_INFO("PropStripperInputControl: Brush removed {} prop(s), {} undo(s) available",
                  removedCount, undoStack_.size());
     }
@@ -566,9 +577,50 @@ void PropStripperInputControl::DeleteHoveredProp_() {
         return;
     }
 
-    undoStack_.push_back({source, propType, pos, orientation});
-    LOG_INFO("PropStripperInputControl: Removed {} prop 0x{:08X} at ({:.2f}, {:.2f}, {:.2f}), {} undo(s) available",
-             SourceKindToString(source), propType, pos.fX, pos.fY, pos.fZ, undoStack_.size());
+    std::vector<DeletedPropInfo> deletionGroup;
+    deletionGroup.push_back({source, propType, pos, orientation});
+    RemoveSeasonalSetSiblings_(candidates, hoveredOccupant_, propType, pos, deletionGroup);
+
+    const size_t removedCount = deletionGroup.size();
+    undoStack_.push_back(std::move(deletionGroup));
+    LOG_INFO("PropStripperInputControl: Removed {} {} prop(s) at ({:.2f}, {:.2f}, {:.2f}), {} undo(s) available",
+             removedCount, SourceKindToString(source), pos.fX, pos.fY, pos.fZ, undoStack_.size());
 
     hoveredOccupant_.Reset();
+}
+
+void PropStripperInputControl::RemoveSeasonalSetSiblings_(const std::vector<CollectedProp>& candidates,
+                                                          cISC4Occupant* const removedOccupant,
+                                                          const uint32_t removedPropType,
+                                                          const cS3DVector3& removedPosition,
+                                                          std::vector<DeletedPropInfo>& deletionGroup) const {
+    if (propRepository_ == nullptr) {
+        return;
+    }
+    const SeasonalSet* set = propRepository_->FindSeasonalSetForProp(removedPropType);
+    if (set == nullptr) {
+        return;
+    }
+
+    for (const auto& candidate : candidates) {
+        if (!candidate.occupant || candidate.occupant == removedOccupant ||
+            candidate.propType == removedPropType) {
+            continue;
+        }
+        if (propRepository_->FindSeasonalSetForProp(candidate.propType) != set) {
+            continue;
+        }
+        const float dx = candidate.position.fX - removedPosition.fX;
+        const float dy = candidate.position.fY - removedPosition.fY;
+        const float dz = candidate.position.fZ - removedPosition.fZ;
+        if (dx * dx + dy * dy + dz * dz > kSetSiblingEpsilonMeters * kSetSiblingEpsilonMeters) {
+            continue;
+        }
+
+        cRZAutoRefCount<cISC4Occupant> occupantRef(candidate.occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
+        occupantRef->SetHighlight(0x0, true);
+        if (TryRemoveProp_(occupantRef, candidate.propType, candidate.source)) {
+            deletionGroup.push_back({candidate.source, candidate.propType, candidate.position, candidate.orientation});
+        }
+    }
 }

@@ -297,7 +297,8 @@ void FamiliesPanelTab::OnRender() {
                 if (prop) {
                     const auto renderBadges = [&]() {
                         bool renderedAnyBadge = false;
-                        Badges::ForEachBadge(*prop, [&](const char* label, const ImU32 baseColor, const ImU32 hoverColor) {
+                        const SeasonalSet* seasonalSet = props_->FindSeasonalSetForProp(prop->instanceId.value());
+                        Badges::ForEachBadge(*prop, seasonalSet, [&](const char* label, const ImU32 baseColor, const ImU32 hoverColor) {
                             if (renderedAnyBadge) {
                                 ImGui::SameLine(0.0f, 4.0f);
                             }

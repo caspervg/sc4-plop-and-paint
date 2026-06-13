@@ -1,0 +1,1100 @@
+#include "DecalPanelTab.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <span>
+#include <vector>
+
+#include "cGZPersistResourceKey.h"
+#include "cIGZPersistDBSegment.h"
+#include "cIGZPersistResourceManager.h"
+#include "cRZAutoRefCount.h"
+#include "cISTETerrainView.h"
+#include "../SC4PlopAndPaintDirector.hpp"
+#include "../common/Constants.hpp"
+#include "../utils/Logger.h"
+#include "DecalTextureLoader.hpp"
+#include "FSHReader.h"
+
+namespace {
+    constexpr float kIconSize = 64.0f;
+    constexpr float kActionButtonWidth = 120.0f;
+    constexpr uint32_t kDecalTextureType  = 0x7AB50E44;
+    constexpr uint32_t kDecalTextureGroup = 0x0986135E;
+    constexpr float kDegreesPerTurn = 360.0f;
+    constexpr float kUvPickerMaxWidth = 320.0f;
+    constexpr float kUvPickerMaxHeight = 220.0f;
+    constexpr float kUvPickerMinDragPixels = 3.0f;
+
+    std::string FormatInstanceId(const uint32_t id) {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%08X", id);
+        return buf;
+    }
+
+    cGZPersistResourceKey MakeDecalTextureKey(const uint32_t instanceId) {
+        return cGZPersistResourceKey{kDecalTextureType, kDecalTextureGroup, instanceId};
+    }
+
+    float NormalizeTurns(const float turns) {
+        float normalizedTurns = std::fmod(turns, 1.0f);
+        if (normalizedTurns < 0.0f) {
+            normalizedTurns += 1.0f;
+        }
+        return normalizedTurns;
+    }
+
+    float TurnsToDegrees(const float turns) {
+        return NormalizeTurns(turns) * kDegreesPerTurn;
+    }
+
+    float DegreesToTurns(const float degrees) {
+        return NormalizeTurns(degrees / kDegreesPerTurn);
+    }
+
+    ImVec2 ClampUvPoint(const ImVec2 uv) {
+        return ImVec2(std::clamp(uv.x, 0.0f, 1.0f), std::clamp(uv.y, 0.0f, 1.0f));
+    }
+
+    float QuantizeUvEdge(const float uv, const float pixelCount) {
+        if (pixelCount <= 0.0f) {
+            return std::clamp(uv, 0.0f, 1.0f);
+        }
+
+        const float clamped = std::clamp(uv, 0.0f, 1.0f);
+        return std::clamp(std::round(clamped * pixelCount) / pixelCount, 0.0f, 1.0f);
+    }
+
+    void NormalizeUvWindow(TerrainDecalUvWindow& window) {
+        window.u1 = std::clamp(window.u1, 0.0f, 1.0f);
+        window.v1 = std::clamp(window.v1, 0.0f, 1.0f);
+        window.u2 = std::clamp(window.u2, 0.0f, 1.0f);
+        window.v2 = std::clamp(window.v2, 0.0f, 1.0f);
+
+        if (window.u1 > window.u2) {
+            std::swap(window.u1, window.u2);
+        }
+        if (window.v1 > window.v2) {
+            std::swap(window.v1, window.v2);
+        }
+    }
+
+    void QuantizeUvWindowToPixels(TerrainDecalUvWindow& window, const ImVec2 sourceSize) {
+        NormalizeUvWindow(window);
+
+        const float pixelWidth = std::max(1.0f, sourceSize.x);
+        const float pixelHeight = std::max(1.0f, sourceSize.y);
+        const float minUSpan = 1.0f / pixelWidth;
+        const float minVSpan = 1.0f / pixelHeight;
+
+        window.u1 = QuantizeUvEdge(window.u1, pixelWidth);
+        window.v1 = QuantizeUvEdge(window.v1, pixelHeight);
+        window.u2 = QuantizeUvEdge(window.u2, pixelWidth);
+        window.v2 = QuantizeUvEdge(window.v2, pixelHeight);
+        NormalizeUvWindow(window);
+
+        if (window.u2 - window.u1 < minUSpan) {
+            window.u2 = std::min(1.0f, window.u1 + minUSpan);
+            window.u1 = std::max(0.0f, window.u2 - minUSpan);
+        }
+        if (window.v2 - window.v1 < minVSpan) {
+            window.v2 = std::min(1.0f, window.v1 + minVSpan);
+            window.v1 = std::max(0.0f, window.v2 - minVSpan);
+        }
+
+        window.u1 = QuantizeUvEdge(window.u1, pixelWidth);
+        window.v1 = QuantizeUvEdge(window.v1, pixelHeight);
+        window.u2 = QuantizeUvEdge(window.u2, pixelWidth);
+        window.v2 = QuantizeUvEdge(window.v2, pixelHeight);
+        NormalizeUvWindow(window);
+    }
+
+    void GetUvPixelRect(const TerrainDecalUvWindow& window,
+                        const ImVec2 sourceSize,
+                        int& outX,
+                        int& outY,
+                        int& outWidth,
+                        int& outHeight) {
+        const int textureWidth = std::max(1, static_cast<int>(std::lround(sourceSize.x)));
+        const int textureHeight = std::max(1, static_cast<int>(std::lround(sourceSize.y)));
+
+        outX = std::clamp(static_cast<int>(std::lround(window.u1 * textureWidth)), 0, textureWidth - 1);
+        outY = std::clamp(static_cast<int>(std::lround(window.v1 * textureHeight)), 0, textureHeight - 1);
+
+        const int x2 = std::clamp(static_cast<int>(std::lround(window.u2 * textureWidth)), outX + 1, textureWidth);
+        const int y2 = std::clamp(static_cast<int>(std::lround(window.v2 * textureHeight)), outY + 1, textureHeight);
+
+        outWidth = std::max(1, x2 - outX);
+        outHeight = std::max(1, y2 - outY);
+    }
+
+    void SetUvWindowFromPixelRect(TerrainDecalUvWindow& window,
+                                  const ImVec2 sourceSize,
+                                  int x,
+                                  int y,
+                                  int width,
+                                  int height) {
+        const int textureWidth = std::max(1, static_cast<int>(std::lround(sourceSize.x)));
+        const int textureHeight = std::max(1, static_cast<int>(std::lround(sourceSize.y)));
+
+        x = std::clamp(x, 0, textureWidth - 1);
+        y = std::clamp(y, 0, textureHeight - 1);
+        width = std::clamp(width, 1, textureWidth - x);
+        height = std::clamp(height, 1, textureHeight - y);
+
+        window.u1 = static_cast<float>(x) / static_cast<float>(textureWidth);
+        window.v1 = static_cast<float>(y) / static_cast<float>(textureHeight);
+        window.u2 = static_cast<float>(x + width) / static_cast<float>(textureWidth);
+        window.v2 = static_cast<float>(y + height) / static_cast<float>(textureHeight);
+        QuantizeUvWindowToPixels(window, sourceSize);
+    }
+
+    char HexDigitUpper(const uint32_t value, const int nibbleIndexFromLeft) {
+        const int shift = (7 - nibbleIndexFromLeft) * 4;
+        const uint32_t nibble = (value >> shift) & 0xFu;
+        return static_cast<char>(nibble < 10 ? ('0' + nibble) : ('A' + (nibble - 10)));
+    }
+
+    bool MatchesHexPrefix(const uint32_t value, const char* const prefix, const size_t prefixLen) {
+        if (!prefix || prefixLen == 0 || prefixLen > 8) {
+            return true;
+        }
+
+        for (size_t i = 0; i < prefixLen; ++i) {
+            if (HexDigitUpper(value, static_cast<int>(i)) !=
+                std::toupper(static_cast<unsigned char>(prefix[i]))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool MatchesWealthFilter(const uint32_t value, const int wealthFilter) {
+        if (wealthFilter == 0) {
+            return true;
+        }
+
+        const uint32_t wealthNibble = (value >> 12) & 0xFu;
+        switch (wealthFilter) {
+        case 1: return wealthNibble == 0;
+        case 2: return wealthNibble == 1;
+        case 3: return wealthNibble == 2;
+        case 4: return wealthNibble == 3;
+        case 5: return wealthNibble >= 4;
+        default: return true;
+        }
+    }
+
+    bool MatchesDilapidationFilter(const uint32_t value, const int dilapidationFilter) {
+        if (dilapidationFilter == 0) {
+            return true;
+        }
+
+        const uint32_t dilapidationNibble = (value >> 8) & 0xFu;
+        if (dilapidationFilter == 1) {
+            return dilapidationNibble != 1;
+        }
+        if (dilapidationFilter == 2) {
+            return dilapidationNibble == 1;
+        }
+
+        return true;
+    }
+
+    TerrainDecalState MakeDefaultDecalState() {
+        TerrainDecalState state;
+        state.decalInfo.baseSize = 16.0f;
+        state.opacity = 1.0f;
+        state.overlayType = cISTETerrainView::tOverlayManagerType::DynamicLand;
+        state.uvWindow.mode = TerrainDecalUvMode::ClipSubrect;
+        return state;
+    }
+
+    SavedDecalPreset BuildSavedPreset(const TerrainDecalState& state) {
+        SavedDecalPreset preset;
+        preset.overlayType = static_cast<uint32_t>(state.overlayType);
+        preset.decalInfo.baseSize = state.decalInfo.baseSize;
+        preset.decalInfo.rotationTurns = state.decalInfo.rotationTurns;
+        preset.decalInfo.aspectMultiplier = state.decalInfo.aspectMultiplier;
+        preset.decalInfo.uvScaleU = state.decalInfo.uvScaleU;
+        preset.decalInfo.uvScaleV = state.decalInfo.uvScaleV;
+        preset.decalInfo.uvOffset = state.decalInfo.uvOffset;
+        preset.decalInfo.unknown8 = state.decalInfo.unknown8;
+        preset.opacity = state.opacity;
+        preset.enabled = state.enabled;
+        preset.color.x = state.color.fX;
+        preset.color.y = state.color.fY;
+        preset.color.z = state.color.fZ;
+        preset.drawMode = state.drawMode;
+        preset.flags = state.flags;
+        preset.hasUvWindow = state.hasUvWindow;
+        preset.uvWindow.u1 = state.uvWindow.u1;
+        preset.uvWindow.v1 = state.uvWindow.v1;
+        preset.uvWindow.u2 = state.uvWindow.u2;
+        preset.uvWindow.v2 = state.uvWindow.v2;
+        preset.uvWindow.mode = static_cast<uint32_t>(state.uvWindow.mode);
+        preset.depthOffset = state.depthOffset;
+        return preset;
+    }
+
+    void ApplySavedPreset(const SavedDecalPreset& preset, TerrainDecalState& state) {
+        state.overlayType = static_cast<cISTETerrainView::tOverlayManagerType>(preset.overlayType);
+        state.decalInfo.baseSize = preset.decalInfo.baseSize;
+        state.decalInfo.rotationTurns = preset.decalInfo.rotationTurns;
+        state.decalInfo.aspectMultiplier = preset.decalInfo.aspectMultiplier;
+        state.decalInfo.uvScaleU = preset.decalInfo.uvScaleU;
+        state.decalInfo.uvScaleV = preset.decalInfo.uvScaleV;
+        state.decalInfo.uvOffset = preset.decalInfo.uvOffset;
+        state.decalInfo.unknown8 = preset.decalInfo.unknown8;
+        state.opacity = preset.opacity;
+        state.enabled = preset.enabled;
+        state.color = cS3DVector3(preset.color.x, preset.color.y, preset.color.z);
+        state.drawMode = preset.drawMode;
+        state.flags = preset.flags;
+        state.hasUvWindow = preset.hasUvWindow;
+        state.uvWindow.u1 = preset.uvWindow.u1;
+        state.uvWindow.v1 = preset.uvWindow.v1;
+        state.uvWindow.u2 = preset.uvWindow.u2;
+        state.uvWindow.v2 = preset.uvWindow.v2;
+        state.uvWindow.mode = static_cast<TerrainDecalUvMode>(preset.uvWindow.mode);
+        state.depthOffset = preset.depthOffset;
+    }
+}
+
+DecalPanelTab::DecalPanelTab(SC4PlopAndPaintDirector* director,
+                              DecalRepository* decals,
+                              FavoritesRepository* favorites,
+                              cIGZPersistResourceManager* pRM,
+                              cIGZImGuiService* imguiService)
+    : PanelTab(director, nullptr, nullptr, favorites, imguiService)
+    , decals_(decals)
+    , pRM_(pRM) {
+    pendingPaint_.settings.stateTemplate = MakeDefaultDecalState();
+}
+
+void DecalPanelTab::OnRender() {
+    if (!decals_) {
+        ImGui::TextUnformatted("Decal repository not available.");
+        return;
+    }
+
+    if (!director_->IsDecalServiceAvailable()) {
+        ImGui::TextWrapped("Terrain decal service not available. Ensure you are running SC4 1.1.641 "
+                           "with EnableTerrainDecalService=true in SC4PlopAndPaint.ini.");
+        return;
+    }
+
+    if (decals_->Count() == 0) {
+        ImGui::TextUnformatted("No decal textures found (type 0x7AB50E44, group 0x0986135E).");
+        return;
+    }
+
+    RenderFilterBar_();
+    ImGui::Separator();
+
+    std::vector<size_t> filtered;
+    BuildFilteredIndices_(filtered);
+    const bool hasSelection = selectedInstanceId_ != 0;
+    const bool selectedIsFavorite = hasSelection && favorites_ && favorites_->IsDecalFavorite(selectedInstanceId_);
+    const bool selectedHasPresets =
+        hasSelection && favorites_ && favorites_->GetDecalFavoritePresets(selectedInstanceId_) &&
+        !favorites_->GetDecalFavoritePresets(selectedInstanceId_)->empty();
+
+    // Action row: paint actions on the left, scene tools on the right.
+    if (!hasSelection) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button("Paint selected", ImVec2(kActionButtonWidth, 0.0f))) {
+        QueuePaintForDecal_(selectedInstanceId_);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Open the paint settings for the selected decal.\nYou can also press Enter after selecting a texture.");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Paint now", ImVec2(kActionButtonWidth, 0.0f))) {
+        StartPaintingDecal_(selectedInstanceId_);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Start painting immediately with the current decal settings.");
+    }
+    if (!hasSelection) {
+        ImGui::EndDisabled();
+    }
+
+    ImGui::SameLine();
+    if (director_->IsDecalPicking()) {
+        if (ImGui::Button("Stop picking", ImVec2(kActionButtonWidth, 0.0f))) {
+            director_->StopDecalPicking();
+        }
+    }
+    else {
+        if (ImGui::Button("Pick decal", ImVec2(kActionButtonWidth, 0.0f))) {
+            ReleaseImGuiInputCapture_();
+            director_->StartDecalPicking([this](const uint32_t instanceId) {
+                selectedInstanceId_ = instanceId;
+                scrollToInstanceId_ = instanceId;
+                // Filter to the texture family: the first four nibbles are the
+                // base/overlay ID, the rest encode wealth/state/zoom variants.
+                std::snprintf(iidFilterBuf_, sizeof(iidFilterBuf_), "%04X", instanceId >> 16);
+                wealthFilter_ = 0;
+                dilapidationFilter_ = 0;
+                favoritesOnly_ = false;
+            });
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click a placed decal or a lot base/overlay texture\nto select it in the list.\nAlt+scroll to cycle overlapping textures.\nESC or RMB to cancel.");
+        }
+    }
+
+    ImGui::SameLine();
+    if (director_->IsDecalStripping()) {
+        if (ImGui::Button("Stop stripping", ImVec2(kActionButtonWidth, 0.0f))) {
+            director_->StopDecalStripping();
+        }
+    }
+    else {
+        if (ImGui::Button("Strip decals", ImVec2(kActionButtonWidth, 0.0f))) {
+            ReleaseImGuiInputCapture_();
+            director_->StartDecalStripping();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click decals to remove them.\nPress B for brush mode.\nCtrl+Z to undo.\nESC to stop.");
+        }
+    }
+
+    if (director_->IsDecalPainting()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Stop painting", ImVec2(kActionButtonWidth, 0.0f))) {
+            director_->StopDecalPainting();
+        }
+    }
+
+    // Selection status row.
+    if (hasSelection) {
+        if (selectedIsFavorite && selectedHasPresets) {
+            ImGui::TextDisabled("Selected: 0x%08X  favorite  saved presets", selectedInstanceId_);
+        }
+        else if (selectedIsFavorite) {
+            ImGui::TextDisabled("Selected: 0x%08X  favorite", selectedInstanceId_);
+        }
+        else {
+            ImGui::TextDisabled("Selected: 0x%08X", selectedInstanceId_);
+        }
+        if (favorites_) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton(selectedIsFavorite ? "Unfavorite" : "Favorite")) {
+                favorites_->ToggleDecalFavorite(selectedInstanceId_);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(selectedIsFavorite ? "Remove selected texture from favorites" : "Add selected texture to favorites");
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Reset")) {
+                pendingPaint_.settings.stateTemplate = MakeDefaultDecalState();
+                pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(selectedInstanceId_);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Reset the current decal settings to their defaults.");
+            }
+        }
+    }
+    else {
+        ImGui::TextDisabled("Click a texture to select it.");
+    }
+
+    if (hasSelection &&
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::GetIO().WantTextInput &&
+        (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false))) {
+        QueuePaintForDecal_(selectedInstanceId_);
+    }
+
+    ImGui::Separator();
+    ImGui::Text("Showing %zu of %zu textures", filtered.size(), decals_->Count());
+    RenderDecalGrid_(filtered);
+    RenderSettingsModal_();
+}
+
+void DecalPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
+    if (deviceGeneration != lastDeviceGeneration_) {
+        thumbnailCache_.Clear();
+        ClearUvPickerTexture_();
+        lastDeviceGeneration_ = deviceGeneration;
+    }
+}
+
+void DecalPanelTab::OnShutdown() {
+    thumbnailCache_.Clear();
+    ClearUvPickerTexture_();
+}
+
+void DecalPanelTab::RenderFilterBar_() {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Filters");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(UI::iidFilterWidth());
+    ImGui::InputTextWithHint("##DecalIID", "IID prefix...", iidFilterBuf_, sizeof(iidFilterBuf_));
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Filter by hex instance ID prefix (e.g. '25A7')");
+    }
+    ImGui::SameLine();
+    static constexpr const char* kWealthFilterLabels[] = {"Any wealth", "None", "$", "$$", "$$$", "Other"};
+    ImGui::SetNextItemWidth(110.0f);
+    ImGui::Combo("##DecalWealthFilter", &wealthFilter_, kWealthFilterLabels, IM_ARRAYSIZE(kWealthFilterLabels));
+    ImGui::SameLine();
+    static constexpr const char* kDilapidationFilterLabels[] = {"Any state", "Normal", "Dilapidated"};
+    ImGui::SetNextItemWidth(120.0f);
+    ImGui::Combo("##DecalDilapidationFilter",
+                 &dilapidationFilter_,
+                 kDilapidationFilterLabels,
+                 IM_ARRAYSIZE(kDilapidationFilterLabels));
+    ImGui::SameLine();
+    ImGui::Checkbox("Only favorites##decalFavoritesOnly", &favoritesOnly_);
+    ImGui::SameLine();
+    if (ImGui::Button("Clear filters")) {
+        iidFilterBuf_[0] = '\0';
+        wealthFilter_ = 0;
+        dilapidationFilter_ = 0;
+        favoritesOnly_ = false;
+    }
+}
+
+void DecalPanelTab::BuildFilteredIndices_(std::vector<size_t>& out) const {
+    const auto& ids = decals_->GetInstanceIds();
+    out.reserve(ids.size());
+
+    const size_t iidFilterLen = std::strlen(iidFilterBuf_);
+    const auto* favoriteDecalIds = favorites_ ? &favorites_->GetFavoriteDecalIds() : nullptr;
+
+    for (size_t i = 0; i < ids.size(); ++i) {
+        const uint32_t instanceId = ids[i];
+        if (favoritesOnly_ && (!favoriteDecalIds || !favoriteDecalIds->contains(ids[i]))) {
+            continue;
+        }
+        if (!MatchesHexPrefix(instanceId, iidFilterBuf_, iidFilterLen)) {
+            continue;
+        }
+        if (!MatchesWealthFilter(instanceId, wealthFilter_)) {
+            continue;
+        }
+        if (!MatchesDilapidationFilter(instanceId, dilapidationFilter_)) {
+            continue;
+        }
+        out.push_back(i);
+    }
+}
+
+void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
+    const auto& ids = decals_->GetInstanceIds();
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec2 btnSize{kIconSize, kIconSize};
+    const float tileWidth = btnSize.x + style.FramePadding.x * 2.0f;
+    const float rowStride = tileWidth + style.ItemSpacing.x;
+
+    if (!ImGui::BeginChild("DecalGrid", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+        ImGui::EndChild();
+        return;
+    }
+
+    if (indices.empty()) {
+        ImGui::TextDisabled("No decals match the current filters.");
+        ImGui::EndChild();
+        return;
+    }
+
+    const float availWidth = ImGui::GetContentRegionAvail().x;
+    const auto columns = std::max(1, static_cast<int>((availWidth + style.ItemSpacing.x) / rowStride));
+
+    if (scrollToInstanceId_ != 0) {
+        for (size_t i = 0; i < indices.size(); ++i) {
+            if (ids[indices[i]] == scrollToInstanceId_) {
+                const int targetRow = static_cast<int>(i) / columns;
+                const float rowHeight = btnSize.y + style.FramePadding.y * 2.0f + style.ItemSpacing.y;
+                ImGui::SetScrollY(static_cast<float>(targetRow) * rowHeight);
+                break;
+            }
+        }
+        scrollToInstanceId_ = 0;
+    }
+
+    ImGuiListClipper clipper;
+    const auto rowCount = static_cast<int>((indices.size() + columns - 1) / columns);
+    clipper.Begin(rowCount, btnSize.y + style.FramePadding.y * 2.0f + style.ItemSpacing.y);
+
+    while (clipper.Step()) {
+        for (auto row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+            for (auto col = 0; col < columns; ++col) {
+                const int idx = row * columns + col;
+                if (static_cast<size_t>(idx) >= indices.size()) {
+                    break;
+                }
+
+                const uint32_t instanceId = ids[indices[static_cast<size_t>(idx)]];
+                const bool isFavorite = favorites_ && favorites_->IsDecalFavorite(instanceId);
+                const bool hasSavedPresets =
+                    favorites_ && favorites_->GetDecalFavoritePresets(instanceId) &&
+                    !favorites_->GetDecalFavoritePresets(instanceId)->empty();
+
+                if (col > 0) {
+                    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x);
+                }
+
+                const bool selected = (instanceId == selectedInstanceId_);
+
+                // Try to get cached thumbnail
+                const auto texOpt = thumbnailCache_.Get(instanceId);
+
+                ImGui::PushID(static_cast<int>(instanceId));
+                bool clicked = false;
+                bool dblClicked = false;
+
+                if (texOpt.has_value() && *texOpt != nullptr) {
+                    ImGui::ImageButton("##decal",
+                        reinterpret_cast<ImTextureID>(*texOpt), btnSize);
+                }
+                else {
+                    char label[12];
+                    std::snprintf(label, sizeof(label), "##d%08X", instanceId);
+                    ImGui::Button(label, btnSize);
+                    thumbnailCache_.Request(instanceId);
+                }
+                clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+                dblClicked = clicked && ImGui::GetMouseClickedCount(ImGuiMouseButton_Left) >= 2;
+
+                if (selected) {
+                    const ImVec2 rectMin = ImGui::GetItemRectMin();
+                    const ImVec2 rectMax = ImGui::GetItemRectMax();
+                    ImGui::GetWindowDrawList()->AddRect(
+                        ImVec2(rectMin.x - 2.0f, rectMin.y - 2.0f),
+                        ImVec2(rectMax.x + 2.0f, rectMax.y + 2.0f),
+                        IM_COL32(255, 200, 0, 255), 2.0f);
+                }
+
+                if (isFavorite) {
+                    const ImVec2 rectMin = ImGui::GetItemRectMin();
+                    const ImVec2 badgeMin(rectMin.x + 3.0f, rectMin.y + 3.0f);
+                    const ImVec2 badgeMax(rectMin.x + 18.0f, rectMin.y + 17.0f);
+                    ImGui::GetWindowDrawList()->AddRectFilled(badgeMin, badgeMax, IM_COL32(32, 32, 32, 220), 3.0f);
+                    ImGui::GetWindowDrawList()->AddText(
+                        ImVec2(badgeMin.x + 4.0f, badgeMin.y + 1.0f),
+                        hasSavedPresets ? IM_COL32(255, 210, 64, 255) : IM_COL32(220, 220, 220, 255),
+                        "*");
+                }
+
+                if (ImGui::IsItemHovered()) {
+                    const bool isPainting = director_->IsDecalPainting();
+                    const char* clickHint = isPainting
+                        ? "Click to switch to this decal."
+                        : "Click to select.";
+                    if (isFavorite && hasSavedPresets) {
+                        ImGui::SetTooltip(
+                            "0x%08X\nFavorite with saved presets.\n%s\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                            instanceId, clickHint);
+                    }
+                    else if (isFavorite) {
+                        ImGui::SetTooltip(
+                            "0x%08X\nFavorite.\n%s\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                            instanceId, clickHint);
+                    }
+                    else {
+                        ImGui::SetTooltip(
+                            "0x%08X\n%s\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                            instanceId, clickHint);
+                    }
+                }
+
+                if (dblClicked) {
+                    selectedInstanceId_ = instanceId;
+                    QueuePaintForDecal_(instanceId);
+                }
+                else if (clicked) {
+                    selectedInstanceId_ = instanceId;
+                    if (director_->IsDecalPainting()) {
+                        StartPaintingDecal_(instanceId);
+                    }
+                }
+
+                ImGui::PopID();
+            }
+        }
+    }
+    clipper.End();
+
+    thumbnailCache_.ProcessLoadQueue([this](const uint32_t instanceId) {
+        return LoadDecalThumbnail_(instanceId);
+    });
+
+    ImGui::EndChild();
+}
+
+void DecalPanelTab::RenderSettingsModal_() {
+    if (pendingPaint_.open) {
+        ImGui::OpenPopup("Decal Paint Settings");
+        pendingPaint_.open = false;
+    }
+
+    if (!ImGui::BeginPopupModal("Decal Paint Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+
+    TerrainDecalState& state = pendingPaint_.settings.stateTemplate;
+    float rotationDegrees = TurnsToDegrees(state.decalInfo.rotationTurns);
+    const bool isFavorite = favorites_ && favorites_->IsDecalFavorite(pendingPaint_.instanceId);
+    const auto* presets = favorites_ ? favorites_->GetDecalFavoritePresets(pendingPaint_.instanceId) : nullptr;
+    const int presetCount = presets ? static_cast<int>(presets->size()) : 0;
+
+    ImGui::Text("Texture: 0x%08X", pendingPaint_.instanceId);
+    ImGui::Separator();
+
+    ImGui::PushItemWidth(220.0f);
+    ImGui::TextUnformatted("Placement");
+    ImGui::DragFloat("Base size (m)##decalSize", &state.decalInfo.baseSize, 1.0f, 0.5f, 512.0f);
+    if (ImGui::DragFloat("Rotation (deg)##decalRot", &rotationDegrees, 1.0f, -3600.0f, 3600.0f, "%.1f")) {
+        state.decalInfo.rotationTurns = DegreesToTurns(rotationDegrees);
+    }
+    bool mirrored = (state.flags & kTerrainDecalFlagMirror) != 0;
+    if (ImGui::Checkbox("Mirror##decalMirror", &mirrored)) {
+        state.flags ^= kTerrainDecalFlagMirror;
+    }
+    ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f);
+    ImGui::ColorEdit3("Color tint##decalColor", &state.color.fX);
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Rendering");
+    bool useDefaultDepthOffset = state.depthOffset < 0;
+    if (ImGui::Checkbox("Use default depth offset##decalDefaultDepthOffset", &useDefaultDepthOffset)) {
+        state.depthOffset = useDefaultDepthOffset ? -1 : 2;
+    }
+    ImGui::BeginDisabled(useDefaultDepthOffset);
+    int depthOffset = std::max(0, state.depthOffset);
+    if (ImGui::InputInt("Depth offset##decalDepthOffset", &depthOffset)) {
+        state.depthOffset = std::clamp(depthOffset, 0, 64);
+    }
+    ImGui::EndDisabled();
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("UV Window");
+    if (ImGui::Checkbox("Enabled##decalHasUvWindow", &state.hasUvWindow) && !state.hasUvWindow) {
+        state.uvWindow = {};
+        state.uvWindow.mode = TerrainDecalUvMode::ClipSubrect;
+    }
+    if (uvPickerSourceSize_.x > 0.0f && uvPickerSourceSize_.y > 0.0f) {
+        ImGui::TextDisabled("Texture %.0f x %.0f px. Drag to select; bounds snap to pixels.",
+                            uvPickerSourceSize_.x,
+                            uvPickerSourceSize_.y);
+    }
+    else {
+        ImGui::TextDisabled("Drag on the texture to define the UV sub-rect.");
+    }
+    RenderUvPicker_(state);
+    ImGui::BeginDisabled(!state.hasUvWindow);
+    if (ImGui::DragFloat4("UV bounds##decalUvWindow", &state.uvWindow.u1, 0.01f, 0.0f, 1.0f, "%.2f")) {
+        NormalizeUvWindow(state.uvWindow);
+        if (uvPickerSourceSize_.x > 0.0f && uvPickerSourceSize_.y > 0.0f) {
+            QuantizeUvWindowToPixels(state.uvWindow, uvPickerSourceSize_);
+        }
+    }
+    if (uvPickerSourceSize_.x > 0.0f && uvPickerSourceSize_.y > 0.0f) {
+        int originPx[2]{};
+        int sizePx[2]{};
+        GetUvPixelRect(state.uvWindow, uvPickerSourceSize_, originPx[0], originPx[1], sizePx[0], sizePx[1]);
+
+        bool pixelEdited = false;
+        if (ImGui::InputInt2("Origin (px)##decalUvOrigin", originPx)) {
+            pixelEdited = true;
+        }
+        if (ImGui::InputInt2("Size (px)##decalUvSize", sizePx)) {
+            pixelEdited = true;
+        }
+        if (pixelEdited) {
+            state.hasUvWindow = true;
+            SetUvWindowFromPixelRect(state.uvWindow,
+                                     uvPickerSourceSize_,
+                                     originPx[0],
+                                     originPx[1],
+                                     sizePx[0],
+                                     sizePx[1]);
+        }
+    }
+    const char* uvModes[] = {"Stretch subrect", "Clip subrect"};
+    int uvMode = static_cast<int>(state.uvWindow.mode);
+    if (ImGui::Combo("UV mode##decalUvMode", &uvMode, uvModes, IM_ARRAYSIZE(uvModes))) {
+        state.uvWindow.mode = static_cast<TerrainDecalUvMode>(uvMode);
+    }
+    ImGui::EndDisabled();
+
+    ImGui::Separator();
+
+    ImGui::TextUnformatted("Presets");
+    if (favorites_) {
+        if (presetCount == 0) {
+            selectedFavoritePresetIndex_ = -1;
+        }
+        else if (selectedFavoritePresetIndex_ < 0 || selectedFavoritePresetIndex_ >= presetCount) {
+            selectedFavoritePresetIndex_ = 0;
+        }
+
+        if (presetCount > 0) {
+            const char* currentPresetName = (*presets)[selectedFavoritePresetIndex_].name.c_str();
+            if (ImGui::BeginCombo("Saved presets##decalFavoritePresetList", currentPresetName)) {
+                for (int i = 0; i < presetCount; ++i) {
+                    const bool selected = i == selectedFavoritePresetIndex_;
+                    std::string label = (*presets)[i].name;
+                    if ((*presets)[i].isDefault) {
+                        label += " [default]";
+                    }
+                    if (ImGui::Selectable(label.c_str(), selected)) {
+                        selectedFavoritePresetIndex_ = i;
+                        std::snprintf(presetNameBuf_, sizeof(presetNameBuf_), "%s", (*presets)[i].name.c_str());
+                    }
+                    if (selected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
+        else {
+            ImGui::BeginDisabled();
+            int dummy = 0;
+            const char* emptyItems[] = {"No saved presets"};
+            ImGui::Combo("Saved presets##decalFavoritePresetListDisabled", &dummy, emptyItems, 1);
+            ImGui::EndDisabled();
+        }
+
+        ImGui::SameLine();
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::Button("Load Selected")) {
+            LoadFavoritePresetByName_(pendingPaint_.instanceId, (*presets)[selectedFavoritePresetIndex_].name.c_str());
+        }
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::EndDisabled();
+        }
+
+        ImGui::SameLine();
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::BeginDisabled();
+        }
+        if (ImGui::Button("Delete")) {
+            if (favorites_->DeleteDecalFavoritePreset(
+                    pendingPaint_.instanceId,
+                    (*presets)[selectedFavoritePresetIndex_].name)) {
+                ResetPresetNameInput_();
+            }
+        }
+        if (selectedFavoritePresetIndex_ < 0 || !presets || presetCount == 0) {
+            ImGui::EndDisabled();
+        }
+
+        ImGui::InputTextWithHint("Preset name##decalFavoritePresetName",
+                                 "Preset name...",
+                                 presetNameBuf_,
+                                 sizeof(presetNameBuf_));
+
+        const bool hasTypedName = presetNameBuf_[0] != '\0';
+        ImGui::BeginDisabled(!hasTypedName);
+        if (ImGui::Button(isFavorite ? "Save" : "Favorite + Save")) {
+            favorites_->UpsertDecalFavoritePreset(
+                pendingPaint_.instanceId,
+                presetNameBuf_,
+                BuildSavedPreset(state),
+                false);
+            const auto* updatedPresets = favorites_->GetDecalFavoritePresets(pendingPaint_.instanceId);
+            if (updatedPresets) {
+                for (size_t i = 0; i < updatedPresets->size(); ++i) {
+                    if ((*updatedPresets)[i].name == presetNameBuf_) {
+                        selectedFavoritePresetIndex_ = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Save Default")) {
+            favorites_->UpsertDecalFavoritePreset(
+                pendingPaint_.instanceId,
+                presetNameBuf_,
+                BuildSavedPreset(state),
+                true);
+            const auto* updatedPresets = favorites_->GetDecalFavoritePresets(pendingPaint_.instanceId);
+            if (updatedPresets) {
+                for (size_t i = 0; i < updatedPresets->size(); ++i) {
+                    if ((*updatedPresets)[i].name == presetNameBuf_) {
+                        selectedFavoritePresetIndex_ = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+        }
+        ImGui::EndDisabled();
+    }
+
+    ImGui::PopItemWidth();
+
+    ImGui::Separator();
+
+    if (ImGui::Button("Start Painting", ImVec2(120, 0))) {
+        char name[20];
+        std::snprintf(name, sizeof(name), "0x%08X", pendingPaint_.instanceId);
+        ReleaseImGuiInputCapture_();
+        director_->StartDecalPainting(pendingPaint_.instanceId, pendingPaint_.settings, name);
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(80, 0))) {
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+void DecalPanelTab::RenderUvPicker_(TerrainDecalState& state) {
+    if (!EnsureUvPickerTextureLoaded_()) {
+        ImGui::TextDisabled("Texture preview unavailable for this decal.");
+        return;
+    }
+
+    void* const textureId = uvPickerTexture_.GetID();
+    if (!textureId || uvPickerSourceSize_.x <= 0.0f || uvPickerSourceSize_.y <= 0.0f) {
+        ImGui::TextDisabled("Texture preview unavailable for this decal.");
+        return;
+    }
+
+    const float maxWidth = std::min(kUvPickerMaxWidth, std::max(1.0f, ImGui::GetContentRegionAvail().x));
+    const float widthScale = maxWidth / uvPickerSourceSize_.x;
+    const float heightScale = kUvPickerMaxHeight / uvPickerSourceSize_.y;
+    const float scale = std::min(1.0f, std::min(widthScale, heightScale));
+    const ImVec2 imageSize(uvPickerSourceSize_.x * scale, uvPickerSourceSize_.y * scale);
+    const ImVec2 imageMin = ImGui::GetCursorScreenPos();
+
+    ImGui::InvisibleButton("##decalUvPickerImage", imageSize, ImGuiButtonFlags_MouseButtonLeft);
+
+    const ImVec2 imageMax(imageMin.x + imageSize.x, imageMin.y + imageSize.y);
+    ImDrawList* const drawList = ImGui::GetWindowDrawList();
+    drawList->AddRectFilled(imageMin, imageMax, IM_COL32(24, 24, 24, 255));
+    drawList->AddImage(textureId, imageMin, imageMax);
+    drawList->AddRect(imageMin, imageMax, IM_COL32(180, 180, 180, 255));
+
+    const auto uvToScreen = [&](const ImVec2 uv) {
+        return ImVec2(imageMin.x + uv.x * imageSize.x, imageMin.y + uv.y * imageSize.y);
+    };
+    const auto screenToUv = [&](const ImVec2 pos) {
+        return ClampUvPoint(ImVec2(
+            (pos.x - imageMin.x) / imageSize.x,
+            (pos.y - imageMin.y) / imageSize.y));
+    };
+
+    const auto buildWindow = [&](const ImVec2 startUv, const ImVec2 endUv) {
+        TerrainDecalUvWindow window = state.uvWindow;
+        window.u1 = startUv.x;
+        window.v1 = startUv.y;
+        window.u2 = endUv.x;
+        window.v2 = endUv.y;
+        QuantizeUvWindowToPixels(window, uvPickerSourceSize_);
+        return window;
+    };
+
+    if (ImGui::IsItemActivated()) {
+        uvPickerDragging_ = true;
+        uvPickerHadWindowBeforeDrag_ = state.hasUvWindow;
+        uvPickerWindowBeforeDrag_ = state.uvWindow;
+        uvPickerDragStartUv_ = screenToUv(ImGui::GetIO().MousePos);
+    }
+
+    const ImVec2 clampedMousePos(
+        std::clamp(ImGui::GetIO().MousePos.x, imageMin.x, imageMax.x),
+        std::clamp(ImGui::GetIO().MousePos.y, imageMin.y, imageMax.y));
+    const ImVec2 dragStartScreen = uvToScreen(uvPickerDragStartUv_);
+    const float dragDx = std::abs(clampedMousePos.x - dragStartScreen.x);
+    const float dragDy = std::abs(clampedMousePos.y - dragStartScreen.y);
+    const bool hasMeaningfulDrag = dragDx >= kUvPickerMinDragPixels || dragDy >= kUvPickerMinDragPixels;
+
+    if (uvPickerDragging_ && ImGui::IsMouseDown(ImGuiMouseButton_Left) && hasMeaningfulDrag) {
+        state.hasUvWindow = true;
+        state.uvWindow = buildWindow(uvPickerDragStartUv_, screenToUv(clampedMousePos));
+    }
+
+    if (uvPickerDragging_ && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        if (!hasMeaningfulDrag) {
+            state.hasUvWindow = uvPickerHadWindowBeforeDrag_;
+            state.uvWindow = uvPickerWindowBeforeDrag_;
+        }
+        uvPickerDragging_ = false;
+    }
+
+    if (state.hasUvWindow) {
+        QuantizeUvWindowToPixels(state.uvWindow, uvPickerSourceSize_);
+
+        const ImVec2 selectionMin = uvToScreen(ImVec2(state.uvWindow.u1, state.uvWindow.v1));
+        const ImVec2 selectionMax = uvToScreen(ImVec2(state.uvWindow.u2, state.uvWindow.v2));
+
+        drawList->AddRectFilled(
+            imageMin,
+            ImVec2(imageMax.x, selectionMin.y),
+            IM_COL32(0, 0, 0, 72));
+        drawList->AddRectFilled(
+            ImVec2(imageMin.x, selectionMax.y),
+            imageMax,
+            IM_COL32(0, 0, 0, 72));
+        drawList->AddRectFilled(
+            ImVec2(imageMin.x, selectionMin.y),
+            ImVec2(selectionMin.x, selectionMax.y),
+            IM_COL32(0, 0, 0, 72));
+        drawList->AddRectFilled(
+            ImVec2(selectionMax.x, selectionMin.y),
+            ImVec2(imageMax.x, selectionMax.y),
+            IM_COL32(0, 0, 0, 72));
+
+        drawList->AddRect(selectionMin, selectionMax, IM_COL32(255, 196, 64, 255), 0.0f, 0, 2.0f);
+
+        const float handleRadius = 3.0f;
+        drawList->AddCircleFilled(selectionMin, handleRadius, IM_COL32(255, 196, 64, 255));
+        drawList->AddCircleFilled(ImVec2(selectionMax.x, selectionMin.y), handleRadius, IM_COL32(255, 196, 64, 255));
+        drawList->AddCircleFilled(selectionMax, handleRadius, IM_COL32(255, 196, 64, 255));
+        drawList->AddCircleFilled(ImVec2(selectionMin.x, selectionMax.y), handleRadius, IM_COL32(255, 196, 64, 255));
+
+        int selectedX = 0;
+        int selectedY = 0;
+        int selectedPixelWidth = 0;
+        int selectedPixelHeight = 0;
+        GetUvPixelRect(state.uvWindow,
+                       uvPickerSourceSize_,
+                       selectedX,
+                       selectedY,
+                       selectedPixelWidth,
+                       selectedPixelHeight);
+        ImGui::TextDisabled("Selection X:%d Y:%d W:%d H:%d px",
+                            selectedX,
+                            selectedY,
+                            selectedPixelWidth,
+                            selectedPixelHeight);
+
+        const float previewMaxWidth = std::min(140.0f, std::max(1.0f, ImGui::GetContentRegionAvail().x));
+        const float previewScale = std::min(
+            1.0f,
+            std::min(previewMaxWidth / std::max(1.0f, static_cast<float>(selectedPixelWidth)),
+                     96.0f / std::max(1.0f, static_cast<float>(selectedPixelHeight))));
+        const ImVec2 previewSize(
+            std::max(1.0f, selectedPixelWidth * previewScale),
+            std::max(1.0f, selectedPixelHeight * previewScale));
+        ImGui::Image(
+            textureId,
+            previewSize,
+            ImVec2(state.uvWindow.u1, state.uvWindow.v1),
+            ImVec2(state.uvWindow.u2, state.uvWindow.v2));
+    }
+}
+
+void DecalPanelTab::QueuePaintForDecal_(const uint32_t instanceId) {
+    if (pendingPaint_.instanceId != instanceId) {
+        ClearUvPickerTexture_();
+        ResetPresetNameInput_();
+    }
+
+    pendingPaint_.instanceId = instanceId;
+    pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
+    pendingPaint_.open = true;
+}
+
+void DecalPanelTab::StartPaintingDecal_(const uint32_t instanceId) {
+    if (instanceId == 0) {
+        return;
+    }
+
+    if (pendingPaint_.instanceId != instanceId) {
+        ClearUvPickerTexture_();
+        ResetPresetNameInput_();
+    }
+
+    pendingPaint_.instanceId = instanceId;
+    pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
+
+    char name[20];
+    std::snprintf(name, sizeof(name), "0x%08X", instanceId);
+
+    ReleaseImGuiInputCapture_();
+    director_->StartDecalPainting(instanceId, pendingPaint_.settings, name);
+}
+
+void DecalPanelTab::ApplyFavoritePresetIfAvailable_(const uint32_t instanceId) {
+    if (!favorites_) {
+        return;
+    }
+
+    if (const SavedDecalPreset* preset = favorites_->GetDefaultDecalFavoritePreset(instanceId)) {
+        ApplySavedPreset(*preset, pendingPaint_.settings.stateTemplate);
+        pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
+    }
+}
+
+void DecalPanelTab::LoadFavoritePresetByName_(const uint32_t instanceId, const char* const presetName) {
+    if (!favorites_ || !presetName || presetName[0] == '\0') {
+        return;
+    }
+
+    const auto* presets = favorites_->GetDecalFavoritePresets(instanceId);
+    if (!presets) {
+        return;
+    }
+
+    for (size_t i = 0; i < presets->size(); ++i) {
+        if ((*presets)[i].name == presetName) {
+            ApplySavedPreset((*presets)[i].preset, pendingPaint_.settings.stateTemplate);
+            pendingPaint_.settings.stateTemplate.textureKey = MakeDecalTextureKey(instanceId);
+            selectedFavoritePresetIndex_ = static_cast<int>(i);
+            std::snprintf(presetNameBuf_, sizeof(presetNameBuf_), "%s", presetName);
+            return;
+        }
+    }
+}
+
+void DecalPanelTab::ResetPresetNameInput_() {
+    presetNameBuf_[0] = '\0';
+    selectedFavoritePresetIndex_ = -1;
+}
+
+void DecalPanelTab::ClearUvPickerTexture_() {
+    uvPickerTexture_.Release();
+    uvPickerSourceSize_ = ImVec2(0.0f, 0.0f);
+    uvPickerTextureInstanceId_ = 0;
+    uvPickerDragging_ = false;
+    uvPickerHadWindowBeforeDrag_ = false;
+    uvPickerWindowBeforeDrag_ = {};
+    uvPickerDragStartUv_ = ImVec2(0.0f, 0.0f);
+}
+
+bool DecalPanelTab::EnsureUvPickerTextureLoaded_() {
+    if (pendingPaint_.instanceId == 0) {
+        return false;
+    }
+
+    if (uvPickerTextureInstanceId_ == pendingPaint_.instanceId) {
+        return uvPickerTexture_.GetID() != nullptr;
+    }
+
+    ClearUvPickerTexture_();
+    if (!LoadDecalTexture_(pendingPaint_.instanceId, uvPickerTexture_, uvPickerSourceSize_)) {
+        return false;
+    }
+
+    uvPickerTextureInstanceId_ = pendingPaint_.instanceId;
+    return uvPickerTexture_.GetID() != nullptr;
+}
+
+bool DecalPanelTab::LoadDecalTexture_(const uint32_t instanceId, ImGuiTexture& outTexture, ImVec2& outSourceSize) const {
+    outSourceSize = ImVec2(0.0f, 0.0f);
+    return decals::LoadDecalTexture(pRM_, imguiService_, instanceId, outTexture, outSourceSize);
+}
+
+ImGuiTexture DecalPanelTab::LoadDecalThumbnail_(const uint32_t instanceId) const {
+    ImGuiTexture texture;
+    ImVec2 sourceSize;
+    LoadDecalTexture_(instanceId, texture, sourceSize);
+    return texture;
+}

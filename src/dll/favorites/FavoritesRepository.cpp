@@ -12,6 +12,34 @@
 #include "rfl/cbor/load.hpp"
 #include "rfl/cbor/save.hpp"
 
+namespace {
+    void NormalizeNamedDecalPresets(std::vector<NamedDecalPreset>& presets) {
+        bool hasDefault = false;
+
+        for (auto it = presets.begin(); it != presets.end();) {
+            if (it->name.empty()) {
+                it = presets.erase(it);
+                continue;
+            }
+
+            if (it->isDefault) {
+                if (!hasDefault) {
+                    hasDefault = true;
+                }
+                else {
+                    it->isDefault = false;
+                }
+            }
+
+            ++it;
+        }
+
+        if (!hasDefault && !presets.empty()) {
+            presets.front().isDefault = true;
+        }
+    }
+}
+
 FavoritesRepository::FavoritesRepository(const PropRepository& props)
     : props_(props) {}
 
@@ -19,7 +47,10 @@ void FavoritesRepository::Load() {
     favoriteLotIds_.clear();
     favoritePropIds_.clear();
     favoriteFloraIds_.clear();
+    favoriteDecalIds_.clear();
+    favoriteDecalPresets_.clear();
     userFamilies_.clear();
+    userSeasonalSets_.clear();
     recentPaintsCache_.clear();
     activeUserFamilyIndex_ = 0;
 
@@ -46,6 +77,16 @@ void FavoritesRepository::Load() {
                     favoriteFloraIds_.insert(hexId.value());
                 }
             }
+            if (result->decals) {
+                for (auto entry : *result->decals) {
+                    const uint32_t instanceId = entry.instanceId.value();
+                    favoriteDecalIds_.insert(instanceId);
+                    NormalizeNamedDecalPresets(entry.presets);
+                    if (!entry.presets.empty()) {
+                        favoriteDecalPresets_.insert_or_assign(instanceId, std::move(entry.presets));
+                    }
+                }
+            }
 
             if (result->families) {
                 userFamilies_ = *result->families;
@@ -62,12 +103,25 @@ void FavoritesRepository::Load() {
                     }
                 }
             }
+            if (result->seasonalSets) {
+                userSeasonalSets_ = *result->seasonalSets;
+                for (auto& set : userSeasonalSets_) {
+                    set.confidence = 2;
+                    if (!set.persistentId.has_value()) {
+                        set.persistentId = rfl::Hex<uint64_t>(GenerateNextUserSeasonalSetId_());
+                    }
+                    std::erase_if(set.members, [this](const rfl::Hex<uint32_t>& member) {
+                        return props_.FindPropByInstanceId(member.value()) == nullptr;
+                    });
+                }
+                std::erase_if(userSeasonalSets_, [](const SeasonalSet& set) { return set.name.empty(); });
+            }
             if (result->recentPaints) {
                 recentPaintsCache_ = *result->recentPaints;
             }
 
-            LOG_INFO("Loaded {} favorite lots, {} user families from {}",
-                     favoriteLotIds_.size(), userFamilies_.size(), cborPath.string());
+            LOG_INFO("Loaded {} favorite lots, {} favorite decals, {} user families from {}",
+                     favoriteLotIds_.size(), favoriteDecalIds_.size(), userFamilies_.size(), cborPath.string());
         }
         else {
             LOG_WARN("Failed to load favorites from CBOR file: {}", result.error().what());
@@ -84,7 +138,7 @@ void FavoritesRepository::Save() const {
         const auto cborPath = pluginsPath / "favorites.cbor";
 
         AllFavorites allFavorites;
-        allFavorites.version = 4;
+        allFavorites.version = 7;
 
         for (const uint32_t id : favoriteLotIds_) {
             allFavorites.lots.items.emplace_back(id);
@@ -115,14 +169,32 @@ void FavoritesRepository::Save() const {
         else {
             allFavorites.flora = std::nullopt;
         }
+        if (!favoriteDecalIds_.empty()) {
+            std::vector<FavoriteDecalEntry> decalFavorites;
+            decalFavorites.reserve(favoriteDecalIds_.size());
+            for (const uint32_t instanceId : favoriteDecalIds_) {
+                FavoriteDecalEntry entry;
+                entry.instanceId = rfl::Hex<uint32_t>(instanceId);
+                if (const auto it = favoriteDecalPresets_.find(instanceId); it != favoriteDecalPresets_.end()) {
+                    entry.presets = it->second;
+                    NormalizeNamedDecalPresets(entry.presets);
+                }
+                decalFavorites.push_back(std::move(entry));
+            }
+            allFavorites.decals = std::move(decalFavorites);
+        }
+        else {
+            allFavorites.decals = std::nullopt;
+        }
         allFavorites.families = userFamilies_.empty() ? std::nullopt : std::make_optional(userFamilies_);
+        allFavorites.seasonalSets = userSeasonalSets_.empty() ? std::nullopt : std::make_optional(userSeasonalSets_);
         allFavorites.recentPaints = recentPaintsCache_.empty()
             ? std::nullopt
             : std::make_optional(recentPaintsCache_);
 
         if (const auto saveResult = rfl::cbor::save(cborPath.string(), allFavorites)) {
-            LOG_INFO("Saved {} favorite lots, {} user families to {}",
-                     favoriteLotIds_.size(), userFamilies_.size(), cborPath.string());
+            LOG_INFO("Saved {} favorite lots, {} favorite decals, {} user families to {}",
+                     favoriteLotIds_.size(), favoriteDecalIds_.size(), userFamilies_.size(), cborPath.string());
         }
         else {
             LOG_ERROR("Failed to save favorites: {}", saveResult.error().what());
@@ -201,6 +273,135 @@ void FavoritesRepository::ToggleFloraFavorite(const uint32_t groupId, const uint
         LOG_INFO("Added flora favorite: 0x{:08X}/0x{:08X}", groupId, instanceId);
     }
     Save();
+}
+
+bool FavoritesRepository::IsDecalFavorite(const uint32_t instanceId) const {
+    return favoriteDecalIds_.contains(instanceId);
+}
+
+const std::unordered_set<uint32_t>& FavoritesRepository::GetFavoriteDecalIds() const {
+    return favoriteDecalIds_;
+}
+
+void FavoritesRepository::ToggleDecalFavorite(const uint32_t instanceId) {
+    if (favoriteDecalIds_.contains(instanceId)) {
+        favoriteDecalIds_.erase(instanceId);
+        favoriteDecalPresets_.erase(instanceId);
+        LOG_INFO("Removed decal favorite: 0x{:08X}", instanceId);
+    }
+    else {
+        favoriteDecalIds_.insert(instanceId);
+        LOG_INFO("Added decal favorite: 0x{:08X}", instanceId);
+    }
+    Save();
+}
+
+const std::vector<NamedDecalPreset>* FavoritesRepository::GetDecalFavoritePresets(const uint32_t instanceId) const {
+    if (const auto it = favoriteDecalPresets_.find(instanceId); it != favoriteDecalPresets_.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+const SavedDecalPreset* FavoritesRepository::GetDefaultDecalFavoritePreset(const uint32_t instanceId) const {
+    const auto* presets = GetDecalFavoritePresets(instanceId);
+    if (!presets || presets->empty()) {
+        return nullptr;
+    }
+
+    for (const auto& preset : *presets) {
+        if (preset.isDefault) {
+            return &preset.preset;
+        }
+    }
+
+    return &presets->front().preset;
+}
+
+bool FavoritesRepository::UpsertDecalFavoritePreset(const uint32_t instanceId,
+                                                    const std::string& name,
+                                                    const SavedDecalPreset& preset,
+                                                    const bool makeDefault) {
+    if (instanceId == 0 || name.empty()) {
+        return false;
+    }
+
+    favoriteDecalIds_.insert(instanceId);
+    auto& presets = favoriteDecalPresets_[instanceId];
+
+    for (auto& entry : presets) {
+        if (entry.name == name) {
+            entry.preset = preset;
+            if (makeDefault) {
+                for (auto& candidate : presets) {
+                    candidate.isDefault = false;
+                }
+                entry.isDefault = true;
+            }
+            NormalizeNamedDecalPresets(presets);
+            Save();
+            return true;
+        }
+    }
+
+    NamedDecalPreset entry;
+    entry.name = name;
+    entry.preset = preset;
+    entry.isDefault = makeDefault || presets.empty();
+    if (entry.isDefault) {
+        for (auto& candidate : presets) {
+            candidate.isDefault = false;
+        }
+    }
+    presets.push_back(std::move(entry));
+    NormalizeNamedDecalPresets(presets);
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::DeleteDecalFavoritePreset(const uint32_t instanceId, const std::string& name) {
+    const auto it = favoriteDecalPresets_.find(instanceId);
+    if (it == favoriteDecalPresets_.end() || name.empty()) {
+        return false;
+    }
+
+    auto& presets = it->second;
+    const auto oldSize = presets.size();
+    std::erase_if(presets, [&](const NamedDecalPreset& entry) { return entry.name == name; });
+    if (presets.size() == oldSize) {
+        return false;
+    }
+
+    if (presets.empty()) {
+        favoriteDecalPresets_.erase(it);
+    }
+    else {
+        NormalizeNamedDecalPresets(presets);
+    }
+
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::SetDefaultDecalFavoritePreset(const uint32_t instanceId, const std::string& name) {
+    const auto it = favoriteDecalPresets_.find(instanceId);
+    if (it == favoriteDecalPresets_.end() || name.empty()) {
+        return false;
+    }
+
+    bool found = false;
+    for (auto& entry : it->second) {
+        const bool matches = entry.name == name;
+        entry.isDefault = matches;
+        found = found || matches;
+    }
+    if (!found) {
+        return false;
+    }
+
+    NormalizeNamedDecalPresets(it->second);
+    Save();
+    return true;
 }
 
 const std::vector<PropFamily>& FavoritesRepository::GetUserFamilies() const {
@@ -364,6 +565,84 @@ bool FavoritesRepository::AddPropFamilyToNewUserFamily(const uint32_t familyID) 
     return true;
 }
 
+const std::vector<SeasonalSet>& FavoritesRepository::GetUserSeasonalSets() const {
+    return userSeasonalSets_;
+}
+
+bool FavoritesRepository::CreateUserSeasonalSet(const std::string& name) {
+    if (name.empty()) {
+        return false;
+    }
+    for (const auto& set : userSeasonalSets_) {
+        if (set.name == name) {
+            return false;
+        }
+    }
+    SeasonalSet set;
+    set.name = name;
+    set.confidence = 2;
+    set.persistentId = rfl::Hex<uint64_t>(GenerateNextUserSeasonalSetId_());
+    userSeasonalSets_.push_back(std::move(set));
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::DeleteUserSeasonalSet(const size_t index) {
+    if (index >= userSeasonalSets_.size()) {
+        return false;
+    }
+    userSeasonalSets_.erase(userSeasonalSets_.begin() + static_cast<std::ptrdiff_t>(index));
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::RenameUserSeasonalSet(const size_t index, const std::string& newName) {
+    if (index >= userSeasonalSets_.size() || newName.empty()) {
+        return false;
+    }
+    for (size_t i = 0; i < userSeasonalSets_.size(); ++i) {
+        if (i != index && userSeasonalSets_[i].name == newName) {
+            return false;
+        }
+    }
+    userSeasonalSets_[index].name = newName;
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::AddPropToUserSeasonalSet(const uint32_t propID, const size_t index) {
+    if (index >= userSeasonalSets_.size() || propID == 0) {
+        return false;
+    }
+    if (!props_.FindPropByInstanceId(propID)) {
+        LOG_WARN("Cannot add prop 0x{:08X} to seasonal set: prop not found", propID);
+        return false;
+    }
+    auto& set = userSeasonalSets_[index];
+    for (const auto& member : set.members) {
+        if (member.value() == propID) {
+            return false;
+        }
+    }
+    set.members.emplace_back(propID);
+    Save();
+    return true;
+}
+
+bool FavoritesRepository::RemovePropFromUserSeasonalSet(const uint32_t propID, const size_t index) {
+    if (index >= userSeasonalSets_.size()) {
+        return false;
+    }
+    auto& members = userSeasonalSets_[index].members;
+    const auto oldSize = members.size();
+    std::erase_if(members, [propID](const rfl::Hex<uint32_t>& member) { return member.value() == propID; });
+    if (members.size() == oldSize) {
+        return false;
+    }
+    Save();
+    return true;
+}
+
 std::filesystem::path FavoritesRepository::GetPluginsPath_() {
     try {
         const auto modulePath = wil::GetModuleFileNameW(wil::GetModuleInstanceHandle());
@@ -386,6 +665,16 @@ uint64_t FavoritesRepository::GenerateNextUserFamilyId_() const {
     for (const auto& family : userFamilies_) {
         if (family.persistentId.has_value()) {
             nextId = std::max(nextId, family.persistentId->value() + 1);
+        }
+    }
+    return nextId;
+}
+
+uint64_t FavoritesRepository::GenerateNextUserSeasonalSetId_() const {
+    uint64_t nextId = 1;
+    for (const auto& set : userSeasonalSets_) {
+        if (set.persistentId.has_value()) {
+            nextId = std::max(nextId, set.persistentId->value() + 1);
         }
     }
     return nextId;

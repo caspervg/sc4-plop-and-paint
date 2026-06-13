@@ -13,6 +13,12 @@ inline bool operator==(const RecentPaintEntryData& lhs, const RecentPaintEntryDa
 inline bool operator==(const PropTimeOfDay& lhs, const PropTimeOfDay& rhs);
 inline bool operator==(const SimulatorDateStart& lhs, const SimulatorDateStart& rhs);
 inline bool operator==(const Prop& lhs, const Prop& rhs);
+inline bool operator==(const SavedDecalInfo& lhs, const SavedDecalInfo& rhs);
+inline bool operator==(const SavedDecalColor& lhs, const SavedDecalColor& rhs);
+inline bool operator==(const SavedDecalUvWindow& lhs, const SavedDecalUvWindow& rhs);
+inline bool operator==(const SavedDecalPreset& lhs, const SavedDecalPreset& rhs);
+inline bool operator==(const NamedDecalPreset& lhs, const NamedDecalPreset& rhs);
+inline bool operator==(const FavoriteDecalEntry& lhs, const FavoriteDecalEntry& rhs);
 
 // Helper function to compare Icon structs
 inline bool operator==(const Icon& lhs, const Icon& rhs) {
@@ -42,8 +48,6 @@ inline bool operator==(const Lot& lhs, const Lot& rhs) {
            lhs.name == rhs.name &&
            lhs.sizeX == rhs.sizeX &&
            lhs.sizeZ == rhs.sizeZ &&
-           lhs.minCapacity == rhs.minCapacity &&
-           lhs.maxCapacity == rhs.maxCapacity &&
            lhs.growthStage == rhs.growthStage &&
            lhs.zoneType == rhs.zoneType &&
            lhs.wealthType == rhs.wealthType &&
@@ -115,6 +119,52 @@ inline bool operator==(const Prop& lhs, const Prop& rhs) {
            lhs.thumbnail == rhs.thumbnail;
 }
 
+inline bool operator==(const SavedDecalInfo& lhs, const SavedDecalInfo& rhs) {
+    return lhs.baseSize == rhs.baseSize &&
+           lhs.rotationTurns == rhs.rotationTurns &&
+           lhs.aspectMultiplier == rhs.aspectMultiplier &&
+           lhs.uvScaleU == rhs.uvScaleU &&
+           lhs.uvScaleV == rhs.uvScaleV &&
+           lhs.uvOffset == rhs.uvOffset &&
+           lhs.unknown8 == rhs.unknown8;
+}
+
+inline bool operator==(const SavedDecalColor& lhs, const SavedDecalColor& rhs) {
+    return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+}
+
+inline bool operator==(const SavedDecalUvWindow& lhs, const SavedDecalUvWindow& rhs) {
+    return lhs.u1 == rhs.u1 &&
+           lhs.v1 == rhs.v1 &&
+           lhs.u2 == rhs.u2 &&
+           lhs.v2 == rhs.v2 &&
+           lhs.mode == rhs.mode;
+}
+
+inline bool operator==(const SavedDecalPreset& lhs, const SavedDecalPreset& rhs) {
+    return lhs.overlayType == rhs.overlayType &&
+           lhs.decalInfo == rhs.decalInfo &&
+           lhs.opacity == rhs.opacity &&
+           lhs.enabled == rhs.enabled &&
+           lhs.color == rhs.color &&
+           lhs.drawMode == rhs.drawMode &&
+           lhs.flags == rhs.flags &&
+           lhs.hasUvWindow == rhs.hasUvWindow &&
+           lhs.uvWindow == rhs.uvWindow &&
+           lhs.depthOffset == rhs.depthOffset;
+}
+
+inline bool operator==(const NamedDecalPreset& lhs, const NamedDecalPreset& rhs) {
+    return lhs.name == rhs.name &&
+           lhs.preset == rhs.preset &&
+           lhs.isDefault == rhs.isDefault;
+}
+
+inline bool operator==(const FavoriteDecalEntry& lhs, const FavoriteDecalEntry& rhs) {
+    return lhs.instanceId.value() == rhs.instanceId.value() &&
+           lhs.presets == rhs.presets;
+}
+
 // Helper function to compare TabFavorites structs
 inline bool operator==(const TabFavorites& lhs, const TabFavorites& rhs) {
     if (lhs.items.size() != rhs.items.size()) return false;
@@ -130,6 +180,7 @@ inline bool operator==(const AllFavorites& lhs, const AllFavorites& rhs) {
            lhs.lots == rhs.lots &&
            lhs.props == rhs.props &&
            lhs.flora == rhs.flora &&
+           lhs.decals == rhs.decals &&
            lhs.families == rhs.families &&
            lhs.recentPaints == rhs.recentPaints &&
            lhs.lastModified.str() == rhs.lastModified.str();
@@ -216,8 +267,6 @@ TEST_CASE("Building CBOR serialization and deserialization", "[cbor][building]")
                 .name = "Stage 1 Lot",
                 .sizeX = 2,
                 .sizeZ = 3,
-                .minCapacity = 50,
-                .maxCapacity = 120,
                 .growthStage = 1,
                 .zoneType = 2,
                 .wealthType = 1,
@@ -241,8 +290,6 @@ TEST_CASE("Lot CBOR serialization and deserialization", "[cbor][lot]") {
         .name = "Test Lot",
         .sizeX = 2,
         .sizeZ = 4,
-        .minCapacity = 100,
-        .maxCapacity = 500,
         .growthStage = 3,
         .zoneType = 7,
         .wealthType = 2,
@@ -370,12 +417,76 @@ TEST_CASE("TabFavorites CBOR serialization and deserialization", "[cbor][favorit
     REQUIRE(deserialized->items[1].value() == 0x123456789ABCDEF0ULL);
 }
 
+TEST_CASE("FavoriteDecalEntry CBOR serialization and deserialization", "[cbor][favorites]") {
+    FavoriteDecalEntry original{
+        .instanceId = rfl::Hex<uint32_t>(0x25A7BEEF),
+        .presets = {
+            NamedDecalPreset{
+                .name = "Default muddy edge",
+                .preset = SavedDecalPreset{
+                    .overlayType = 2,
+                    .decalInfo = SavedDecalInfo{
+                        .baseSize = 32.0f,
+                        .rotationTurns = 0.25f,
+                        .aspectMultiplier = 1.5f,
+                        .uvScaleU = 1.0f,
+                        .uvScaleV = 1.0f,
+                        .uvOffset = 0.0f,
+                        .unknown8 = 0.0f
+                    },
+                    .opacity = 0.8f,
+                    .enabled = true,
+                    .color = SavedDecalColor{.x = 0.9f, .y = 0.8f, .z = 0.7f},
+                    .drawMode = 0,
+                    .flags = 4,
+                    .hasUvWindow = true,
+                    .uvWindow = SavedDecalUvWindow{.u1 = 0.1f, .v1 = 0.2f, .u2 = 0.8f, .v2 = 0.9f, .mode = 1},
+                    .depthOffset = 6
+                },
+                .isDefault = true
+            },
+            NamedDecalPreset{
+                .name = "Thin muddy edge",
+                .preset = SavedDecalPreset{
+                    .overlayType = 0,
+                    .decalInfo = SavedDecalInfo{
+                        .baseSize = 16.0f,
+                        .rotationTurns = 0.0f,
+                        .aspectMultiplier = 0.75f,
+                        .uvScaleU = 1.0f,
+                        .uvScaleV = 1.0f,
+                        .uvOffset = 0.0f,
+                        .unknown8 = 0.0f
+                    },
+                    .opacity = 1.0f,
+                    .enabled = true,
+                    .color = SavedDecalColor{},
+                    .drawMode = 1,
+                    .flags = 0,
+                    .hasUvWindow = false,
+                    .uvWindow = SavedDecalUvWindow{},
+                    .depthOffset = -1
+                },
+                .isDefault = false
+            }
+        }
+    };
+
+    auto cbor_bytes = rfl::cbor::write(original);
+    REQUIRE(!cbor_bytes.empty());
+
+    auto deserialized = rfl::cbor::read<FavoriteDecalEntry>(cbor_bytes);
+    REQUIRE(deserialized);
+    REQUIRE(*deserialized == original);
+}
+
 TEST_CASE("AllFavorites CBOR serialization with lots only", "[cbor][favorites]") {
     AllFavorites original{
-        .version = 2,
+        .version = 6,
         .lots = {.items = {rfl::Hex<uint64_t>(0xAABBCCDDULL), rfl::Hex<uint64_t>(0x123456789ABCDEF0ULL)}},
         .props = std::nullopt,
         .flora = std::nullopt,
+        .decals = std::nullopt,
         .families = std::nullopt,
         .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">("2026-01-20T10:30:00")
     };
@@ -385,22 +496,54 @@ TEST_CASE("AllFavorites CBOR serialization with lots only", "[cbor][favorites]")
 
     auto deserialized = rfl::cbor::read<AllFavorites>(cbor_bytes);
     REQUIRE(deserialized);
-    REQUIRE(deserialized->version == 2);
+    REQUIRE(deserialized->version == 6);
     REQUIRE(deserialized->lots.items.size() == 2);
     REQUIRE(deserialized->lots.items[0].value() == 0xAABBCCDDULL);
     REQUIRE(deserialized->lots.items[1].value() == 0x123456789ABCDEF0ULL);
     REQUIRE(!deserialized->props.has_value());
     REQUIRE(!deserialized->flora.has_value());
+    REQUIRE(!deserialized->decals.has_value());
     REQUIRE(!deserialized->families.has_value());
     REQUIRE(deserialized->lastModified.str() == "2026-01-20T10:30:00");
 }
 
 TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites]") {
     AllFavorites original{
-        .version = 2,
+        .version = 6,
         .lots = {.items = {rfl::Hex<uint64_t>(0x11111111ULL)}},
         .props = TabFavorites{.items = {rfl::Hex<uint64_t>(0x22222222ULL)}},
         .flora = TabFavorites{.items = {rfl::Hex<uint64_t>(0x33333333ULL)}},
+        .decals = std::vector<FavoriteDecalEntry>{
+            FavoriteDecalEntry{
+                .instanceId = rfl::Hex<uint32_t>(0x25A7BEEF),
+                .presets = {
+                    NamedDecalPreset{
+                        .name = "Wide",
+                        .preset = SavedDecalPreset{
+                            .overlayType = 2,
+                            .decalInfo = SavedDecalInfo{
+                                .baseSize = 24.0f,
+                                .rotationTurns = 0.5f,
+                                .aspectMultiplier = 2.0f,
+                                .uvScaleU = 1.0f,
+                                .uvScaleV = 1.0f,
+                                .uvOffset = 0.0f,
+                                .unknown8 = 0.0f
+                            },
+                            .opacity = 0.6f,
+                            .enabled = true,
+                            .color = SavedDecalColor{.x = 1.0f, .y = 0.9f, .z = 0.8f},
+                            .drawMode = 0,
+                            .flags = 8,
+                            .hasUvWindow = true,
+                            .uvWindow = SavedDecalUvWindow{.u1 = 0.0f, .v1 = 0.0f, .u2 = 0.5f, .v2 = 1.0f, .mode = 0},
+                            .depthOffset = 5
+                        },
+                        .isDefault = true
+                    }
+                }
+            }
+        },
         .families = std::vector<PropFamily>{
             PropFamily{
                 .name = "Street Furniture",
@@ -434,7 +577,7 @@ TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites
 
     auto deserialized = rfl::cbor::read<AllFavorites>(cbor_bytes);
     REQUIRE(deserialized);
-    REQUIRE(deserialized->version == 2);
+    REQUIRE(deserialized->version == 6);
     REQUIRE(deserialized->lots.items.size() == 1);
     REQUIRE(deserialized->props.has_value());
     REQUIRE(deserialized->props->items.size() == 1);
@@ -442,6 +585,11 @@ TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites
     REQUIRE(deserialized->flora.has_value());
     REQUIRE(deserialized->flora->items.size() == 1);
     REQUIRE(deserialized->flora->items[0].value() == 0x33333333ULL);
+    REQUIRE(deserialized->decals.has_value());
+    REQUIRE(deserialized->decals->size() == 1);
+    REQUIRE((*deserialized->decals)[0].instanceId.value() == 0x25A7BEEF);
+    REQUIRE((*deserialized->decals)[0].presets.size() == 1);
+    REQUIRE((*deserialized->decals)[0].presets[0].isDefault);
     REQUIRE(deserialized->families.has_value());
     REQUIRE(deserialized->families->size() == 1);
     REQUIRE((*deserialized->families)[0].name == "Street Furniture");
@@ -456,10 +604,11 @@ TEST_CASE("AllFavorites CBOR serialization with all sections", "[cbor][favorites
 
 TEST_CASE("AllFavorites CBOR empty favorites", "[cbor][favorites][edge-case]") {
     AllFavorites original{
-        .version = 2,
+        .version = 6,
         .lots = {.items = {}},
         .props = std::nullopt,
         .flora = std::nullopt,
+        .decals = std::nullopt,
         .families = std::nullopt,
         .lastModified = rfl::Timestamp<"%Y-%m-%dT%H:%M:%S">("2026-01-20T00:00:00")
     };
@@ -472,5 +621,6 @@ TEST_CASE("AllFavorites CBOR empty favorites", "[cbor][favorites][edge-case]") {
     REQUIRE(deserialized->lots.items.empty());
     REQUIRE(!deserialized->props.has_value());
     REQUIRE(!deserialized->flora.has_value());
+    REQUIRE(!deserialized->decals.has_value());
     REQUIRE(!deserialized->families.has_value());
 }

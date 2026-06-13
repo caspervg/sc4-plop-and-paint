@@ -43,6 +43,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${IMGUI_PUBLIC_DIR}
     ${IMGUI_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/vendor/wil/include
+    ${CMAKE_SOURCE_DIR}/vendor/DBPFKit/src
 )
 
 # Link against gzcom2 and spdlog
@@ -52,6 +53,7 @@ set(SC4_DLL_LINK_LIBS
     gzcom2
 )
 list(APPEND SC4_DLL_LINK_LIBS SC4PlopAndPaintCore)
+list(APPEND SC4_DLL_LINK_LIBS DBPFKitLib)
 
 # Locate and link imgui library produced by sc4-imgui-service
 # IMPORTANT: Must use the sc4-imgui-service imgui.lib, NOT the vcpkg version!

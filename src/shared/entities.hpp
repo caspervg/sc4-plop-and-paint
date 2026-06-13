@@ -32,9 +32,6 @@ struct Lot {
     uint8_t sizeX;
     uint8_t sizeZ;
 
-    uint16_t minCapacity;
-    uint16_t maxCapacity;
-
     uint8_t growthStage;
 
     std::optional<uint8_t> zoneType;      // LotConfigPropertyZoneTypes (0x88edc793)
@@ -98,10 +95,18 @@ struct PropFamilyInfo {
     std::string displayName;
 };
 
+struct SeasonalSet {
+    std::string name;
+    std::vector<rfl::Hex<uint32_t>> members;  // prop instance IDs; date windows live on the Prop
+    uint8_t confidence = 0;  // 0 = stem match, 1 = fuzzy match, 2 = user-defined
+    std::optional<rfl::Hex<uint64_t>> persistentId;  // set only for user-curated sets
+};
+
 struct PropsCache {
-    uint32_t version = 4;
+    uint32_t version = 5;
     std::vector<Prop> props;
     std::vector<PropFamilyInfo> propFamilies;
+    std::vector<SeasonalSet> seasonalSets;
 };
 
 struct FamilyEntry {
@@ -149,6 +154,54 @@ struct TabFavorites {
     std::vector<rfl::Hex<uint64_t>> items;
 };
 
+struct SavedDecalInfo {
+    float baseSize = 16.0f;
+    float rotationTurns = 0.0f;
+    float aspectMultiplier = 1.0f;
+    float uvScaleU = 1.0f;
+    float uvScaleV = 1.0f;
+    float uvOffset = 0.0f;
+    float unknown8 = 0.0f;
+};
+
+struct SavedDecalColor {
+    float x = 1.0f;
+    float y = 1.0f;
+    float z = 1.0f;
+};
+
+struct SavedDecalUvWindow {
+    float u1 = 0.0f;
+    float v1 = 0.0f;
+    float u2 = 1.0f;
+    float v2 = 1.0f;
+    uint32_t mode = 0;
+};
+
+struct SavedDecalPreset {
+    uint32_t overlayType = 2;
+    SavedDecalInfo decalInfo{};
+    float opacity = 1.0f;
+    bool enabled = true;
+    SavedDecalColor color{};
+    uint8_t drawMode = 0;
+    uint32_t flags = 0;
+    bool hasUvWindow = false;
+    SavedDecalUvWindow uvWindow{};
+    int depthOffset = -1;
+};
+
+struct NamedDecalPreset {
+    std::string name;
+    SavedDecalPreset preset{};
+    bool isDefault = false;
+};
+
+struct FavoriteDecalEntry {
+    rfl::Hex<uint32_t> instanceId;
+    std::vector<NamedDecalPreset> presets;
+};
+
 struct RecentPaintEntryData {
     uint8_t sourceKind = 0;
     rfl::Hex<uint64_t> sourceId;
@@ -160,11 +213,13 @@ struct RecentPaintEntryData {
 };
 
 struct AllFavorites {
-    uint32_t version = 4;
+    uint32_t version = 7;
     TabFavorites lots;
     std::optional<TabFavorites> props;
     std::optional<TabFavorites> flora;
+    std::optional<std::vector<FavoriteDecalEntry>> decals;
     std::optional<std::vector<PropFamily>> families;
     std::optional<std::vector<RecentPaintEntryData>> recentPaints;
+    std::optional<std::vector<SeasonalSet>> seasonalSets;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

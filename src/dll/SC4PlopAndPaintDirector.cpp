@@ -17,9 +17,16 @@
 #include "common/Constants.hpp"
 #include "common/Utils.hpp"
 #include "favorites/FavoritesRepository.hpp"
+#include "decals/DecalPainterInputControl.hpp"
+#include "decals/DecalRepository.hpp"
+#include "decals/DecalStripperInputControl.hpp"
 #include "flora/FloraRepository.hpp"
 #include "lots/LotRepository.hpp"
 #include "paint/RecentSwapPanel.hpp"
+#include "pick/DecalPickStrategy.hpp"
+#include "pick/FloraPickStrategy.hpp"
+#include "pick/LotPickStrategy.hpp"
+#include "pick/PropPickStrategy.hpp"
 #include "props/PropPainterInputControl.hpp"
 #include "props/PropRepository.hpp"
 #include "props/PropStripperInputControl.hpp"
@@ -37,6 +44,7 @@ namespace {
     constexpr auto kLotPlopPanelId = 0xCA500001u;
     constexpr auto kStatusPanelId = 0xCA500002u;
     constexpr auto kRecentSwapPanelId = 0xCA500003u;
+    constexpr auto kScenePickStatusPanelId = 0xCA500004u;
     constexpr auto kToggleLotPlopWindowShortcutID = 0x9F21C3A1u;
     constexpr auto kKeyConfigType = 0xA2E3D533u;
     constexpr auto kKeyConfigGroup = 0x8F1E6D69u;
@@ -232,18 +240,31 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         propRepository_      = std::make_unique<PropRepository>();
         floraRepository_     = std::make_unique<FloraRepository>();
         favoritesRepository_ = std::make_unique<FavoritesRepository>(*propRepository_);
+        decalRepository_     = std::make_unique<DecalRepository>();
+
+        if (mpFrameWork->GetSystemService(kTerrainDecalServiceID, GZIID_cIGZTerrainDecalService,
+                                          reinterpret_cast<void**>(&terrainDecalService_))) {
+            LOG_INFO("Acquired terrain decal service");
+        }
+        else {
+            LOG_WARN("Terrain decal service not available — decal painting disabled");
+        }
 
         lotRepository_->Load();
         propRepository_->Load();
         floraRepository_->Load();
         favoritesRepository_->Load();
+        propRepository_->ApplyUserSeasonalSets(favoritesRepository_->GetUserSeasonalSets());
 
+        cIGZPersistResourceManagerPtr pRMForPanel;
         panel_ = std::make_unique<PlopAndPaintPanel>(
             this,
             lotRepository_.get(),
             propRepository_.get(),
             floraRepository_.get(),
             favoritesRepository_.get(),
+            decalRepository_.get(),
+            static_cast<cIGZPersistResourceManager*>(pRMForPanel),
             imguiService_);
 
         const ImGuiPanelDesc desc = ImGuiPanelAdapter<PlopAndPaintPanel>::MakeDesc(
@@ -264,6 +285,17 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         if (imguiService_->RegisterPanel(statusDesc)) {
             statusPanelRegistered_ = true;
             LOG_INFO("Registered status panel");
+        }
+
+        pickStatusPanel_ = std::make_unique<ScenePickStatusPanel>();
+        pickStatusPanel_->SetImGuiService(imguiService_);
+        pickStatusPanel_->SetRepositories(propRepository_.get(), floraRepository_.get(), lotRepository_.get());
+        const ImGuiPanelDesc pickStatusDesc = ImGuiPanelAdapter<ScenePickStatusPanel>::MakeDesc(
+            pickStatusPanel_.get(), kScenePickStatusPanelId, 103, true
+        );
+        if (imguiService_->RegisterPanel(pickStatusDesc)) {
+            pickStatusPanelRegistered_ = true;
+            LOG_INFO("Registered scene pick status panel");
         }
 
         if (enableRecentPaints_) {
@@ -323,6 +355,31 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     }
 
     // Destroy objects that may call ImGuiService first.
+    if (scenePickerControl_) {
+        StopPropPicking();
+        if (pickStatusPanel_) {
+            pickStatusPanel_->SetPicker(nullptr);
+        }
+        scenePickerControl_->SetCity(nullptr);
+        scenePickerControl_->Shutdown();
+        scenePickerControl_.Reset();
+    }
+
+    if (decalStripperControl_) {
+        StopDecalStripping();
+        decalStripperControl_->SetDecalService(nullptr);
+        decalStripperControl_->SetCity(nullptr);
+        decalStripperControl_->Shutdown();
+        decalStripperControl_.Reset();
+    }
+
+    if (decalPainterControl_) {
+        StopDecalPainting();
+        decalPainterControl_->SetCity(nullptr);
+        decalPainterControl_->Shutdown();
+        decalPainterControl_.Reset();
+    }
+
     if (propStripperControl_) {
         StopPropStripping();
         propStripperControl_->SetCity(nullptr);
@@ -357,6 +414,12 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     }
     statusPanel_.reset();
 
+    if (imguiService_ && pickStatusPanelRegistered_) {
+        imguiService_->UnregisterPanel(kScenePickStatusPanelId);
+        pickStatusPanelRegistered_ = false;
+    }
+    pickStatusPanel_.reset();
+
     if (imguiService_ && swapPanelRegistered_) {
         imguiService_->UnregisterPanel(kRecentSwapPanelId);
         swapPanelRegistered_ = false;
@@ -377,6 +440,7 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     floraRepository_.reset();
     propRepository_.reset();
     lotRepository_.reset();
+    decalRepository_.reset();
 
     if (drawService_ && drawCallbackToken_ != 0) {
         drawService_->UnregisterDrawPassCallback(drawCallbackToken_);
@@ -391,6 +455,11 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     if (drawService_) {
         drawService_->Release();
         drawService_ = nullptr;
+    }
+
+    if (terrainDecalService_) {
+        terrainDecalService_->Release();
+        terrainDecalService_ = nullptr;
     }
 
     if (cameraService_) {
@@ -739,6 +808,326 @@ bool SC4PlopAndPaintDirector::IsFloraStripping() const {
     return floraStripping_;
 }
 
+bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
+                                                  const DecalPaintSettings& settings,
+                                                  const std::string& name) {
+    if (!pCity_ || !pView3D_) {
+        LOG_WARN("Cannot start decal painting: city or view not available");
+        return false;
+    }
+
+    if (!terrainDecalService_) {
+        LOG_WARN("Cannot start decal painting: terrain decal service not available");
+        return false;
+    }
+
+    RememberDecalPlacementSettings_();
+    DecalPaintSettings effectiveSettings = settings;
+    effectiveSettings.placementSettings = lastDecalPlacementSettings_;
+
+    if (!PrepareForExclusiveActivation_(false, false, false, false, true, false)) {
+        LOG_INFO("Blocked decal paint switch while another tool still has a sketch in progress");
+        return false;
+    }
+
+    if (!decalPainterControl_) {
+        auto* control = new DecalPainterInputControl();
+        decalPainterControl_ = control;
+        if (!decalPainterControl_->Init()) {
+            LOG_ERROR("Failed to initialize DecalPainterInputControl");
+            decalPainterControl_.Reset();
+            return false;
+        }
+    }
+
+    const bool reusingActiveDecalControl =
+        decalPainting_ && decalPainterControl_ &&
+        pView3D_ && pView3D_->GetCurrentViewInputControl() == decalPainterControl_;
+
+    if (reusingActiveDecalControl) {
+        if (decalPainterControl_->HasPendingSketch()) {
+            LOG_INFO("Blocked decal paint switch while the current sketch is still in progress");
+            return false;
+        }
+        ApplySwitchPolicy_(decalPainterControl_);
+    }
+
+    decalPainterControl_->SetCity(pCity_);
+    decalPainterControl_->SetWindow(pView3D_->AsIGZWin());
+    decalPainterControl_->SetCameraService(cameraService_);
+    decalPainterControl_->SetDecalService(terrainDecalService_);
+    decalPainterControl_->SetOnCancel([this]() {
+        if (pView3D_ && decalPainterControl_ &&
+            pView3D_->GetCurrentViewInputControl() == decalPainterControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+        RememberDecalPlacementSettings_();
+        decalPainting_ = false;
+        UpdatePaintPanels_();
+        LOG_INFO("Stopped decal painting");
+    });
+
+    decalPainterControl_->SetDecalToPaint(instanceId, effectiveSettings, name);
+
+    if (!reusingActiveDecalControl) {
+        if (!pView3D_->SetCurrentViewInputControl(
+            decalPainterControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+            LOG_WARN("Failed to set decal painter as current view input control");
+            UpdatePaintPanels_();
+            return false;
+        }
+    }
+
+    decalPainting_ = true;
+    UpdatePaintPanels_();
+    LOG_INFO("Started decal painting: 0x{:08X}", instanceId);
+    return true;
+}
+
+void SC4PlopAndPaintDirector::StopDecalPainting() {
+    RememberDecalPlacementSettings_();
+
+    if (decalPainterControl_) {
+        decalPainterControl_->CancelAllPlacements();
+    }
+
+    if (pView3D_ && decalPainterControl_) {
+        if (pView3D_->GetCurrentViewInputControl() == decalPainterControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+    }
+
+    decalPainting_ = false;
+    UpdatePaintPanels_();
+    LOG_INFO("Stopped decal painting");
+}
+
+bool SC4PlopAndPaintDirector::IsDecalPainting() const {
+    return decalPainting_;
+}
+
+bool SC4PlopAndPaintDirector::StartDecalStripping() {
+    if (!pCity_ || !pView3D_) {
+        LOG_WARN("Cannot start decal stripping: city or view not available");
+        return false;
+    }
+
+    if (!terrainDecalService_) {
+        LOG_WARN("Cannot start decal stripping: terrain decal service not available");
+        return false;
+    }
+
+    if (!PrepareForExclusiveActivation_(false, false, false, false, false, true)) {
+        LOG_INFO("Blocked decal stripping while another tool still has a sketch in progress");
+        return false;
+    }
+
+    if (!decalStripperControl_) {
+        auto* control = new DecalStripperInputControl();
+        decalStripperControl_ = control;
+        if (!decalStripperControl_->Init()) {
+            LOG_ERROR("Failed to initialize DecalStripperInputControl");
+            decalStripperControl_.Reset();
+            return false;
+        }
+    }
+
+    decalStripperControl_->SetDecalService(terrainDecalService_);
+    decalStripperControl_->SetCity(pCity_);
+    decalStripperControl_->SetWindow(pView3D_->AsIGZWin());
+    decalStripperControl_->SetOnCancel([this]() {
+        if (pView3D_ && decalStripperControl_ &&
+            pView3D_->GetCurrentViewInputControl() == decalStripperControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+        decalStripping_ = false;
+        UpdatePaintPanels_();
+        LOG_INFO("Stopped decal stripping");
+    });
+
+    if (!pView3D_->SetCurrentViewInputControl(
+        decalStripperControl_,
+        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        LOG_WARN("Failed to set decal stripper as current view input control");
+        UpdatePaintPanels_();
+        return false;
+    }
+
+    decalStripping_ = true;
+    LOG_INFO("Started decal stripping");
+    return true;
+}
+
+void SC4PlopAndPaintDirector::StopDecalStripping() {
+    if (pView3D_ && decalStripperControl_) {
+        if (pView3D_->GetCurrentViewInputControl() == decalStripperControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+    }
+    decalStripping_ = false;
+    UpdatePaintPanels_();
+    LOG_INFO("Stopped decal stripping");
+}
+
+bool SC4PlopAndPaintDirector::IsDecalStripping() const {
+    return decalStripping_;
+}
+
+bool SC4PlopAndPaintDirector::StartDecalPicking(std::function<void(uint32_t)> onPick) {
+    if (!terrainDecalService_) {
+        LOG_WARN("Cannot start decal picking: terrain decal service not available");
+        return false;
+    }
+
+    return StartScenePicking_(
+        std::make_unique<DecalPickStrategy>(terrainDecalService_, decalRepository_.get()),
+        [callback = std::move(onPick)](const ScenePickResult& result) mutable {
+            if (const auto* decal = std::get_if<PickedDecal>(&result)) {
+                callback(decal->instanceId);
+            }
+        },
+        "decal");
+}
+
+void SC4PlopAndPaintDirector::StopDecalPicking() {
+    if (pView3D_ && scenePickerControl_) {
+        if (pView3D_->GetCurrentViewInputControl() == scenePickerControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+    }
+    scenePicking_ = false;
+    LOG_INFO("Stopped scene picking");
+}
+
+bool SC4PlopAndPaintDirector::IsDecalPicking() const {
+    return scenePicking_ && scenePickerControl_ && scenePickerControl_->GetMode() == ScenePickMode::Decal;
+}
+
+bool SC4PlopAndPaintDirector::IsDecalServiceAvailable() const {
+    return terrainDecalService_ != nullptr;
+}
+
+bool SC4PlopAndPaintDirector::StartScenePicking_(std::unique_ptr<ScenePickStrategy> strategy,
+                                                 std::function<void(const ScenePickResult&)> onPick,
+                                                 const char* const logName) {
+    if (!pCity_ || !pView3D_) {
+        LOG_WARN("Cannot start {} picking: city or view not available", logName);
+        return false;
+    }
+
+    if (!PrepareForExclusiveActivation_(false, false, false, false, false, false, true)) {
+        LOG_INFO("Blocked {} picking while another tool still has a sketch in progress", logName);
+        return false;
+    }
+
+    if (!scenePickerControl_) {
+        auto* control = new ScenePickerInputControl();
+        scenePickerControl_ = control;
+        if (!scenePickerControl_->Init()) {
+            LOG_ERROR("Failed to initialize ScenePickerInputControl");
+            scenePickerControl_.Reset();
+            return false;
+        }
+    }
+
+    if (pickStatusPanel_) {
+        pickStatusPanel_->SetPicker(scenePickerControl_);
+    }
+
+    scenePickerControl_->SetCity(pCity_);
+    scenePickerControl_->SetWindow(pView3D_->AsIGZWin());
+    scenePickerControl_->SetStrategy(std::move(strategy));
+    scenePickerControl_->SetOnPick(std::move(onPick));
+    scenePickerControl_->SetOnCancel([this]() {
+        if (pView3D_ && scenePickerControl_ &&
+            pView3D_->GetCurrentViewInputControl() == scenePickerControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+        scenePicking_ = false;
+        LOG_INFO("Stopped scene picking");
+    });
+
+    if (!pView3D_->SetCurrentViewInputControl(
+        scenePickerControl_,
+        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        LOG_WARN("Failed to set scene picker as current view input control");
+        return false;
+    }
+
+    scenePicking_ = true;
+    LOG_INFO("Started {} picking", logName);
+    return true;
+}
+
+bool SC4PlopAndPaintDirector::StartPropPicking(std::function<void(const PickedProp&)> onPick) {
+    if (GetPropStripperSources() == PropStripperInputControl::SourceFlagNone) {
+        LOG_WARN("Cannot start prop picking: no prop sources enabled");
+        return false;
+    }
+
+    return StartScenePicking_(
+        std::make_unique<PropPickStrategy>(GetPropStripperSources(), propRepository_.get()),
+        [callback = std::move(onPick)](const ScenePickResult& result) mutable {
+            if (const auto* prop = std::get_if<PickedProp>(&result)) {
+                callback(*prop);
+            }
+        },
+        "prop");
+}
+
+void SC4PlopAndPaintDirector::StopPropPicking() {
+    if (pView3D_ && scenePickerControl_) {
+        if (pView3D_->GetCurrentViewInputControl() == scenePickerControl_) {
+            pView3D_->RemoveCurrentViewInputControl(false);
+        }
+    }
+    scenePicking_ = false;
+    LOG_INFO("Stopped scene picking");
+}
+
+bool SC4PlopAndPaintDirector::IsPropPicking() const {
+    return scenePicking_ && scenePickerControl_ && scenePickerControl_->GetMode() == ScenePickMode::Prop;
+}
+
+bool SC4PlopAndPaintDirector::StartLotPicking(std::function<void(const PickedLot&)> onPick) {
+    return StartScenePicking_(
+        std::make_unique<LotPickStrategy>(),
+        [callback = std::move(onPick)](const ScenePickResult& result) mutable {
+            if (const auto* lot = std::get_if<PickedLot>(&result)) {
+                callback(*lot);
+            }
+        },
+        "lot");
+}
+
+void SC4PlopAndPaintDirector::StopLotPicking() {
+    StopPropPicking();
+}
+
+bool SC4PlopAndPaintDirector::IsLotPicking() const {
+    return scenePicking_ && scenePickerControl_ && scenePickerControl_->GetMode() == ScenePickMode::Lot;
+}
+
+bool SC4PlopAndPaintDirector::StartFloraPicking(std::function<void(const PickedFlora&)> onPick) {
+    return StartScenePicking_(
+        std::make_unique<FloraPickStrategy>(),
+        [callback = std::move(onPick)](const ScenePickResult& result) mutable {
+            if (const auto* flora = std::get_if<PickedFlora>(&result)) {
+                callback(*flora);
+            }
+        },
+        "flora");
+}
+
+void SC4PlopAndPaintDirector::StopFloraPicking() {
+    StopPropPicking();
+}
+
+bool SC4PlopAndPaintDirector::IsFloraPicking() const {
+    return scenePicking_ && scenePickerControl_ && scenePickerControl_->GetMode() == ScenePickMode::Flora;
+}
+
 bool SC4PlopAndPaintDirector::StartPropStripping() {
     if (!pCity_ || !pView3D_) {
         LOG_WARN("Cannot start prop stripping: city or view not available");
@@ -766,6 +1155,7 @@ bool SC4PlopAndPaintDirector::StartPropStripping() {
     }
 
     propStripperControl_->SetCity(pCity_);
+    propStripperControl_->SetPropRepository(propRepository_.get());
     propStripperControl_->SetWindow(pView3D_->AsIGZWin());
     propStripperControl_->SetOnCancel([this]() {
         if (pView3D_ && propStripperControl_ &&
@@ -838,6 +1228,9 @@ BasePainterInputControl* SC4PlopAndPaintDirector::GetActivePainterControl() cons
     }
     if (floraPlacerControl_ && currentControl == floraPlacerControl_) {
         return floraPlacerControl_;
+    }
+    if (decalPainterControl_ && currentControl == decalPainterControl_) {
+        return decalPainterControl_;
     }
 
     return nullptr;
@@ -924,6 +1317,15 @@ void SC4PlopAndPaintDirector::ProcessPendingToolActions_() {
     if (floraPlacerControl_) {
         floraPlacerControl_->ProcessPendingActions();
     }
+    if (decalStripperControl_) {
+        decalStripperControl_->ProcessPendingActions();
+    }
+    if (scenePickerControl_) {
+        scenePickerControl_->ProcessPendingActions();
+    }
+    if (decalPainterControl_) {
+        decalPainterControl_->ProcessPendingActions();
+    }
 }
 
 void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, const bool begin, void* pThis) {
@@ -943,8 +1345,13 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     PropStripperInputControl* stripperControl = director->propStripperControl_;
     FloraPainterInputControl* floraControl = director->floraPlacerControl_;
     FloraStripperInputControl* floraStripperControl = director->floraStripperControl_;
+    DecalPainterInputControl* decalPainterControl = director->decalPainterControl_;
+    DecalStripperInputControl* decalStripperControl = director->decalStripperControl_;
+    ScenePickerInputControl* scenePickerControl = director->scenePickerControl_;
 
-    const bool needsOverlay = painterControl || stripperControl || floraControl || floraStripperControl;
+    const bool needsOverlay = painterControl || stripperControl || floraControl
+        || floraStripperControl || decalPainterControl || decalStripperControl
+        || scenePickerControl;
 
     if (!director->drawOverlayEnabled_ || !director->imguiService_ || !needsOverlay) {
         return;
@@ -967,6 +1374,15 @@ void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, c
     }
     if (floraStripperControl) {
         floraStripperControl->DrawOverlay(device);
+    }
+    if (decalPainterControl) {
+        decalPainterControl->DrawOverlay(device);
+    }
+    if (decalStripperControl) {
+        decalStripperControl->DrawOverlay(device);
+    }
+    if (scenePickerControl) {
+        scenePickerControl->DrawOverlay(device);
     }
     device->Release();
     dd->Release();
@@ -1049,12 +1465,19 @@ bool SC4PlopAndPaintDirector::PrepareForPaintSwitch_(BasePainterInputControl* co
 bool SC4PlopAndPaintDirector::PrepareForExclusiveActivation_(const bool keepPropPainting,
                                                              const bool keepFloraPainting,
                                                              const bool keepPropStripping,
-                                                             const bool keepFloraStripping) {
+                                                             const bool keepFloraStripping,
+                                                             const bool keepDecalPainting,
+                                                             const bool keepDecalStripping,
+                                                             const bool keepScenePicking) {
     if (!keepPropPainting && !CanPrepareForPaintSwitch_(propPainterControl_, propPainting_)) {
         return false;
     }
 
     if (!keepFloraPainting && !CanPrepareForPaintSwitch_(floraPlacerControl_, floraPainting_)) {
+        return false;
+    }
+
+    if (!keepDecalPainting && !CanPrepareForPaintSwitch_(decalPainterControl_, decalPainting_)) {
         return false;
     }
 
@@ -1066,12 +1489,25 @@ bool SC4PlopAndPaintDirector::PrepareForExclusiveActivation_(const bool keepProp
         PrepareForPaintSwitch_(floraPlacerControl_, floraPainting_);
     }
 
+    if (!keepDecalPainting) {
+        RememberDecalPlacementSettings_();
+        PrepareForPaintSwitch_(decalPainterControl_, decalPainting_);
+    }
+
     if (!keepPropStripping && propStripping_) {
         StopPropStripping();
     }
 
     if (!keepFloraStripping && floraStripping_) {
         StopFloraStripping();
+    }
+
+    if (!keepDecalStripping && decalStripping_) {
+        StopDecalStripping();
+    }
+
+    if (!keepScenePicking && scenePicking_) {
+        StopPropPicking();
     }
 
     return true;
@@ -1094,6 +1530,20 @@ void SC4PlopAndPaintDirector::ApplySwitchPolicy_(BasePainterInputControl* contro
     case PaintSwitchPolicy::KeepPending:
         break;
     }
+}
+
+void SC4PlopAndPaintDirector::RememberDecalPlacementSettings_() {
+    if (!decalPainterControl_) {
+        return;
+    }
+
+    const PropPaintSettings& current = decalPainterControl_->GetSettings();
+    PropPaintSettings remembered = MakeDefaultDecalPlacementSettings();
+    remembered.previewMode = current.previewMode;
+    remembered.showGrid = current.showGrid;
+    remembered.snapPointsToGrid = current.snapPointsToGrid;
+    remembered.gridStepMeters = current.gridStepMeters;
+    lastDecalPlacementSettings_ = remembered;
 }
 
 RecentPaintEntry SC4PlopAndPaintDirector::BuildRecentPaintEntry_(
@@ -1136,6 +1586,13 @@ RecentPaintEntry SC4PlopAndPaintDirector::BuildRecentPaintEntry_(
 void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandardMsg) {
     pCity_ = static_cast<cISC4City*>(pStandardMsg->GetVoid1());
 
+    if (decalRepository_) {
+        cIGZPersistResourceManagerPtr pRM;
+        if (pRM) {
+            decalRepository_->Populate(pRM);
+        }
+    }
+
     cISC4AppPtr pSC4App;
     if (pSC4App) {
         cIGZWin* pMainWindow = pSC4App->GetMainWindow();
@@ -1155,8 +1612,11 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
     PersistRecentPaints_();
     SetLotPlopPanelVisible(false);
+    StopDecalStripping();
+    StopDecalPainting();
     StopFloraStripping();
     StopPropStripping();
+    StopPropPicking();
     StopPropPainting();
     StopFloraPainting();
     if (swapPanel_) {
@@ -1173,6 +1633,19 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     }
     if (floraStripperControl_) {
         floraStripperControl_->SetCity(nullptr);
+    }
+    if (decalPainterControl_) {
+        decalPainterControl_->SetCity(nullptr);
+    }
+    if (decalStripperControl_) {
+        decalStripperControl_->SetDecalService(nullptr);
+        decalStripperControl_->SetCity(nullptr);
+    }
+    if (scenePickerControl_) {
+        scenePickerControl_->SetCity(nullptr);
+    }
+    if (decalRepository_) {
+        decalRepository_->Clear();
     }
     pCity_ = nullptr;
     if (pView3D_) {

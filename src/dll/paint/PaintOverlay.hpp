@@ -22,6 +22,8 @@ public:
     struct PreviewPlacement {
         PlannedPaint placement{};
         bool valid = true;
+        bool hasContinuousRotation = false;
+        float continuousRotationRadians = 0.0f;
         float width = 0.0f;
         float height = 0.0f;
         float depth = 0.0f;
@@ -38,6 +40,13 @@ public:
 
     void BuildStripperPreview(bool cursorValid, const cS3DVector3& cursorPos,
                               float pickRadius, cISTETerrain* terrain);
+    void BuildStripperPreview(bool cursorValid, const cS3DVector3& cursorPos,
+                              float pickRadius, cISTETerrain* terrain, DWORD rectColor);
+
+    // Appends a terrain-following XZ rectangle outline to the existing overlay
+    // (does not Clear); used to highlight a picked lot texture's footprint.
+    void AddRectOutline(float minX, float minZ, float maxX, float maxZ,
+                        cISTETerrain* terrain, DWORD color);
 
     void BuildDirectPreview(bool cursorValid,
                             const cS3DVector3& cursorPos,

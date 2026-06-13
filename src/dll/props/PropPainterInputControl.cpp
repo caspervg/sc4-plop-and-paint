@@ -2,10 +2,12 @@
 
 #include <windows.h>
 
+#include "../../shared/SeasonalSetDetector.hpp"
 #include "../common/Constants.hpp"
 #include "../utils/Logger.h"
 #include "PropRepository.hpp"
 #include "cISC4Occupant.h"
+#include "cISC4Simulator.h"
 
 namespace {
     constexpr auto kPropPainterControlID = 0x8A3F9D2B;
@@ -59,6 +61,29 @@ bool PropPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos, const int32_
         return false;
     }
 
+    // A seasonal set member stands in for the whole set: stack every member at
+    // the same spot with the same rotation so the model swaps with the seasons.
+    // In direct mode the members share one undo group; inside a line/polygon
+    // batch BeginUndoGroup_ is a no-op and they join the surrounding group.
+    if (settings_.paintSeasonalSets && propRepository_ != nullptr) {
+        if (const auto* set = propRepository_->FindSeasonalSetForProp(propToCreate)) {
+            const bool openedGroup = BeginUndoGroup_();
+            bool placedAny = false;
+            for (const auto& member : set->members) {
+                placedAny |= PlaceSingleProp_(member.value(), pos, rotation);
+            }
+            if (openedGroup) {
+                EndUndoGroup_();
+            }
+            return placedAny;
+        }
+    }
+
+    return PlaceSingleProp_(propToCreate, pos, rotation);
+}
+
+bool PropPainterInputControl::PlaceSingleProp_(const uint32_t propToCreate, const cS3DVector3& pos,
+                                               const int32_t rotation) {
     cISC4PropOccupant* prop = nullptr;
     if (!propManager_->CreateProp(propToCreate, prop)) {
         LOG_WARN("Failed to create prop 0x{:08X}", propToCreate);
@@ -122,10 +147,14 @@ void PropPainterInputControl::CreatePreviewOccupant_() {
         return;
     }
 
-    const uint32_t previewPropID = CurrentDirectTypeID_();
-    if (previewPropID == 0 || previewProp_) {
+    const uint32_t selectedPropID = CurrentDirectTypeID_();
+    if (selectedPropID == 0 || previewProp_) {
         return;
     }
+
+    // For seasonal sets, preview the member active at the current sim date: the
+    // selected member may be out of season, and the prop simulator would hide it.
+    const uint32_t previewPropID = ResolveInSeasonPreviewProp_(selectedPropID);
 
     cISC4PropOccupant* prop = nullptr;
     if (!propManager_->CreateProp(previewPropID, prop)) {
@@ -164,8 +193,49 @@ void PropPainterInputControl::CreatePreviewOccupant_() {
 
     previewProp_ = std::move(previewProp);
     previewOccupant_ = std::move(previewOccupant);
-    previewOccupantTypeID_ = previewPropID;
-    LOG_INFO("Created preview prop");
+    // Track the selected ID, not the displayed member: SyncPreviewForState_
+    // recreates the preview whenever this differs from CurrentDirectTypeID_().
+    previewOccupantTypeID_ = selectedPropID;
+    previewDisplayedPropID_ = previewPropID;
+    LOG_INFO("Created preview prop 0x{:08X} (selected 0x{:08X})", previewPropID, selectedPropID);
+}
+
+bool PropPainterInputControl::IsPreviewOccupantStale_() const {
+    if (!previewProp_ || previewOccupantTypeID_ == 0) {
+        return false;
+    }
+    return ResolveInSeasonPreviewProp_(previewOccupantTypeID_) != previewDisplayedPropID_;
+}
+
+uint32_t PropPainterInputControl::ResolveInSeasonPreviewProp_(const uint32_t propID) const {
+    if (!settings_.paintSeasonalSets || propRepository_ == nullptr || !city_) {
+        return propID;
+    }
+    const SeasonalSet* set = propRepository_->FindSeasonalSetForProp(propID);
+    if (set == nullptr) {
+        return propID;
+    }
+    cISC4Simulator* simulator = city_->GetSimulator();
+    if (simulator == nullptr) {
+        return propID;
+    }
+
+    uint32_t year = 0;
+    uint32_t month = 0;
+    uint32_t day = 0;
+    uint32_t dayOfYear = 0;
+    uint32_t weekDay = 0;
+    simulator->GetSimDate(&year, &month, &day, &dayOfYear, &weekDay);
+    const int today = seasonal::detail::DayOfYear(static_cast<uint8_t>(month), static_cast<uint8_t>(day));
+
+    for (const auto& member : set->members) {
+        const Prop* memberProp = propRepository_->FindPropByInstanceId(member.value());
+        if (memberProp != nullptr && seasonal::WindowContainsDay(*memberProp, today)) {
+            return member.value();
+        }
+    }
+
+    return propID;
 }
 
 void PropPainterInputControl::DestroyPreviewOccupant_() {
@@ -182,6 +252,7 @@ void PropPainterInputControl::DestroyPreviewOccupant_() {
     previewOccupant_.Reset();
     previewProp_.Reset();
     previewOccupantTypeID_ = 0;
+    previewDisplayedPropID_ = 0;
     previewPositionValid_ = false;
     LOG_INFO("Destroyed preview prop");
 }

@@ -3,6 +3,7 @@
 #include <cRZCOMDllDirector.h>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -19,10 +20,19 @@
 #include "cISC4View3DWin.h"
 #include "cRZAutoRefCount.h"
 #include "cRZMessage2COMDirector.h"
+#include "decals/DecalPainterInputControl.hpp"
+#include "decals/DecalStripperInputControl.hpp"
+#include "public/TerrainDecalServiceIds.h"
+#include "decals/DecalRepository.hpp"
+#include "paint/DecalPaintSettings.hpp"
 #include "flora/FloraPainterInputControl.hpp"
 #include "flora/FloraStripperInputControl.hpp"
 #include "imgui.h"
 #include "paint/PaintStatusPanel.hpp"
+#include "pick/ScenePickerInputControl.hpp"
+#include "pick/ScenePickResult.hpp"
+#include "pick/ScenePickStatusPanel.hpp"
+#include "pick/ScenePickStrategy.hpp"
 #include "props/PropPainterInputControl.hpp"
 #include "props/PropStripperInputControl.hpp"
 #include "public/ImGuiPanel.h"
@@ -76,6 +86,25 @@ public:
     bool StartFloraStripping();
     void StopFloraStripping();
     [[nodiscard]] bool IsFloraStripping() const;
+    bool StartDecalPainting(uint32_t instanceId, const DecalPaintSettings& settings, const std::string& name);
+    void StopDecalPainting();
+    [[nodiscard]] bool IsDecalPainting() const;
+    bool StartDecalStripping();
+    void StopDecalStripping();
+    [[nodiscard]] bool IsDecalStripping() const;
+    bool StartDecalPicking(std::function<void(uint32_t instanceId)> onPick);
+    void StopDecalPicking();
+    [[nodiscard]] bool IsDecalPicking() const;
+    [[nodiscard]] bool IsDecalServiceAvailable() const;
+    bool StartPropPicking(std::function<void(const PickedProp& picked)> onPick);
+    void StopPropPicking();
+    [[nodiscard]] bool IsPropPicking() const;
+    bool StartFloraPicking(std::function<void(const PickedFlora& picked)> onPick);
+    void StopFloraPicking();
+    [[nodiscard]] bool IsFloraPicking() const;
+    bool StartLotPicking(std::function<void(const PickedLot& picked)> onPick);
+    void StopLotPicking();
+    [[nodiscard]] bool IsLotPicking() const;
     bool StartPropStripping();
     void StopPropStripping();
     [[nodiscard]] bool IsPropStripping() const;
@@ -105,11 +134,18 @@ private:
     void UpdatePaintPanels_();
     void SyncRecentPaintsCache_();
     void PersistRecentPaints_();
+    bool StartScenePicking_(std::unique_ptr<ScenePickStrategy> strategy,
+                            std::function<void(const ScenePickResult& result)> onPick,
+                            const char* logName);
     bool CanPrepareForPaintSwitch_(BasePainterInputControl* control, bool isPaintingFlag) const;
     bool PrepareForPaintSwitch_(BasePainterInputControl* control, bool& isPaintingFlag);
     bool PrepareForExclusiveActivation_(bool keepPropPainting, bool keepFloraPainting, bool keepPropStripping,
-                                        bool keepFloraStripping = false);
+                                        bool keepFloraStripping = false,
+                                        bool keepDecalPainting = false,
+                                        bool keepDecalStripping = false,
+                                        bool keepScenePicking = false);
     void ApplySwitchPolicy_(BasePainterInputControl* control);
+    void RememberDecalPlacementSettings_();
     [[nodiscard]] RecentPaintEntry BuildRecentPaintEntry_(RecentPaintEntry::Kind kind,
                                                           uint32_t typeId,
                                                           const PropPaintSettings& settings,
@@ -128,6 +164,7 @@ private:
     std::unique_ptr<PropRepository>      propRepository_;
     std::unique_ptr<FloraRepository>     floraRepository_;
     std::unique_ptr<FavoritesRepository> favoritesRepository_;
+    std::unique_ptr<DecalRepository>     decalRepository_;
 
     bool panelRegistered_{false};
     bool panelVisible_{false};
@@ -141,8 +178,18 @@ private:
     bool floraStripping_{false};
     cRZAutoRefCount<PropStripperInputControl> propStripperControl_;
     bool propStripping_{false};
+    cRZAutoRefCount<DecalPainterInputControl>  decalPainterControl_;
+    bool decalPainting_{false};
+    PropPaintSettings lastDecalPlacementSettings_{MakeDefaultDecalPlacementSettings()};
+    cRZAutoRefCount<DecalStripperInputControl> decalStripperControl_;
+    bool decalStripping_{false};
+    cRZAutoRefCount<ScenePickerInputControl>   scenePickerControl_;
+    bool scenePicking_{false};
+    cIGZTerrainDecalService* terrainDecalService_{nullptr};
     std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};
+    std::unique_ptr<ScenePickStatusPanel> pickStatusPanel_;
+    bool pickStatusPanelRegistered_{false};
     std::unique_ptr<RecentSwapPanel> swapPanel_;
     bool swapPanelRegistered_{false};
     RecentPaintHistory recentPaints_{};

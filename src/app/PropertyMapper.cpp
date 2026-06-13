@@ -18,29 +18,40 @@ bool PropertyMapper::loadFromXml(const std::filesystem::path& xmlPath) {
 
         if (!result) {
             spdlog::error("Failed to parse properties XML: {}", result.error().what());
+            return false;
         }
 
+        size_t skippedDefinitions = 0;
         const auto& root = result.value();
         for (const auto& propDef : root.properties().definitions()) {
-            PropertyInfo info{parsePropertyId_(propDef.id().get()), propDef.name().get(),
-                              parseValueType_(propDef.type().get()), parseCount_(propDef.count().get())};
-            auto propOptionList = propDef.options.get();
-            std::unordered_map<std::string, uint32_t> propOptionMap{};
-            if (!propOptionList.empty()) {
-                for (const auto& option : propOptionList) {
-                    uint32_t optionValue = parsePropertyId_(option.value().get());
-                    std::string optionLabel = option.name().get();
-                    propOptionMap[optionLabel] = optionValue;
+            try {
+                PropertyInfo info{parsePropertyId_(propDef.id().get()), propDef.name().get(),
+                                  parseValueType_(propDef.type().get()), parseCount_(propDef.count().get())};
+                auto propOptionList = propDef.options.get();
+                std::unordered_map<std::string, uint32_t> propOptionMap{};
+                if (!propOptionList.empty()) {
+                    for (const auto& option : propOptionList) {
+                        uint32_t optionValue = parsePropertyId_(option.value().get());
+                        std::string optionLabel = option.name().get();
+                        propOptionMap[optionLabel] = optionValue;
+                    }
+                    info.optionNames_ = propOptionMap;
                 }
-                info.optionNames_ = propOptionMap;
-            }
 
-            properties_[info.id] = info;
-            propertyNames_[info.name] = info.id;
+                properties_[info.id] = info;
+                propertyNames_[info.name] = info.id;
+            }
+            catch (const std::exception& e) {
+                ++skippedDefinitions;
+                spdlog::warn("Skipping malformed property definition '{}': {}", propDef.name().get(), e.what());
+            }
         }
 
+        if (skippedDefinitions > 0) {
+            spdlog::warn("Skipped {} malformed property definitions", skippedDefinitions);
+        }
         spdlog::info("Loaded {} property definitions from XML", properties_.size());
-        return true;
+        return !properties_.empty();
     }
     catch (const std::exception& e) {
         spdlog::error("Exception loading XML: {}", e.what());

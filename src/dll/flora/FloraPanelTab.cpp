@@ -73,6 +73,24 @@ void FloraPanelTab::OnRender() {
         }
     }
     RenderFloraStripperControls_();
+    if (director_->IsFloraPicking()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop picking##FloraPicker")) {
+            director_->StopFloraPicking();
+        }
+    }
+    else {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Pick flora")) {
+            ReleaseImGuiInputCapture_();
+            director_->StartFloraPicking([this](const PickedFlora& picked) {
+                HandlePickedFlora_(picked);
+            });
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click existing flora in the city to select it here.");
+        }
+    }
 
     if (ImGui::BeginChild("FloraTableRegion", ImVec2(0, 0), false)) {
         RenderIndividualFloraTable_(filteredFloraIndices);
@@ -321,6 +339,37 @@ void FloraPanelTab::QueuePaintForFlora_(const Flora& flora) {
     pendingPaint_.typeId = flora.instanceId.value();
     pendingPaint_.name = FloraDisplayName(flora);
     pendingPaint_.settings.activePalette.clear();
+    pendingPaint_.open = true;
+}
+
+void FloraPanelTab::HandlePickedFlora_(const PickedFlora& picked) {
+    if (!flora_) {
+        return;
+    }
+
+    const Flora* flora = flora_->FindFloraByInstanceId(picked.floraType);
+    if (!flora) {
+        LOG_INFO("Picked flora 0x{:08X}, but it is not present in the flora cache; using ID-only paint target",
+                 picked.floraType);
+        favoritesOnly_ = false;
+
+        pendingPaint_.typeId = picked.floraType;
+        pendingPaint_.name = FormatHexId(picked.floraType);
+        pendingPaint_.settings.activePalette.clear();
+        pendingPaint_.settings.mode = PaintMode::Direct;
+        pendingPaint_.settings.rotation = picked.orientation & 3;
+        pendingPaint_.open = true;
+        return;
+    }
+
+    std::snprintf(searchBuf_, sizeof(searchBuf_), "%s", FloraDisplayName(*flora).c_str());
+    favoritesOnly_ = false;
+
+    pendingPaint_.typeId = flora->instanceId.value();
+    pendingPaint_.name = FloraDisplayName(*flora);
+    pendingPaint_.settings.activePalette.clear();
+    pendingPaint_.settings.mode = PaintMode::Direct;
+    pendingPaint_.settings.rotation = picked.orientation & 3;
     pendingPaint_.open = true;
 }
 

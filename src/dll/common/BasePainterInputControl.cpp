@@ -258,6 +258,12 @@ void BasePainterInputControl::ProcessPendingActions() {
             onCancel_();
         }
     }
+
+    // Catch sim-date driven staleness (seasonal set member changes) even when
+    // no mouse events arrive.
+    if (HasActivePreviewOccupant_() && IsPreviewOccupantStale_()) {
+        SyncPreviewForState_();
+    }
 }
 
 void BasePainterInputControl::DrawOverlay(IDirect3DDevice7* device) {
@@ -404,7 +410,8 @@ void BasePainterInputControl::TransitionTo_(const ControlState newState, const c
 
 void BasePainterInputControl::SyncPreviewForState_() {
     if (ShouldShowModelPreview_()) {
-        if (HasActivePreviewOccupant_() && previewOccupantTypeID_ != CurrentDirectTypeID_()) {
+        if (HasActivePreviewOccupant_() &&
+            (previewOccupantTypeID_ != CurrentDirectTypeID_() || IsPreviewOccupantStale_())) {
             DestroyPreviewOccupant_();
         }
         if (!HasActivePreviewOccupant_()) {
@@ -761,6 +768,15 @@ cS3DVector3 BasePainterInputControl::ResolveDirectPosition_(const cS3DVector3& t
     return result;
 }
 
+void BasePainterInputControl::RefreshPreviewOverlay_() {
+    if (!ShouldShowOutlinePreview_()) {
+        overlay_.Clear();
+        return;
+    }
+
+    RebuildPreviewOverlay_();
+}
+
 void BasePainterInputControl::CaptureDirectAbsoluteHeight_() {
     if (!cursorValid_) {
         return;
@@ -821,6 +837,24 @@ void BasePainterInputControl::AddOccupantToUndo_(cISC4Occupant* occupant) {
     }
 }
 
+bool BasePainterInputControl::BeginUndoGroup_() {
+    if (batchingPlacements_) {
+        return false;
+    }
+    batchingPlacements_ = true;
+    currentUndoGroup_.props.clear();
+    return true;
+}
+
+void BasePainterInputControl::EndUndoGroup_() {
+    batchingPlacements_ = false;
+    if (!currentUndoGroup_.props.empty()) {
+        undoStack_.push_back(std::move(currentUndoGroup_));
+        TrimUndoStack_();
+    }
+    currentUndoGroup_.props.clear();
+}
+
 bool BasePainterInputControl::PlaceTypeAt_(const int32_t screenX, const int32_t screenZ) {
     if (!view3D) {
         return false;
@@ -876,8 +910,7 @@ void BasePainterInputControl::ExecuteLinePlacement_() {
         picker.get(),
         singleTypeID);
 
-    batchingPlacements_ = true;
-    currentUndoGroup_.props.clear();
+    BeginUndoGroup_();
     size_t placedCount = 0;
     for (auto placement : placements) {
         placement.position.fY += GetActiveVerticalOffset_();
@@ -886,12 +919,7 @@ void BasePainterInputControl::ExecuteLinePlacement_() {
             ++placedCount;
         }
     }
-    batchingPlacements_ = false;
-    if (!currentUndoGroup_.props.empty()) {
-        undoStack_.push_back(std::move(currentUndoGroup_));
-        TrimUndoStack_();
-    }
-    currentUndoGroup_.props.clear();
+    EndUndoGroup_();
 
     LOG_INFO("Line paint executed: placed {} / {} items", placedCount, placements.size());
     ClearCollectedPoints_();
@@ -934,8 +962,7 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
         picker.get(),
         singleTypeID);
 
-    batchingPlacements_ = true;
-    currentUndoGroup_.props.clear();
+    BeginUndoGroup_();
     size_t placedCount = 0;
     for (auto placement : placements) {
         placement.position.fY += GetActiveVerticalOffset_();
@@ -944,12 +971,7 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
             ++placedCount;
         }
     }
-    batchingPlacements_ = false;
-    if (!currentUndoGroup_.props.empty()) {
-        undoStack_.push_back(std::move(currentUndoGroup_));
-        TrimUndoStack_();
-    }
-    currentUndoGroup_.props.clear();
+    EndUndoGroup_();
 
     LOG_INFO("Polygon paint executed: placed {} / {} items", placedCount, placements.size());
     ClearCollectedPoints_();

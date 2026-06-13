@@ -32,9 +32,11 @@
 
 namespace ThumbnailBin {
 
-    inline void Write(const std::filesystem::path& path, std::vector<std::pair<uint64_t, Thumbnail>> entries) {
+    // Writes atomically via a sibling .tmp file. Returns false if the file could not be
+    // written or moved into place; throws on malformed thumbnail data.
+    inline bool Write(const std::filesystem::path& path, std::vector<std::pair<uint64_t, Thumbnail>> entries) {
         if (entries.empty()) {
-            return;
+            return false;
         }
 
         // Determine common dimensions from first entry (all thumbnails must match).
@@ -64,38 +66,60 @@ namespace ThumbnailBin {
         // Sort by gi_key so the reader can easily binary-search.
         std::ranges::sort(entries, [](const auto& a, const auto& b) { return a.first < b.first; });
 
-        std::ofstream file(path, std::ios::binary);
-        if (!file) {
-            return;
+        auto tempPath = path;
+        tempPath += ".tmp";
+
+        {
+            std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+            if (!file) {
+                return false;
+            }
+
+            // Header
+            constexpr char magic[4] = {'S', 'P', 'T', 'H'};
+            constexpr uint16_t version = 1;
+            constexpr uint16_t reserved = 0;
+            const uint32_t count = static_cast<uint32_t>(entries.size());
+
+            file.write(magic, 4);
+            file.write(reinterpret_cast<const char*>(&version), 2);
+            file.write(reinterpret_cast<const char*>(&reserved), 2);
+            file.write(reinterpret_cast<const char*>(&count), 4);
+            file.write(reinterpret_cast<const char*>(&commonWidth), 2);
+            file.write(reinterpret_cast<const char*>(&commonHeight), 2);
+
+            // Index
+            for (const auto& key : entries | std::views::keys) {
+                file.write(reinterpret_cast<const char*>(&key), 8);
+            }
+
+            // Data
+            for (const auto& thumbnail : entries | std::views::values) {
+                rfl::visit(
+                    [&](const auto& variant) {
+                        file.write(reinterpret_cast<const char*>(variant.data.data()),
+                                   static_cast<std::streamsize>(variant.data.size()));
+                    },
+                    thumbnail);
+            }
+
+            file.flush();
+            if (!file.good()) {
+                file.close();
+                std::error_code removeEc;
+                std::filesystem::remove(tempPath, removeEc);
+                return false;
+            }
         }
 
-        // Header
-        constexpr char magic[4] = {'S', 'P', 'T', 'H'};
-        constexpr uint16_t version = 1;
-        constexpr uint16_t reserved = 0;
-        const auto count = entries.size();
-
-        file.write(magic, 4);
-        file.write(reinterpret_cast<const char*>(&version), 2);
-        file.write(reinterpret_cast<const char*>(&reserved), 2);
-        file.write(reinterpret_cast<const char*>(&count), 4);
-        file.write(reinterpret_cast<const char*>(&commonWidth), 2);
-        file.write(reinterpret_cast<const char*>(&commonHeight), 2);
-
-        // Index
-        for (const auto& key : entries | std::views::keys) {
-            file.write(reinterpret_cast<const char*>(&key), 8);
+        std::error_code renameEc;
+        std::filesystem::rename(tempPath, path, renameEc);
+        if (renameEc) {
+            std::error_code removeEc;
+            std::filesystem::remove(tempPath, removeEc);
+            return false;
         }
-
-        // Data
-        for (const auto& thumbnail : entries | std::views::values) {
-            rfl::visit(
-                [&](const auto& variant) {
-                    file.write(reinterpret_cast<const char*>(variant.data.data()),
-                               static_cast<std::streamsize>(variant.data.size()));
-                },
-                thumbnail);
-        }
+        return true;
     }
 
 } // namespace ThumbnailBin

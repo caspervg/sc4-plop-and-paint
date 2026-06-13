@@ -6,7 +6,9 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <string_view>
 #include <thread>
@@ -21,6 +23,7 @@
 
 #include "../shared/entities.hpp"
 #include "../shared/index.hpp"
+#include "../shared/SeasonalSetDetector.hpp"
 #include "DBPFReader.h"
 #include "DbpfIndexService.hpp"
 #include "ExemplarParser.hpp"
@@ -62,7 +65,8 @@ namespace {
     };
 
     RgbaImage ResizeRgbaImage(const RgbaImage& source, const uint32_t targetWidth, const uint32_t targetHeight) {
-        if (source.width == 0 || source.height == 0 || source.pixels.empty() || targetWidth == 0 || targetHeight == 0) {
+        if (source.width == 0 || source.height == 0 || targetWidth == 0 || targetHeight == 0 ||
+            source.pixels.size() < static_cast<size_t>(source.width) * source.height * 4) {
             return {};
         }
 
@@ -104,7 +108,8 @@ namespace {
                 source.pixels.resize(variant.data.size());
                 std::memcpy(source.pixels.data(), variant.data.data(), variant.data.size());
 
-                if (source.width == 0 || source.height == 0) {
+                if (source.width == 0 || source.height == 0 ||
+                    source.pixels.size() < static_cast<size_t>(source.width) * source.height * 4) {
                     Variant normalized;
                     normalized.width = targetSize;
                     normalized.height = targetSize;
@@ -196,7 +201,7 @@ namespace {
         return begin == fs::directory_iterator();
     }
 
-    void ScanAndAnalyzeExemplars(const PluginConfiguration& config,
+    bool ScanAndAnalyzeExemplars(const PluginConfiguration& config,
                                  spdlog::logger& logger,
                                  bool renderModelThumbnails,
                                  const uint32_t thumbnailSize) {
@@ -238,7 +243,10 @@ namespace {
             }
 
             if (!mapperLoaded) {
-                logger.warn("Could not load PropertyMapper XML - some features may be limited");
+                logger.error("Could not load PropertyMapper XML - aborting scan, exemplars cannot be "
+                             "classified without property definitions");
+                indexService.shutdown();
+                return false;
             }
 
             // Wait for indexing to complete, logging progress periodically
@@ -275,6 +283,7 @@ namespace {
             ExemplarParser parser(propertyMapper, &indexService, renderModelThumbnails, thumbnailSize);
             std::vector<Building> allBuildings;
             std::vector<Prop> allProps;
+            std::vector<size_t> propSourceFiles;  // parallel to allProps; load-order file index
             std::vector<Flora> allFlora;
             std::unordered_map<uint32_t, std::string> propFamilyNamesById;
             std::unordered_map<uint32_t, ParsedBuildingExemplar> buildingMap;
@@ -286,8 +295,16 @@ namespace {
             // Use the index service to get exemplars and cohorts across all files.
             logger.info("Processing exemplar/cohort records using type index...");
 
-            // Group record TGIs by file for efficient batch processing.
-            std::unordered_map<fs::path, std::vector<DBPF::Tgi>> fileToExemplarTgis;
+            // Group record TGIs by file, keyed by load-order position so both the winning
+            // file per TGI and the processing order across files are deterministic.
+            const auto& filesInLoadOrder = indexService.dbpfFiles();
+            std::unordered_map<fs::path, size_t> loadOrderIndices;
+            loadOrderIndices.reserve(filesInLoadOrder.size());
+            for (size_t i = 0; i < filesInLoadOrder.size(); ++i) {
+                loadOrderIndices.emplace(filesInLoadOrder[i], i);
+            }
+
+            std::map<size_t, std::vector<DBPF::Tgi>> fileToExemplarTgis;
             {
                 auto exemplarTgis = indexService.typeIndex(kTypeIdExemplar);
                 auto cohortTgis = indexService.typeIndex(kTypeIdCohort);
@@ -300,11 +317,25 @@ namespace {
                 recordTgis.insert(recordTgis.end(), exemplarTgis.begin(), exemplarTgis.end());
                 recordTgis.insert(recordTgis.end(), cohortTgis.begin(), cohortTgis.end());
 
+                // The type index holds one entry per file containing a TGI; only process each TGI once.
+                std::unordered_set<DBPF::Tgi, DBPF::TgiHash> seenRecordTgis;
+                seenRecordTgis.reserve(recordTgis.size());
+
                 for (const auto& tgi : recordTgis) {
-                    auto files = indexService.lookupFiles(tgi);
-                    if (!files.empty()) {
-                        fileToExemplarTgis[files[0]].push_back(tgi);
+                    if (!seenRecordTgis.insert(tgi).second) {
+                        continue;
                     }
+                    auto files = indexService.lookupFiles(tgi);
+                    if (files.empty()) {
+                        continue;
+                    }
+                    // The last file in load order wins, matching the game's override rules.
+                    const auto indexIt = loadOrderIndices.find(files.back());
+                    if (indexIt == loadOrderIndices.end()) {
+                        logger.warn("Indexed file {} missing from load order list", files.back().string());
+                        continue;
+                    }
+                    fileToExemplarTgis[indexIt->second].push_back(tgi);
                 }
             }
 
@@ -313,7 +344,8 @@ namespace {
             // Store lot config TGIs for second pass
             std::vector<std::pair<fs::path, DBPF::Tgi>> lotConfigTgis;
 
-            for (const auto& [filePath, tgis] : fileToExemplarTgis) {
+            for (const auto& [fileOrderIndex, tgis] : fileToExemplarTgis) {
+                const auto& filePath = filesInLoadOrder[fileOrderIndex];
                 try {
                     // Get cached reader from index service
                     auto* reader = indexService.getReader(filePath);
@@ -335,12 +367,14 @@ namespace {
                             if (tgi.type == kTypeIdCohort) {
                                 if (auto parsedFamily = parser.parsePropFamilyFromCohort(*exemplarResult)) {
                                     const uint32_t familyId = parsedFamily->familyId.value();
-                                    auto [it, inserted] = propFamilyNamesById.emplace(
+                                    auto [it, inserted] = propFamilyNamesById.try_emplace(
                                         familyId, parsedFamily->displayName);
                                     if (!inserted && it->second != parsedFamily->displayName) {
+                                        // Later cohorts override earlier ones, like the game does.
                                         spdlog::debug(
-                                            "Duplicate prop family name for 0x{:08X}: keeping '{}', ignoring '{}'",
-                                            familyId, it->second, parsedFamily->displayName);
+                                            "Duplicate prop family name for 0x{:08X}: '{}' replaces '{}'",
+                                            familyId, parsedFamily->displayName, it->second);
+                                        it->second = parsedFamily->displayName;
                                     }
                                 }
                                 continue;
@@ -358,8 +392,14 @@ namespace {
                             if (*exemplarType == ExemplarType::Building) {
                                 auto building = parser.parseBuilding(*exemplarResult, tgi);
                                 if (building) {
-                                    buildingMap[tgi.instance] = *building;
-                                    builtBuildings.try_emplace(tgi.instance, parser.buildingFromParsed(*building));
+                                    if (const auto existing = buildingMap.find(tgi.instance);
+                                        existing != buildingMap.end()) {
+                                        logger.warn("Building instance 0x{:08X} redefined by later plugin "
+                                                    "(group 0x{:08X} replaces 0x{:08X})",
+                                                    tgi.instance, tgi.group, existing->second.tgi.group);
+                                    }
+                                    buildingMap.insert_or_assign(tgi.instance, *building);
+                                    builtBuildings.insert_or_assign(tgi.instance, parser.buildingFromParsed(*building));
                                     buildingsFound++;
                                     logger.trace("  Building: {} (0x{:08X})", building->name, tgi.instance);
                                 }
@@ -379,6 +419,7 @@ namespace {
                                     allProps.emplace_back(
                                         parser.propFromParsed(*prop)
                                     );
+                                    propSourceFiles.push_back(fileOrderIndex);
                                     seenPropKeys.insert(MakeGIKey(tgi.group, tgi.instance));
                                 }
                             }
@@ -424,6 +465,11 @@ namespace {
                 for (uint32_t familyId : building.familyIds) {
                     familyToBuildingsMap[familyId].push_back(instanceId);
                 }
+            }
+            // buildingMap iteration order is unspecified; sort so the representative
+            // building picked for a family lot is deterministic.
+            for (auto& buildings : familyToBuildingsMap | std::views::values) {
+                std::sort(buildings.begin(), buildings.end());
             }
 
             for (const auto& [filePath, tgi] : lotConfigTgis) {
@@ -499,6 +545,12 @@ namespace {
 
             builtBuildings.clear();
 
+            // Keep the cache byte-stable across runs.
+            std::sort(allBuildings.begin(), allBuildings.end(), [](const Building& a, const Building& b) {
+                return MakeGIKey(a.groupId.value(), a.instanceId.value()) <
+                       MakeGIKey(b.groupId.value(), b.instanceId.value());
+            });
+
             logger.info("Scan complete: {} buildings with lots, {} lots, {} parse errors",
                         allBuildings.size(), lotsFound, parseErrors);
 
@@ -541,6 +593,70 @@ namespace {
                 return a.familyId.value() < b.familyId.value();
             });
 
+            {
+                std::error_code dirEc;
+                fs::create_directories(config.userPluginsRoot, dirEc);
+                if (dirEc) {
+                    logger.error("Failed to create output directory {}: {}",
+                                 config.userPluginsRoot.string(), dirEc.message());
+                }
+            }
+
+            const auto writeThumbnailBin = [&logger](const fs::path& binPath,
+                                                     std::vector<std::pair<uint64_t, Thumbnail>> entries,
+                                                     const std::string_view label) {
+                const auto count = entries.size();
+                try {
+                    if (ThumbnailBin::Write(binPath, std::move(entries))) {
+                        logger.info("Exported {} {} thumbnails to {}", count, label, binPath.string());
+                    }
+                    else {
+                        logger.error("Failed to write {} thumbnails to {}", label, binPath.string());
+                    }
+                }
+                catch (const std::exception& error) {
+                    logger.error("Error writing {} thumbnails to {}: {}", label, binPath.string(), error.what());
+                }
+            };
+
+            const auto writeCborAtomic = [&logger](const fs::path& cborPath, const auto& data) -> bool {
+                auto tempPath = cborPath;
+                tempPath += ".tmp";
+                try {
+                    {
+                        std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+                        if (!file) {
+                            logger.error("Failed to open file for writing: {}", tempPath.string());
+                            return false;
+                        }
+                        rfl::cbor::write(data, file);
+                        file.flush();
+                        if (!file.good()) {
+                            logger.error("Failed to write cache data to {}", tempPath.string());
+                            file.close();
+                            std::error_code removeEc;
+                            fs::remove(tempPath, removeEc);
+                            return false;
+                        }
+                    }
+                    std::error_code renameEc;
+                    fs::rename(tempPath, cborPath, renameEc);
+                    if (renameEc) {
+                        logger.error("Failed to move {} into place: {}", tempPath.string(), renameEc.message());
+                        std::error_code removeEc;
+                        fs::remove(tempPath, removeEc);
+                        return false;
+                    }
+                    return true;
+                }
+                catch (const std::exception& error) {
+                    logger.error("Error writing {}: {}", cborPath.string(), error.what());
+                    std::error_code removeEc;
+                    fs::remove(tempPath, removeEc);
+                    return false;
+                }
+            };
+
             // Extract building thumbnails into a sidecar binary file, then strip them
             // from allBuildings so the CBOR stays lean.
             {
@@ -554,33 +670,18 @@ namespace {
                 }
                 if (!buildingThumbnails.empty()) {
                     NormalizeThumbnailEntries(buildingThumbnails, thumbnailSize);
-                    const auto binPath = config.userPluginsRoot / "lot_thumbnails.bin";
-                    const auto count = buildingThumbnails.size();
-                    ThumbnailBin::Write(binPath, std::move(buildingThumbnails));
-                    logger.info("Exported {} building thumbnails to {}", count, binPath.string());
+                    writeThumbnailBin(config.userPluginsRoot / "lot_thumbnails.bin",
+                                      std::move(buildingThumbnails), "building");
                 }
             }
 
             // Export grouped building/lot data to CBOR file in user plugins directory
             if (!allBuildings.empty()) {
-                try {
-                    auto cborPath = config.userPluginsRoot / "lots.cbor";
-                    fs::create_directories(config.userPluginsRoot);
-
-                    logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound,
-                                cborPath.string());
-
-                    if (std::ofstream file(cborPath, std::ios::binary); !file) {
-                        logger.error("Failed to open file for writing: {}", cborPath.string());
-                    }
-                    else {
-                        rfl::cbor::write(allBuildings, file);
-                        file.close();
-                        logger.info("Successfully exported lot configs");
-                    }
-                }
-                catch (const std::exception& error) {
-                    logger.error("Error exporting lot configs: {}", error.what());
+                const auto cborPath = config.userPluginsRoot / "lots.cbor";
+                logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound,
+                            cborPath.string());
+                if (writeCborAtomic(cborPath, allBuildings)) {
+                    logger.info("Successfully exported lot configs");
                 }
             }
 
@@ -596,36 +697,50 @@ namespace {
                 }
                 if (!propThumbnails.empty()) {
                     NormalizeThumbnailEntries(propThumbnails, thumbnailSize);
-                    const auto binPath = config.userPluginsRoot / "prop_thumbnails.bin";
-                    const auto count = propThumbnails.size();
-                    ThumbnailBin::Write(binPath, std::move(propThumbnails));
-                    logger.info("Exported {} prop thumbnails to {}", count, binPath.string());
+                    writeThumbnailBin(config.userPluginsRoot / "prop_thumbnails.bin",
+                                      std::move(propThumbnails), "prop");
                 }
             }
 
             if (!allProps.empty() || !propFamilies.empty()) {
-                try {
-                    auto cborPath = config.userPluginsRoot / "props.cbor";
-                    fs::create_directories(config.userPluginsRoot);
+                const auto cborPath = config.userPluginsRoot / "props.cbor";
 
-                    PropsCache propsCache;
-                    propsCache.props = std::move(allProps);
-                    propsCache.propFamilies = std::move(propFamilies);
+                PropsCache propsCache;
+                propsCache.props = std::move(allProps);
+                propsCache.propFamilies = std::move(propFamilies);
+                propsCache.seasonalSets = seasonal::DetectSeasonalSets(propsCache.props, propSourceFiles);
 
-                    logger.info("Exporting {} props and {} prop families to {}",
-                                propsCache.props.size(), propsCache.propFamilies.size(), cborPath.string());
-
-                    if (std::ofstream file(cborPath, std::ios::binary); !file) {
-                        logger.error("Failed to open file for writing: {}", cborPath.string());
-                    }
-                    else {
-                        rfl::cbor::write(propsCache, file);
-                        file.close();
-                        logger.info("Successfully exported props");
-                    }
+                std::unordered_map<uint32_t, const Prop*> propsByInstance;
+                propsByInstance.reserve(propsCache.props.size());
+                for (const auto& prop : propsCache.props) {
+                    propsByInstance.try_emplace(prop.instanceId.value(), &prop);
                 }
-                catch (const std::exception& error) {
-                    logger.error("Error exporting props: {}", error.what());
+                for (const auto& set : propsCache.seasonalSets) {
+                    std::string memberSummary;
+                    for (const auto& member : set.members) {
+                        if (!memberSummary.empty()) {
+                            memberSummary += ", ";
+                        }
+                        const auto it = propsByInstance.find(member.value());
+                        if (it != propsByInstance.end()) {
+                            memberSummary += it->second->exemplarName;
+                        }
+                        else {
+                            char buffer[16];
+                            std::snprintf(buffer, sizeof(buffer), "0x%08X", member.value());
+                            memberSummary += buffer;
+                        }
+                    }
+                    logger.debug("Seasonal set '{}' ({}, {} members): {}",
+                                 set.name, set.confidence == 1 ? "fuzzy" : "stem", set.members.size(),
+                                 memberSummary);
+                }
+
+                logger.info("Exporting {} props, {} prop families and {} seasonal sets to {}",
+                            propsCache.props.size(), propsCache.propFamilies.size(),
+                            propsCache.seasonalSets.size(), cborPath.string());
+                if (writeCborAtomic(cborPath, propsCache)) {
+                    logger.info("Successfully exported props");
                 }
             }
 
@@ -641,42 +756,30 @@ namespace {
                 }
                 if (!floraThumbnails.empty()) {
                     NormalizeThumbnailEntries(floraThumbnails, thumbnailSize);
-                    const auto binPath = config.userPluginsRoot / "flora_thumbnails.bin";
-                    const auto count = floraThumbnails.size();
-                    ThumbnailBin::Write(binPath, std::move(floraThumbnails));
-                    logger.info("Exported {} flora thumbnails to {}", count, binPath.string());
+                    writeThumbnailBin(config.userPluginsRoot / "flora_thumbnails.bin",
+                                      std::move(floraThumbnails), "flora");
                 }
             }
 
             if (!allFlora.empty()) {
-                try {
-                    auto cborPath = config.userPluginsRoot / "flora.cbor";
-                    fs::create_directories(config.userPluginsRoot);
+                const auto cborPath = config.userPluginsRoot / "flora.cbor";
 
-                    FloraCache floraCache;
-                    floraCache.floraItems = std::move(allFlora);
+                FloraCache floraCache;
+                floraCache.floraItems = std::move(allFlora);
 
-                    logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), cborPath.string());
-
-                    if (std::ofstream file(cborPath, std::ios::binary); !file) {
-                        logger.error("Failed to open file for writing: {}", cborPath.string());
-                    }
-                    else {
-                        rfl::cbor::write(floraCache, file);
-                        file.close();
-                        logger.info("Successfully exported flora");
-                    }
-                }
-                catch (const std::exception& error) {
-                    logger.error("Error exporting flora: {}", error.what());
+                logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), cborPath.string());
+                if (writeCborAtomic(cborPath, floraCache)) {
+                    logger.info("Successfully exported flora");
                 }
             }
 
             // Shutdown the indexing service
             indexService.shutdown();
+            return true;
         }
         catch (const std::exception& error) {
             logger.error("Error during exemplar scan: {}", error.what());
+            return false;
         }
     }
 } // namespace
@@ -762,8 +865,7 @@ int main(int argc, char* argv[]) {
             if (renderThumbnailsFlag) {
                 logger->info("3D thumbnail rendering enabled");
             }
-            ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailSize);
-            return 0;
+            return ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailSize) ? 0 : 1;
         }
 
         // Default behavior - show plugin paths

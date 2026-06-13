@@ -1,10 +1,12 @@
 #pragma once
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "../../shared/entities.hpp"
+#include "public/cIGZTerrainDecalService.h"
 
 class PropRepository;
 
@@ -32,6 +34,19 @@ public:
     [[nodiscard]] const std::unordered_set<uint64_t>& GetFavoriteFloraIds() const;
     void ToggleFloraFavorite(uint32_t groupId, uint32_t instanceId);
 
+    // Decal favorites
+    [[nodiscard]] bool IsDecalFavorite(uint32_t instanceId) const;
+    [[nodiscard]] const std::unordered_set<uint32_t>& GetFavoriteDecalIds() const;
+    void ToggleDecalFavorite(uint32_t instanceId);
+    [[nodiscard]] const std::vector<NamedDecalPreset>* GetDecalFavoritePresets(uint32_t instanceId) const;
+    [[nodiscard]] const SavedDecalPreset* GetDefaultDecalFavoritePreset(uint32_t instanceId) const;
+    bool UpsertDecalFavoritePreset(uint32_t instanceId,
+                                   const std::string& name,
+                                   const SavedDecalPreset& preset,
+                                   bool makeDefault);
+    bool DeleteDecalFavoritePreset(uint32_t instanceId, const std::string& name);
+    bool SetDefaultDecalFavoritePreset(uint32_t instanceId, const std::string& name);
+
     // User-created families (formerly "palettes")
     [[nodiscard]] const std::vector<PropFamily>& GetUserFamilies() const;
     std::vector<PropFamily>& GetUserFamilies();
@@ -46,16 +61,28 @@ public:
     void AddPropToNewUserFamily(uint32_t propID, const std::string& baseName);
     bool AddPropFamilyToNewUserFamily(uint32_t familyID);
 
+    // User-created seasonal sets
+    [[nodiscard]] const std::vector<SeasonalSet>& GetUserSeasonalSets() const;
+    bool CreateUserSeasonalSet(const std::string& name);
+    bool DeleteUserSeasonalSet(size_t index);
+    bool RenameUserSeasonalSet(size_t index, const std::string& newName);
+    bool AddPropToUserSeasonalSet(uint32_t propID, size_t index);
+    bool RemovePropFromUserSeasonalSet(uint32_t propID, size_t index);
+
 private:
     static std::filesystem::path GetPluginsPath_();
     static std::string BuildDefaultFamilyName_(const std::string& baseName);
     [[nodiscard]] uint64_t GenerateNextUserFamilyId_() const;
+    [[nodiscard]] uint64_t GenerateNextUserSeasonalSetId_() const;
 
     const PropRepository& props_;
     std::unordered_set<uint32_t> favoriteLotIds_;
     std::unordered_set<uint64_t> favoritePropIds_;
     std::unordered_set<uint64_t> favoriteFloraIds_;
+    std::unordered_set<uint32_t> favoriteDecalIds_;
+    std::unordered_map<uint32_t, std::vector<NamedDecalPreset>> favoriteDecalPresets_;
     std::vector<PropFamily> userFamilies_;
+    std::vector<SeasonalSet> userSeasonalSets_;
     std::vector<RecentPaintEntryData> recentPaintsCache_;
     size_t activeUserFamilyIndex_{0};
 };

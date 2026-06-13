@@ -206,7 +206,7 @@ namespace {
 
         auto parsed = LText::Parse(std::span(data->data(), data->size()));
         if (!parsed.has_value()) {
-            spdlog::trace("Failed to parse LText {}: {}", tgi.ToString(), parsed.error().message);
+            spdlog::debug("Failed to parse LText {}: {}", tgi.ToString(), parsed.error().message);
             return std::nullopt;
         }
 
@@ -244,6 +244,13 @@ namespace {
         }
 
         spdlog::trace("decodePngToRgba32: decoded {}x{} image with {} channels", width, height, channels);
+
+        constexpr int kMaxDecodedDimension = 4096;
+        if (width <= 0 || height <= 0 || width > kMaxDecodedDimension || height > kMaxDecodedDimension) {
+            spdlog::warn("Refusing PNG with suspicious decoded dimensions {}x{}", width, height);
+            stbi_image_free(pixels);
+            return result;
+        }
 
         // Check if image is wide enough to have the second icon
         if (static_cast<uint32_t>(width) < kIconSkipWidth + kIconCropWidth) {
@@ -312,7 +319,6 @@ ExemplarParser::ExemplarParser(const PropertyMapper& mapper,
       , pidSimulatorDateDuration_(mapper.propertyId(kSimulatorDateDuration))
       , pidSimulatorDateInterval_(mapper.propertyId(kSimulatorDateInterval))
       , pidPropRandomChance_(mapper.propertyId(kPropRandomChance))
-      , pidFloraWild_(mapper.propertyId(kFloraWild))
       , pidFloraFamily_(mapper.propertyId(kFloraFamily))
       , pidFloraClusterType_(mapper.propertyId(kFloraClusterType))
       , optBuilding_(mapper.propertyOptionId(kExemplarType, kExemplarTypeBuilding))
@@ -702,18 +708,6 @@ std::optional<ParsedPropExemplar> ExemplarParser::parseProp(const Exemplar::Reco
 
 std::optional<ParsedFloraExemplar> ExemplarParser::parseFlora(const Exemplar::Record& exemplar,
                                                               const DBPF::Tgi& tgi) const {
-    // Only parse MMP flora (Flora: Wild == false). Skip wild/god-mode flora.
-    if (pidFloraWild_) {
-        if (const auto* prop = findProperty(exemplar, *pidFloraWild_)) {
-            if (const auto wild = prop->GetScalarAs<bool>()) {
-                if (*wild) {
-                    spdlog::trace("Skipping wild flora at {}", tgi.ToString());
-                    return std::nullopt;
-                }
-            }
-        }
-    }
-
     ParsedFloraExemplar parsed;
     parsed.tgi = tgi;
 
@@ -830,6 +824,9 @@ Flora ExemplarParser::floraFromParsed(const ParsedFloraExemplar& parsed) const {
             flora.thumbnail = preview;
         }
         else {
+            spdlog::debug("Thumbnail render failed for flora {} ({}): {}",
+                          parsed.visibleName, parsed.modelTgi->ToString(),
+                          rendered.has_value() ? "rendered image was empty" : rendered.error().message);
             flora.thumbnail = makeRenderFailedThumbnail(thumbnailSize_, &*parsed.modelTgi);
         }
     }
@@ -930,8 +927,9 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
             building.thumbnail = preview;
         }
         else {
-            spdlog::debug("Thumbnail render failed for building {} ({})",
-                          parsed.name, parsed.modelTgi->ToString());
+            spdlog::debug("Thumbnail render failed for building {} ({}): {}",
+                          parsed.name, parsed.modelTgi->ToString(),
+                          rendered.has_value() ? "rendered image was empty" : rendered.error().message);
             building.thumbnail = makeRenderFailedThumbnail(thumbnailSize_, &*parsed.modelTgi);
         }
     }
@@ -946,8 +944,6 @@ Lot ExemplarParser::lotFromParsed(const ParsedLotConfigExemplar& parsed) const {
     lot.name = parsed.name;
     lot.sizeX = parsed.lotSize.first;
     lot.sizeZ = parsed.lotSize.second;
-    lot.minCapacity = parsed.capacity.has_value() ? parsed.capacity->first : 0;
-    lot.maxCapacity = parsed.capacity.has_value() ? parsed.capacity->second : 0;
     lot.growthStage = parsed.growthStage.has_value() ? parsed.growthStage.value() : 0;
     lot.zoneType = parsed.zoneType;
     lot.wealthType = parsed.wealthType;
@@ -991,8 +987,9 @@ Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
             prop.thumbnail = preview;
         }
         else {
-            spdlog::debug("Thumbnail render failed for prop {} ({})",
-                          parsed.visibleName, parsed.modelTgi->ToString());
+            spdlog::debug("Thumbnail render failed for prop {} ({}): {}",
+                          parsed.visibleName, parsed.modelTgi->ToString(),
+                          rendered.has_value() ? "rendered image was empty" : rendered.error().message);
             prop.thumbnail = makeRenderFailedThumbnail(thumbnailSize_, &*parsed.modelTgi);
         }
     }
