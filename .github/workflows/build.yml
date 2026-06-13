@@ -1,11 +1,12 @@
-name: Build
+name: Windows CI
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches:
+      - "**"
+    tags:
+      - "v*"
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 env:
@@ -19,10 +20,10 @@ concurrency:
 
 jobs:
   build-dll:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -58,6 +59,14 @@ jobs:
           cmake --preset vs2022-win32-release
           cmake --build --preset vs2022-win32-release-build --target SC4PlopAndPaint --parallel
 
+      - name: Generate SBOM for DLL (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          file: cmake-build-release-visual-studio/src/dll/Release/SC4PlopAndPaint.dll
+          format: spdx-json
+          output-file: SC4PlopAndPaint.spdx.json
+          upload-artifact: false
+
       - name: Upload raw DLL artifact
         uses: actions/upload-artifact@v4
         with:
@@ -65,12 +74,13 @@ jobs:
           compression-level: 0
           path: |
             cmake-build-release-visual-studio/src/dll/Release/SC4PlopAndPaint.dll
+            SC4PlopAndPaint.spdx.json
 
   build-cli:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -113,6 +123,14 @@ jobs:
             throw "CLI smoke test failed with exit code $LASTEXITCODE"
           }
 
+      - name: Generate SBOM for Cache Builder (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          file: cmake-build-release-visual-studio-x64/src/app/Release/SC4PlopAndPaintCli.exe
+          format: spdx-json
+          output-file: SC4PlopAndPaintCacheBuilder.spdx.json
+          upload-artifact: false
+
       - name: Upload raw CLI artifact
         uses: actions/upload-artifact@v4
         with:
@@ -120,14 +138,15 @@ jobs:
           compression-level: 0
           path: |
             cmake-build-release-visual-studio-x64/src/app/Release/SC4PlopAndPaintCli.exe
+            SC4PlopAndPaintCacheBuilder.spdx.json
 
   package-installer:
     needs: [build-dll, build-cli]
-    runs-on: windows-latest
+    runs-on: windows-2022
     if: github.event_name != 'pull_request'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -151,7 +170,9 @@ jobs:
           mkdir -p dist-package
 
           cp artifacts/dll/SC4PlopAndPaint.dll dist-package/SC4PlopAndPaint.dll
+          cp artifacts/dll/SC4PlopAndPaint.spdx.json dist-package/SC4PlopAndPaint.spdx.json
           cp artifacts/cli/SC4PlopAndPaintCli.exe dist-package/_SC4PlopAndPaintCacheBuilder.exe
+          cp artifacts/cli/SC4PlopAndPaintCacheBuilder.spdx.json dist-package/SC4PlopAndPaintCacheBuilder.spdx.json
 
           cp dist/README.txt dist-package/
           cp dist/RUN_CACHE_BUILDER.cmd dist-package/
@@ -201,8 +222,24 @@ jobs:
           compression-level: 0
           path: dist-package/
 
+  validate-tag:
+    name: Validate Release Tag
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Validate version tag
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must match vMAJOR.MINOR.PATCH, for example v1.0.0. Got: $TAG_NAME"
+            exit 1
+          fi
+
   release:
-    needs: package-installer
+    needs: [package-installer, validate-tag]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -221,9 +258,14 @@ jobs:
             dist-package/SC4PlopAndPaint-*.exe \
             dist-package/README.txt \
             dist-package/LICENSE.txt \
-            dist-package/THIRD_PARTY_NOTICES.txt
+            dist-package/THIRD_PARTY_NOTICES.txt \
+            dist-package/SC4PlopAndPaint.spdx.json \
+            dist-package/SC4PlopAndPaintCacheBuilder.spdx.json
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
-          files: SC4PlopAndPaint-${{ github.ref_name }}.zip
+          files: |
+            SC4PlopAndPaint-${{ github.ref_name }}.zip
+            dist-package/SC4PlopAndPaint.spdx.json
+            dist-package/SC4PlopAndPaintCacheBuilder.spdx.json
           generate_release_notes: true
