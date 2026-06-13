@@ -196,6 +196,10 @@ jobs:
           echo "Package contents:"
           find dist-package -type f | sort
 
+      - name: Set artifact name
+        shell: bash
+        run: echo "INSTALLER_ARTIFACT_NAME=SC4PlopAndPaint-$(echo '${{ github.ref_name }}' | tr '/' '-')" >> $GITHUB_ENV
+
       - name: Install NSIS
         run: choco install nsis -y
 
@@ -228,7 +232,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SC4PlopAndPaint-${{ github.ref_name || github.sha }}
+          name: ${{ env.INSTALLER_ARTIFACT_NAME }}
           compression-level: 0
           path: dist-package/
 
