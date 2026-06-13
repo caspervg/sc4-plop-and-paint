@@ -656,6 +656,10 @@ void DecalPanelTab::RenderSettingsModal_() {
     if (ImGui::DragFloat("Rotation (deg)##decalRot", &rotationDegrees, 1.0f, -3600.0f, 3600.0f, "%.1f")) {
         state.decalInfo.rotationTurns = DegreesToTurns(rotationDegrees);
     }
+    bool mirrored = (state.flags & kTerrainDecalFlagMirror) != 0;
+    if (ImGui::Checkbox("Mirror##decalMirror", &mirrored)) {
+        state.flags ^= kTerrainDecalFlagMirror;
+    }
     ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f);
     ImGui::ColorEdit3("Color tint##decalColor", &state.color.fX);
 

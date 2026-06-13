@@ -46,6 +46,11 @@ bool DecalPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t mo
         return true;
     }
 
+    if (vkCode == 'M' && IsOnTop()) {
+        ToggleMirror_();
+        return true;
+    }
+
     return BasePainterInputControl::OnKeyDown(vkCode, modifiers);
 }
 
@@ -221,6 +226,14 @@ void DecalPainterInputControl::AdjustRotationDegrees_(const float deltaDegrees) 
     RefreshPreviewOverlay_();
     LOG_DEBUG("DecalPainterInputControl: rotation adjusted to {:.2f} degrees",
               stateTemplate_.decalInfo.rotationTurns * kDegreesPerTurn);
+}
+
+void DecalPainterInputControl::ToggleMirror_() {
+    stateTemplate_.flags ^= kTerrainDecalFlagMirror;
+    RefreshPreviewDecal_();
+    RefreshPreviewOverlay_();
+    LOG_DEBUG("DecalPainterInputControl: mirror {}",
+              (stateTemplate_.flags & kTerrainDecalFlagMirror) ? "on" : "off");
 }
 
 void DecalPainterInputControl::AdjustDepthOffset_(const int delta) {

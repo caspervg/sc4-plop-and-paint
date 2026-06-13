@@ -16,6 +16,7 @@ public:
     void SetDecalToPaint(uint32_t instanceId, const DecalPaintSettings& settings, const std::string& name);
     void SetDecalService(cIGZTerrainDecalService* service);
     [[nodiscard]] int GetDepthOffset() const { return stateTemplate_.depthOffset; }
+    [[nodiscard]] bool IsMirrored() const { return (stateTemplate_.flags & kTerrainDecalFlagMirror) != 0; }
 
     // Override undo/commit to manage TerrainDecalId instead of occupants.
     void UndoLastPlacement() override;
@@ -53,6 +54,7 @@ private:
     void TrimUndoStack_();
     void AdjustRotationDegrees_(float deltaDegrees);
     void AdjustDepthOffset_(int delta);
+    void ToggleMirror_();
     void RefreshPreviewDecal_();
     void RestoreCommittedDrawMode_(const PendingDecal& decal) const;
     void RestoreCommittedDrawMode_(const DecalUndoGroup& group) const;
