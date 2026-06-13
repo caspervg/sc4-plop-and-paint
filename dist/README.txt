@@ -21,5 +21,7 @@ Installation instructions:
 - If thumbnail rendering is enabled, it also writes lot_thumbnails.bin, prop_thumbnails.bin and flora_thumbnails.bin into your Plugins folder.
 
 Usage instructions:
-- After installation, press O in game to open the lot plop and prop paint dialog.
+- After installation, press O in game to open the Advanced Plopping & Painting dialog.
+- The dialog has six tabs: Buildings & Lots, Props, Prop Families, Flora, Flora Collections, and Decals.
+- Prop and flora thumbnails reflect the active in-game season when seasonal variants are available.
 - If something looks off, check <My Documents>/SimCity 4/ for the separate services plugin log output.

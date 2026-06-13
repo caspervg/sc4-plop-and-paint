@@ -16,13 +16,14 @@ The main window can be closed either with the same toggle shortcut or with the w
 
 ## The main window
 
-The window has five tabs:
+The window has six tabs:
 
 - `Buildings & Lots`: browse buildings and plop lots
 - `Props`: browse props, paint a single prop, and remove placed props
 - `Prop Families`: manage built-in and custom prop families, then paint with a weighted random palette
 - `Flora`: browse individual flora items and paint one flora type at a time
 - `Flora Collections`: paint flora families and multi-stage chains built from the loaded flora data
+- `Decals`: browse and paint texture decals on terrain and lots
 
 ![Main window](images/main-window-cropped.jpg)
 
@@ -78,6 +79,10 @@ Per-prop actions:
 - `Fam`: add the prop to one of your custom families
 
 If you hover a prop name and it belongs to built-in families, the tooltip shows those family IDs and names.
+
+Prop thumbnails reflect the current in-game season when seasonal variants are available.
+
+Scene picking: while in paint mode, you can click an existing prop in the city to switch to painting that prop instead.
 
 Strip mode:
 
@@ -150,7 +155,9 @@ Important behavior:
 
 - Search also matches flora group and instance IDs in `0x...` form
 - Flora painting uses the same paint popup and the same direct, line, and polygon modes as prop painting
+- Flora thumbnails reflect the current in-game season when seasonal variants are available
 - While flora painting is active, the tab shows `Stop painting`
+- Scene picking: while in flora paint mode, you can click an existing flora item in the city to switch to painting that type
 
 ## Flora Collections
 
@@ -174,6 +181,36 @@ Important behavior:
 - `Favorites only` shows only collections that contain at least one favorited flora item
 - Double-clicking a collection row or pressing `Paint` opens the flora paint options for that collection
 - Selecting a collection shows its members below, including thumbnails, IDs, and favorite buttons for the individual flora entries
+
+## Decals
+
+This tab is for painting texture decals on terrain and lot surfaces.
+
+Filters:
+
+- `Search decals...`
+- `Favorites only`
+- `Clear filters`
+
+Per-decal actions:
+
+- `Paint`: start painting that decal
+- `Star` / `Unstar`: manage decal favorites
+
+Paint options specific to decals:
+
+- `Rotation`: continuous rotation (any angle, not limited to 90-degree steps)
+- `UV offset`: adjust the texture offset within the decal
+- `Depth offset`: raise or lower the decal surface relative to terrain
+- `Mirror`: flip the decal horizontally
+
+Favorites for decals also save the current paint settings as a preset, so reopening a favorited decal restores the rotation, UV, and depth values you last used with it.
+
+Pickers:
+
+- **Scene pick**: click an existing decal in the city to switch to painting that decal
+- **Lot texture pick**: click a lot surface to use its texture as the decal source
+- **Lot pick**: click a lot to use its associated decal
 
 ## Favorites
 
