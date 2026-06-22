@@ -418,6 +418,38 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
         }
     }
 
+    if (const auto* prop = findProperty(exemplar, kBuildingStylesPropertyId)) {
+        parsedBuildingExemplar.buildingStyles.emplace();
+        if (prop->IsNumericList()) {
+            parsedBuildingExemplar.buildingStyles->reserve(prop->values.size());
+            for (size_t i = 0; i < prop->values.size(); ++i) {
+                if (const auto style = prop->GetScalarAs<uint32_t>(i)) {
+                    parsedBuildingExemplar.buildingStyles->push_back(*style);
+                }
+            }
+        }
+    }
+
+    if (const auto* prop = findProperty(exemplar, kBuildingIsWallToWallPropertyId)) {
+        // Property presence suppresses the legacy occupant-group fallback,
+        // even when the value is malformed. Match the DLL by treating that as false.
+        parsedBuildingExemplar.buildingIsWallToWall = prop->GetScalarAs<bool>().value_or(false);
+    }
+
+    if (const auto* prop = findProperty(exemplar, kBuildingPurposePropertyId)) {
+        parsedBuildingExemplar.purposeType = prop->GetScalarAs<uint8_t>();
+    }
+
+    if (const auto* prop = findProperty(exemplar, kExemplarCategoryPropertyId)) {
+        parsedBuildingExemplar.exemplarCategory = prop->GetScalarAs<uint32_t>();
+    }
+
+    if (const auto* prop = findProperty(exemplar, kBuildingStylesPimxTemplateMarkerPropertyId)) {
+        // Only presence matters to the compatibility behavior.
+        parsedBuildingExemplar.buildingStylesPimxTemplateMarker =
+            prop->GetScalarAs<bool>().value_or(false);
+    }
+
     // Extract building family IDs
     if (pidBuildingPropFamily_) {
         if (auto* prop = findProperty(exemplar, *pidBuildingPropFamily_)) {
@@ -887,6 +919,11 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
     building.name = parsed.name;
     building.description = parsed.description;
     building.occupantGroups = std::unordered_set(parsed.occupantGroups.begin(), parsed.occupantGroups.end());
+    building.buildingStyles = parsed.buildingStyles;
+    building.buildingIsWallToWall = parsed.buildingIsWallToWall;
+    building.purposeType = parsed.purposeType;
+    building.exemplarCategory = parsed.exemplarCategory;
+    building.buildingStylesPimxTemplateMarker = parsed.buildingStylesPimxTemplateMarker;
     building.thumbnail = std::nullopt;
 
     // Load icon if TGI is available and we have index service

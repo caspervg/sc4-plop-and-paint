@@ -3,7 +3,10 @@ set(SHARED_TESTS_NAME SC4PlopAndPaintCore_Tests)
 set(SHARED_TEST_SOURCES
     test_main.cpp
     test_entities.cpp
+    test_building_styles.cpp
+    test_lot_filters.cpp
     test_seasonal_sets.cpp
+    ${CMAKE_SOURCE_DIR}/src/dll/lots/LotFilterHelper.cpp
 )
 
 add_executable(${SHARED_TESTS_NAME} ${SHARED_TEST_SOURCES})
@@ -11,6 +14,8 @@ add_executable(${SHARED_TESTS_NAME} ${SHARED_TEST_SOURCES})
 target_include_directories(${SHARED_TESTS_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_SOURCE_DIR}/vendor/DBPFKit/vendor/catch2/src
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/dll
     ${jsoncons_SOURCE_DIR}/include
 )
 

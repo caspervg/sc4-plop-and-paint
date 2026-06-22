@@ -18,10 +18,12 @@ PlopAndPaintPanel::PlopAndPaintPanel(SC4PlopAndPaintDirector* director,
                            FloraRepository* flora,
                            FavoritesRepository* favorites,
                            DecalRepository* decals,
+                           BuildingStyleService* buildingStyleService,
                            cIGZPersistResourceManager* pRM,
                            cIGZImGuiService* imguiService)
     : director_(director), imguiService_(imguiService) {
-    tabs_.push_back(std::make_unique<BuildingsPanelTab>(director_, lots, props, favorites, imguiService_));
+    tabs_.push_back(std::make_unique<BuildingsPanelTab>(
+        director_, lots, props, favorites, buildingStyleService, imguiService_));
     tabs_.push_back(std::make_unique<PropPanelTab>(director_, lots, props, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FamiliesPanelTab>(director_, lots, props, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FloraPanelTab>(director_, flora, favorites, imguiService_));

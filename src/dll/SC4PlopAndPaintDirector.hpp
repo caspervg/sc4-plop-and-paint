@@ -49,9 +49,12 @@ class PropRepository;
 class FavoritesRepository;
 class cIGZS3DCameraService;
 class RecentSwapPanel;
+class BuildingStyleService;
 
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
+static constexpr uint32_t kSC4MessagePostCityInitComplete = 0xEA8AE29A;
+static constexpr uint32_t kMessageBuildingStyleCheckboxChanged = 0x573D5E8F;
 
 class SC4PlopAndPaintDirector final : public cRZMessage2COMDirector
 {
@@ -124,6 +127,8 @@ public:
 
 private:
     void PostCityInit_(const cIGZMessage2Standard* pStandardMsg);
+    void PostCityInitComplete_();
+    void BuildingStyleCheckboxChanged_();
     void PreCityShutdown_(cIGZMessage2Standard* pStandardMsg);
     void ToggleLotPlopPanel_();
     bool RegisterLotPlopShortcut_();
@@ -165,6 +170,7 @@ private:
     std::unique_ptr<FloraRepository>     floraRepository_;
     std::unique_ptr<FavoritesRepository> favoritesRepository_;
     std::unique_ptr<DecalRepository>     decalRepository_;
+    std::unique_ptr<BuildingStyleService> buildingStyleService_;
 
     bool panelRegistered_{false};
     bool panelVisible_{false};

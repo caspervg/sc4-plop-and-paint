@@ -44,6 +44,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${IMGUI_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/vendor/wil/include
     ${CMAKE_SOURCE_DIR}/vendor/DBPFKit/src
+    ${CMAKE_SOURCE_DIR}/vendor/sc4-more-building-styles/src/public/include
 )
 
 # Link against gzcom2 and spdlog

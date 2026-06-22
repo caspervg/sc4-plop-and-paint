@@ -3,38 +3,38 @@
 
 #include "../common/Utils.hpp"
 
-bool LotFilterHelper::PassesFilters(const LotView& lot) const {
-    return PassesTextFilter_(lot) &&
-        PassesSizeFilter_(lot) &&
-        PassesOccupantGroupFilter_(lot) &&
-        PassesZoneTypeFilter_(lot) &&
-        PassesWealthFilter_(lot) &&
-        PassesGrowthStageFilter_(lot);
+bool LotFilterHelper::PassesFilters(const LotView& lot, const BuildingStyleContext& buildingStyleContext) const {
+    return PassesTextFilter_(lot) && PassesSizeFilter_(lot) && PassesOccupantGroupFilter_(lot) &&
+        PassesBuildingStyleFilter_(lot, buildingStyleContext) && PassesWallToWallFilter_(lot, buildingStyleContext) &&
+        PassesZoneTypeFilter_(lot) && PassesWealthFilter_(lot) && PassesGrowthStageFilter_(lot);
 }
 
-std::vector<LotView> LotFilterHelper::ApplyFiltersAndSort(
-    const std::vector<LotView>& lots,
-    const std::unordered_set<uint32_t>& favorites,
-    std::span<const SortSpec> sortOrder
-) const {
+std::vector<LotView> LotFilterHelper::ApplyFiltersAndSort(const std::vector<LotView>& lots,
+                                                          const std::unordered_set<uint32_t>& favorites,
+                                                          std::span<const SortSpec> sortOrder,
+                                                          const BuildingStyleContext& buildingStyleContext) const {
     std::vector<LotView> filtered;
 
     // Filter lots
     for (const auto& lot : lots) {
-        if (PassesFilters(lot) && PassesFavoritesOnlyFilter_(lot, favorites)) {
+        if (PassesFilters(lot, buildingStyleContext) && PassesFavoritesOnlyFilter_(lot, favorites)) {
             filtered.push_back(lot);
         }
     }
 
     const auto compareStrings = [](const std::string& lhs, const std::string& rhs) {
-        if (lhs < rhs) return -1;
-        if (lhs > rhs) return 1;
+        if (lhs < rhs)
+            return -1;
+        if (lhs > rhs)
+            return 1;
         return 0;
     };
 
     const auto compareInts = [](auto lhs, auto rhs) {
-        if (lhs < rhs) return -1;
-        if (lhs > rhs) return 1;
+        if (lhs < rhs)
+            return -1;
+        if (lhs > rhs)
+            return 1;
         return 0;
     };
 
@@ -66,8 +66,10 @@ std::vector<LotView> LotFilterHelper::ApplyFiltersAndSort(
                 const auto areaA = static_cast<int>(a.lot->sizeX) * static_cast<int>(a.lot->sizeZ);
                 const auto areaB = static_cast<int>(b.lot->sizeX) * static_cast<int>(b.lot->sizeZ);
                 cmp = compareInts(areaA, areaB);
-                if (cmp == 0) cmp = compareInts(a.lot->sizeX, b.lot->sizeX);
-                if (cmp == 0) cmp = compareInts(a.lot->sizeZ, b.lot->sizeZ);
+                if (cmp == 0)
+                    cmp = compareInts(a.lot->sizeX, b.lot->sizeX);
+                if (cmp == 0)
+                    cmp = compareInts(a.lot->sizeZ, b.lot->sizeZ);
                 break;
             }
             }
@@ -79,7 +81,8 @@ std::vector<LotView> LotFilterHelper::ApplyFiltersAndSort(
 
         // Final stable tie-breaker on IDs to keep order deterministic.
         const auto buildingCmp = compareInts(a.building->instanceId.value(), b.building->instanceId.value());
-        if (buildingCmp != 0) return buildingCmp < 0;
+        if (buildingCmp != 0)
+            return buildingCmp < 0;
         return a.lot->instanceId.value() < b.lot->instanceId.value();
     });
 
@@ -96,9 +99,12 @@ void LotFilterHelper::ResetFilters() {
     sizeZ[1] = LotSize::kMaxSize;
 
     selectedOccupantGroups.clear();
+    selectedBuildingStyles.clear();
     selectedZoneType.reset();
     selectedWealthType.reset();
     selectedGrowthStage.reset();
+    wallToWallFilter = WallToWallFilter::Any;
+    activeStylesOnly = false;
     favoritesOnly = false;
 }
 
@@ -106,8 +112,7 @@ bool LotFilterHelper::PassesTextFilter_(const LotView& view) const {
     const Lot& lot = *view.lot;
     const Building& building = *view.building;
 
-    return ContainsCaseInsensitive(lot.name, searchBuffer) ||
-        ContainsCaseInsensitive(building.name, searchBuffer);
+    return ContainsCaseInsensitive(lot.name, searchBuffer) || ContainsCaseInsensitive(building.name, searchBuffer);
 }
 
 bool LotFilterHelper::PassesSizeFilter_(const LotView& view) const {
@@ -117,8 +122,8 @@ bool LotFilterHelper::PassesSizeFilter_(const LotView& view) const {
     int effectiveMinZ = std::min(sizeZ[0], sizeZ[1]);
     int effectiveMaxZ = std::max(sizeZ[0], sizeZ[1]);
 
-    return lot.sizeX >= effectiveMinX && lot.sizeX <= effectiveMaxX &&
-        lot.sizeZ >= effectiveMinZ && lot.sizeZ <= effectiveMaxZ;
+    return lot.sizeX >= effectiveMinX && lot.sizeX <= effectiveMaxX && lot.sizeZ >= effectiveMinZ &&
+        lot.sizeZ <= effectiveMaxZ;
 }
 
 bool LotFilterHelper::PassesOccupantGroupFilter_(const LotView& view) const {
@@ -131,6 +136,37 @@ bool LotFilterHelper::PassesOccupantGroupFilter_(const LotView& view) const {
     // Check if any of the lot's occupant groups matches any selected OG
     return std::ranges::any_of(building.occupantGroups,
                                [this](uint32_t og) { return selectedOccupantGroups.contains(og); });
+}
+
+bool LotFilterHelper::PassesBuildingStyleFilter_(const LotView& view, const BuildingStyleContext& context) const {
+    const Building& building = *view.building;
+
+    if (!selectedBuildingStyles.empty() &&
+        !BuildingStyleResolver::SupportsAnyStyle(building, selectedBuildingStyles, context)) {
+        return false;
+    }
+
+    if (!activeStylesOnly || !context.activeStylesKnown) {
+        return true;
+    }
+
+    if (context.useAllStylesAtOnce) {
+        if (!context.availableStyleIds.empty()) {
+            return BuildingStyleResolver::SupportsAnyStyle(building, context.availableStyleIds, context);
+        }
+        return true;
+    }
+
+    return BuildingStyleResolver::SupportsAnyStyle(building, context.activeStyleIds, context);
+}
+
+bool LotFilterHelper::PassesWallToWallFilter_(const LotView& view, const BuildingStyleContext& context) const {
+    if (wallToWallFilter == WallToWallFilter::Any) {
+        return true;
+    }
+
+    const bool isWallToWall = BuildingStyleResolver::IsWallToWall(*view.building, context);
+    return wallToWallFilter == WallToWallFilter::WallToWallOnly ? isWallToWall : !isWallToWall;
 }
 
 bool LotFilterHelper::PassesZoneTypeFilter_(const LotView& view) const {

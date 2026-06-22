@@ -20,6 +20,8 @@ namespace Badges {
     constexpr ImU32 kSeasonalLooseHoverColor = IM_COL32(122, 126, 62, 255);
     constexpr ImU32 kChanceColor = IM_COL32(128, 72, 44, 255);
     constexpr ImU32 kChanceHoverColor = IM_COL32(150, 86, 54, 255);
+    constexpr ImU32 kWallToWallColor = IM_COL32(98, 72, 132, 255);
+    constexpr ImU32 kWallToWallHoverColor = IM_COL32(118, 88, 154, 255);
 
     inline bool HasSeasonalTiming(const Prop& prop) {
         return prop.simulatorDateStart.has_value() ||

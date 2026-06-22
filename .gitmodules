@@ -19,3 +19,6 @@
 [submodule "vendor/mINI"]
 	path = vendor/mINI
 	url = https://github.com/metayeti/mINI.git
+[submodule "vendor/sc4-more-building-styles"]
+	path = vendor/sc4-more-building-styles
+	url = https://github.com/0xC0000054/sc4-more-building-styles.git

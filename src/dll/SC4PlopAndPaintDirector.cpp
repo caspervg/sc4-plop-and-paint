@@ -22,6 +22,7 @@
 #include "decals/DecalStripperInputControl.hpp"
 #include "flora/FloraRepository.hpp"
 #include "lots/LotRepository.hpp"
+#include "lots/BuildingStyleService.hpp"
 #include "paint/RecentSwapPanel.hpp"
 #include "pick/DecalPickStrategy.hpp"
 #include "pick/FloraPickStrategy.hpp"
@@ -200,6 +201,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
     if (pMS2) {
         pMS2->AddNotification(this, kSC4MessagePostCityInit);
         pMS2->AddNotification(this, kSC4MessagePreCityShutdown);
+        pMS2->AddNotification(this, kSC4MessagePostCityInitComplete);
+        pMS2->AddNotification(this, kMessageBuildingStyleCheckboxChanged);
         pMS2_ = pMS2;
         LOG_INFO("Registered for city messages");
     }
@@ -241,6 +244,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         floraRepository_     = std::make_unique<FloraRepository>();
         favoritesRepository_ = std::make_unique<FavoritesRepository>(*propRepository_);
         decalRepository_     = std::make_unique<DecalRepository>();
+        buildingStyleService_ = std::make_unique<BuildingStyleService>();
+        buildingStyleService_->Acquire(mpCOM);
 
         if (mpFrameWork->GetSystemService(kTerrainDecalServiceID, GZIID_cIGZTerrainDecalService,
                                           reinterpret_cast<void**>(&terrainDecalService_))) {
@@ -264,6 +269,7 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
             floraRepository_.get(),
             favoritesRepository_.get(),
             decalRepository_.get(),
+            buildingStyleService_.get(),
             static_cast<cIGZPersistResourceManager*>(pRMForPanel),
             imguiService_);
 
@@ -347,6 +353,8 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     if (pMS2_) {
         pMS2_->RemoveNotification(this, kSC4MessagePostCityInit);
         pMS2_->RemoveNotification(this, kSC4MessagePreCityShutdown);
+        pMS2_->RemoveNotification(this, kSC4MessagePostCityInitComplete);
+        pMS2_->RemoveNotification(this, kMessageBuildingStyleCheckboxChanged);
         pMS2_.Reset();
     }
 
@@ -436,6 +444,11 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     }
     panel_.reset();
 
+    if (buildingStyleService_) {
+        buildingStyleService_->Shutdown();
+    }
+    buildingStyleService_.reset();
+
     favoritesRepository_.reset();
     floraRepository_.reset();
     propRepository_.reset();
@@ -484,6 +497,10 @@ bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     case kSC4MessagePostCityInit: PostCityInit_(pStandardMsg);
         break;
     case kSC4MessagePreCityShutdown: PreCityShutdown_(pStandardMsg);
+        break;
+    case kSC4MessagePostCityInitComplete: PostCityInitComplete_();
+        break;
+    case kMessageBuildingStyleCheckboxChanged: BuildingStyleCheckboxChanged_();
         break;
     case kToggleLotPlopWindowShortcutID: ToggleLotPlopPanel_();
         break;
@@ -1609,6 +1626,23 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
     }
 }
 
+void SC4PlopAndPaintDirector::PostCityInitComplete_() {
+    if (buildingStyleService_) {
+        if (!buildingStyleService_->HasStyleInfoApi()) {
+            buildingStyleService_->Acquire(mpCOM);
+        }
+        buildingStyleService_->RefreshForCity(pCity_);
+    }
+}
+
+void SC4PlopAndPaintDirector::BuildingStyleCheckboxChanged_() {
+    if (buildingStyleService_) {
+        // Re-read the tract developer instead of applying the message delta so
+        // the cache stays correct if notifications were missed or reordered.
+        buildingStyleService_->RefreshActiveStyles(pCity_);
+    }
+}
+
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
     PersistRecentPaints_();
     SetLotPlopPanelVisible(false);
@@ -1646,6 +1680,9 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     }
     if (decalRepository_) {
         decalRepository_->Clear();
+    }
+    if (buildingStyleService_) {
+        buildingStyleService_->ClearCityState();
     }
     pCity_ = nullptr;
     if (pView3D_) {

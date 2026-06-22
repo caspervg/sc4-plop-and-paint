@@ -1,6 +1,9 @@
 #include "BuildingsPanelTab.hpp"
 
+#include <format>
+
 #include "OccupantGroups.hpp"
+#include "../common/BadgeUtils.hpp"
 #include "../common/Utils.hpp"
 #include "../utils/Logger.h"
 
@@ -25,6 +28,18 @@ namespace {
 
         return result;
     }
+}
+
+BuildingsPanelTab::BuildingsPanelTab(
+    SC4PlopAndPaintDirector* director,
+    LotRepository* lots,
+    PropRepository* props,
+    FavoritesRepository* favorites,
+    BuildingStyleService* buildingStyleService,
+    cIGZImGuiService* imguiService)
+    : PanelTab(director, lots, props, favorites, imguiService),
+      buildingStyleService_(buildingStyleService) {
+    InitializeFallbackBuildingStyles_();
 }
 
 const char* BuildingsPanelTab::GetTabName() const {
@@ -181,6 +196,15 @@ void BuildingsPanelTab::RenderFilterUI_() {
     }
 
     ImGui::SameLine();
+
+    const char* wallToWallOptions[] = {"Any W2W", "W2W only", "Non-W2W only"};
+    int currentWallToWall = static_cast<int>(filter_.wallToWallFilter);
+    ImGui::SetNextItemWidth(UI::dropdownWidth());
+    if (ImGui::Combo("##WallToWall", &currentWallToWall, wallToWallOptions, 3)) {
+        filter_.wallToWallFilter = static_cast<LotFilterHelper::WallToWallFilter>(currentWallToWall);
+    }
+
+    ImGui::SameLine();
     ImGui::Checkbox("Favorites only", &filter_.favoritesOnly);
 
     // Size filters
@@ -204,6 +228,7 @@ void BuildingsPanelTab::RenderFilterUI_() {
     }
 
     ImGui::Separator();
+    RenderBuildingStyleFilter_();
     RenderOccupantGroupFilter_();
 }
 
@@ -339,6 +364,12 @@ void BuildingsPanelTab::RenderBuildingRow_(const Building& building, const bool 
     // Name column
     ImGui::TableNextColumn();
     ImGui::TextUnformatted(building.name.c_str());
+    if (BuildingStyleResolver::IsWallToWall(building, GetBuildingStyleContext_())) {
+        Badges::RenderPill("W2W", Badges::kWallToWallColor, Badges::kWallToWallHoverColor);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Wall-to-wall building");
+        }
+    }
 
     // Description column
     ImGui::TableNextColumn();
@@ -439,6 +470,76 @@ void BuildingsPanelTab::RenderOccupantGroupFilter_() {
     }
 }
 
+void BuildingsPanelTab::RenderBuildingStyleFilter_() {
+    const auto& styles = GetBuildingStyles_();
+    const auto& context = GetBuildingStyleContext_();
+
+    std::unordered_set<uint32_t> visibleStyleIds;
+    visibleStyleIds.reserve(styles.size());
+    for (const auto& style : styles) {
+        visibleStyleIds.insert(style.id);
+    }
+    std::erase_if(filter_.selectedBuildingStyles, [&](const uint32_t styleId) {
+        return !visibleStyleIds.contains(styleId);
+    });
+
+    std::string preview = filter_.selectedBuildingStyles.empty()
+        ? "All building styles"
+        : std::to_string(filter_.selectedBuildingStyles.size()) + " selected";
+
+    if (ImGui::CollapsingHeader("Building Styles")) {
+        ImGui::TextUnformatted(preview.c_str());
+
+        const bool styleApiAvailable = buildingStyleService_ && buildingStyleService_->HasStyleInfoApi();
+        const bool runtimeCatalogReady = styleApiAvailable && !buildingStyleService_->GetAvailableStyles().empty();
+
+        if (!styleApiAvailable) {
+            ImGui::TextDisabled("Custom style names unavailable; showing cached style IDs.");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Install and enable SC4MoreBuildingStyles.dll plus the Building Style Control and style "
+                    "definition files used by your setup to display custom style names.");
+            }
+        }
+        else {
+            if (!runtimeCatalogReady) {
+                ImGui::TextDisabled("Load a city to resolve runtime style names and active styles.");
+            }
+
+            ImGui::BeginDisabled(!context.activeStylesKnown);
+            ImGui::Checkbox("Compatible with active styles", &filter_.activeStylesOnly);
+            ImGui::EndDisabled();
+            if (!context.activeStylesKnown && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("Active styles are available after a city has loaded.");
+            }
+        }
+
+        if (ImGui::BeginChild("##BuildingStyleList", ImVec2(0, UI::ogTreeHeight()), true)) {
+            for (const auto& style : styles) {
+                bool selected = filter_.selectedBuildingStyles.contains(style.id);
+                const std::string label = std::format("{}##BuildingStyle{:08X}", style.name, style.id);
+                if (ImGui::Checkbox(label.c_str(), &selected)) {
+                    if (selected) {
+                        filter_.selectedBuildingStyles.insert(style.id);
+                    }
+                    else {
+                        filter_.selectedBuildingStyles.erase(style.id);
+                    }
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Style ID: 0x%08X", style.id);
+                }
+            }
+        }
+        ImGui::EndChild();
+
+        if (ImGui::SmallButton("Clear styles")) {
+            filter_.selectedBuildingStyles.clear();
+            filter_.activeStylesOnly = false;
+        }
+    }
+}
+
 void BuildingsPanelTab::RenderFavButton_(const uint32_t lotInstanceId) const {
     const bool isFavorite = favorites_->IsLotFavorite(lotInstanceId);
     const char* label = isFavorite ? "Unstar" : "Star";
@@ -463,7 +564,7 @@ void BuildingsPanelTab::ApplyFilters_() {
         // A building passes if any of its lots passes all filters
         bool hasMatchingLot = std::ranges::any_of(building.lots, [&](const Lot& lot) {
             LotView view{&building, &lot};
-            return filter_.PassesFilters(view) &&
+            return filter_.PassesFilters(view, GetBuildingStyleContext_()) &&
                    (!filter_.favoritesOnly || favoriteLots.contains(lot.instanceId.value()));
         });
 
@@ -481,4 +582,49 @@ void BuildingsPanelTab::ApplyFilters_() {
             selectedBuilding_ = nullptr;
         }
     }
+}
+
+void BuildingsPanelTab::InitializeFallbackBuildingStyles_() {
+    std::unordered_set<uint32_t> ids{0x2000, 0x2001, 0x2002, 0x2003};
+    for (const auto& building : lots_->GetBuildings()) {
+        if (building.buildingStyles.has_value()) {
+            for (const uint32_t styleId : *building.buildingStyles) {
+                if (!BuildingStyleResolver::IsReservedStyleId(styleId)) {
+                    ids.insert(styleId);
+                }
+            }
+        }
+    }
+
+    fallbackBuildingStyles_.reserve(ids.size());
+    for (const uint32_t id : ids) {
+        std::string name;
+        switch (id) {
+        case 0x2000: name = "Chicago 1890"; break;
+        case 0x2001: name = "New York 1940"; break;
+        case 0x2002: name = "Houston 1990"; break;
+        case 0x2003: name = "Euro-Contemporary"; break;
+        default: name = std::format("Style 0x{:X}", id); break;
+        }
+        fallbackBuildingStyles_.push_back({id, std::move(name)});
+        fallbackBuildingStyleContext_.availableStyleIds.insert(id);
+    }
+
+    std::ranges::sort(fallbackBuildingStyles_, [](const BuildingStyleEntry& lhs, const BuildingStyleEntry& rhs) {
+        return lhs.name < rhs.name;
+    });
+}
+
+const std::vector<BuildingStyleEntry>& BuildingsPanelTab::GetBuildingStyles_() const {
+    if (buildingStyleService_ && !buildingStyleService_->GetAvailableStyles().empty()) {
+        return buildingStyleService_->GetAvailableStyles();
+    }
+    return fallbackBuildingStyles_;
+}
+
+const BuildingStyleContext& BuildingsPanelTab::GetBuildingStyleContext_() const {
+    if (buildingStyleService_) {
+        return buildingStyleService_->GetContext();
+    }
+    return fallbackBuildingStyleContext_;
 }
