@@ -952,6 +952,8 @@ bool SC4PlopAndPaintDirector::StartDecalStripping() {
 
     decalStripperControl_->SetDecalService(terrainDecalService_);
     decalStripperControl_->SetCity(pCity_);
+    decalStripperControl_->SetPickStrategy(
+        std::make_unique<DecalPickStrategy>(terrainDecalService_, decalRepository_.get()));
     decalStripperControl_->SetWindow(pView3D_->AsIGZWin());
     decalStripperControl_->SetOnCancel([this]() {
         if (pView3D_ && decalStripperControl_ &&

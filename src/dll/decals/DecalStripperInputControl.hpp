@@ -1,12 +1,18 @@
 #pragma once
 #include <functional>
+#include <memory>
+#include <optional>
+#include <variant>
 #include <vector>
 
+#include "LotTextureStripper.hpp"
 #include "cISC4City.h"
 #include "cRZAutoRefCount.h"
 #include "cS3DVector3.h"
 #include "cSC4BaseViewInputControl.h"
 #include "../paint/PaintOverlay.hpp"
+#include "../pick/ScenePickResult.hpp"
+#include "../pick/ScenePickStrategy.hpp"
 #include "public/cIGZTerrainDecalService.h"
 
 class cISTETerrain;
@@ -23,6 +29,7 @@ public:
     bool OnMouseUpL(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
+    bool OnMouseWheel(int32_t x, int32_t z, uint32_t modifiers, int32_t wheelDelta) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
 
     void Activate() override;
@@ -30,6 +37,9 @@ public:
 
     void SetDecalService(cIGZTerrainDecalService* service);
     void SetCity(cISC4City* pCity);
+    // The strategy drives single-mode hover/pick: it surfaces both terrain
+    // decals and lot base/overlay textures, with Alt+wheel candidate cycling.
+    void SetPickStrategy(std::unique_ptr<ScenePickStrategy> strategy);
     void SetOnCancel(std::function<void()> onCancel);
     void UndoLastDeletion();
     void ProcessPendingActions();
@@ -40,34 +50,37 @@ private:
 
     bool UpdateCursorWorldFromScreen_(int32_t screenX, int32_t screenZ);
 
-    // Returns the ID of the nearest decal within kPickRadiusMeters, or {0} if none.
-    TerrainDecalId PickNearestDecal_() const;
-    void PickNearestDecalForHover_();
+    // Single mode: refresh the hovered candidate from the pick strategy.
+    void RefreshHover_();
+    void ClearHover_();
+    // Acts on the current hovered candidate (decal -> decal service; lot texture
+    // -> occupant edit). Returns true if something was removed.
+    bool DeleteHovered_();
+
+    // Brush mode (terrain decals only): radius delete around the cursor.
     void DeleteDecalsInBrush_();
-    void SetHoveredDecal_(TerrainDecalId id);
-    void ClearHoveredDecal_();
-    void DeleteHoveredDecal_();
+
     void BuildOverlay_();
 
     struct DeletedDecalInfo {
         TerrainDecalState state{};  // Full state for reconstruction via CreateDecal
     };
+    using UndoEntry = std::variant<DeletedDecalInfo, lottex::RemovedLotTexture>;
 
     [[nodiscard]] cISTETerrain* GetTerrain_() const;
 
-    cRZAutoRefCount<cISC4City>    city_;
-    cIGZTerrainDecalService*      decalService_{nullptr};
-    bool                          active_{false};
-    bool                          cancelPending_{false};
-    bool                          leftMouseDown_{false};
-    StripMode                     stripMode_{StripMode::Single};
-    cS3DVector3                   currentCursorWorld_{};
-    bool                          cursorValid_{false};
-    TerrainDecalId                hoveredDecalId_{};
-    bool                          hasHoveredDecal_{false};
-    uint8_t                       hoveredOriginalDrawMode_{0};
+    cRZAutoRefCount<cISC4City>          city_;
+    cIGZTerrainDecalService*            decalService_{nullptr};
+    std::unique_ptr<ScenePickStrategy>  pickStrategy_{};
+    bool                                active_{false};
+    bool                                cancelPending_{false};
+    bool                                leftMouseDown_{false};
+    StripMode                           stripMode_{StripMode::Single};
+    cS3DVector3                         currentCursorWorld_{};
+    bool                                cursorValid_{false};
+    std::optional<ScenePickResult>      hoveredResult_{};
 
-    std::function<void()>         onCancel_;
-    std::vector<DeletedDecalInfo> undoStack_;
-    PaintOverlay                  overlay_{};
+    std::function<void()>               onCancel_;
+    std::vector<UndoEntry>              undoStack_;
+    PaintOverlay                        overlay_{};
 };

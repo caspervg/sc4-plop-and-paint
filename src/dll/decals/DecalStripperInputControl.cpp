@@ -9,6 +9,7 @@ namespace {
     constexpr auto  kDecalStripperControlID = 0x6E5D4C3Bu;
     constexpr float kPickRadiusMeters       = 8.0f;
     constexpr float kBrushRadiusMeters      = 16.0f;
+    constexpr DWORD kRectHighlightColor     = 0xF0FFD700;
 }
 
 DecalStripperInputControl::DecalStripperInputControl()
@@ -29,7 +30,7 @@ bool DecalStripperInputControl::Shutdown() {
     if (!initialized) {
         return true;
     }
-    ClearHoveredDecal_();
+    ClearHover_();
     undoStack_.clear();
     cSC4BaseViewInputControl::Shutdown();
     LOG_INFO("DecalStripperInputControl shut down");
@@ -49,11 +50,16 @@ bool DecalStripperInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t 
         BuildOverlay_();
         return true;
     }
-    if (!cursorValid_ || !hasHoveredDecal_) {
+    if (!cursorValid_) {
         return false;
     }
-    DeleteHoveredDecal_();
-    return true;
+    RefreshHover_();
+    if (DeleteHovered_()) {
+        ClearHover_();
+        BuildOverlay_();
+        return true;
+    }
+    return false;
 }
 
 bool DecalStripperInputControl::OnMouseUpL(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
@@ -66,7 +72,7 @@ bool DecalStripperInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t 
         return false;
     }
     leftMouseDown_ = false;
-    ClearHoveredDecal_();
+    ClearHover_();
     LOG_INFO("DecalStripperInputControl: RMB pressed, exiting strip mode");
     cancelPending_ = true;
     return true;
@@ -78,16 +84,32 @@ bool DecalStripperInputControl::OnMouseMove(const int32_t x, const int32_t z, co
     }
     UpdateCursorWorldFromScreen_(x, z);
     if (stripMode_ == StripMode::Brush) {
-        ClearHoveredDecal_();
+        ClearHover_();
         if (leftMouseDown_) {
             DeleteDecalsInBrush_();
         }
     }
     else {
-        PickNearestDecalForHover_();
+        RefreshHover_();
     }
     BuildOverlay_();
     return true;
+}
+
+bool DecalStripperInputControl::OnMouseWheel(const int32_t x, const int32_t z, const uint32_t modifiers,
+                                             const int32_t wheelDelta) {
+    // Alt+scroll cycles the candidate stack under the cursor (stacked decals /
+    // base+overlay textures on the same cell); plain scroll stays camera zoom.
+    const bool altHeld = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    if (altHeld && active_ && IsOnTop() && stripMode_ == StripMode::Single &&
+        pickStrategy_ && wheelDelta != 0 && pickStrategy_->CandidateCount() > 1) {
+        pickStrategy_->CycleCandidates(wheelDelta > 0 ? 1 : -1);
+        UpdateCursorWorldFromScreen_(x, z);
+        RefreshHover_();
+        BuildOverlay_();
+        return true;
+    }
+    return cSC4BaseViewInputControl::OnMouseWheel(x, z, modifiers, wheelDelta);
 }
 
 bool DecalStripperInputControl::OnKeyDown(const int32_t vkCode, const uint32_t modifiers) {
@@ -97,7 +119,7 @@ bool DecalStripperInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
 
     if (vkCode == VK_ESCAPE) {
         leftMouseDown_ = false;
-        ClearHoveredDecal_();
+        ClearHover_();
         LOG_INFO("DecalStripperInputControl: ESC pressed, exiting strip mode");
         cancelPending_ = true;
         return true;
@@ -111,12 +133,12 @@ bool DecalStripperInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
     if (vkCode == 'B') {
         stripMode_ = (stripMode_ == StripMode::Single) ? StripMode::Brush : StripMode::Single;
         leftMouseDown_ = false;
+        ClearHover_();
         if (stripMode_ == StripMode::Brush) {
-            ClearHoveredDecal_();
             LOG_INFO("DecalStripperInputControl: switched to brush mode");
         }
         else {
-            PickNearestDecalForHover_();
+            RefreshHover_();
             LOG_INFO("DecalStripperInputControl: switched to single mode");
         }
         BuildOverlay_();
@@ -140,7 +162,7 @@ void DecalStripperInputControl::Deactivate() {
     active_ = false;
     leftMouseDown_ = false;
     ProcessPendingActions();
-    ClearHoveredDecal_();
+    ClearHover_();
     overlay_.Clear();
     cSC4BaseViewInputControl::Deactivate();
     LOG_INFO("DecalStripperInputControl deactivated");
@@ -149,13 +171,18 @@ void DecalStripperInputControl::Deactivate() {
 void DecalStripperInputControl::SetDecalService(cIGZTerrainDecalService* service) {
     decalService_ = service;
     if (!service) {
-        ClearHoveredDecal_();
+        ClearHover_();
         undoStack_.clear();
     }
 }
 
 void DecalStripperInputControl::SetCity(cISC4City* pCity) {
     city_ = pCity;
+}
+
+void DecalStripperInputControl::SetPickStrategy(std::unique_ptr<ScenePickStrategy> strategy) {
+    ClearHover_();
+    pickStrategy_ = std::move(strategy);
 }
 
 void DecalStripperInputControl::SetOnCancel(std::function<void()> onCancel) {
@@ -168,23 +195,31 @@ void DecalStripperInputControl::UndoLastDeletion() {
         return;
     }
 
-    if (!decalService_) {
-        LOG_WARN("DecalStripperInputControl: no service for undo; clearing history");
-        undoStack_.clear();
-        return;
-    }
-
-    const DeletedDecalInfo info = undoStack_.back();
+    UndoEntry entry = std::move(undoStack_.back());
     undoStack_.pop_back();
 
-    TerrainDecalId newId{};
-    if (!decalService_->CreateDecal(&info.state, static_cast<uint32_t>(sizeof(info.state)), &newId)) {
-        LOG_WARN("DecalStripperInputControl: failed to recreate decal during undo");
-        return;
+    if (auto* decalInfo = std::get_if<DeletedDecalInfo>(&entry)) {
+        if (!decalService_) {
+            LOG_WARN("DecalStripperInputControl: no service for decal undo");
+            return;
+        }
+        TerrainDecalId newId{};
+        if (!decalService_->CreateDecal(&decalInfo->state,
+                                        static_cast<uint32_t>(sizeof(decalInfo->state)), &newId)) {
+            LOG_WARN("DecalStripperInputControl: failed to recreate decal during undo");
+            return;
+        }
+        LOG_INFO("DecalStripperInputControl: restored decal id={}, {} undo(s) remaining",
+                 newId.value, undoStack_.size());
     }
-
-    LOG_INFO("DecalStripperInputControl: restored decal id={}, {} undo(s) remaining",
-             newId.value, undoStack_.size());
+    else if (auto* lotTex = std::get_if<lottex::RemovedLotTexture>(&entry)) {
+        if (!lottex::RestoreLotTexture(city_, *lotTex)) {
+            LOG_WARN("DecalStripperInputControl: failed to restore lot texture during undo");
+            return;
+        }
+        LOG_INFO("DecalStripperInputControl: restored lot texture, {} undo(s) remaining",
+                 undoStack_.size());
+    }
 }
 
 void DecalStripperInputControl::ProcessPendingActions() {
@@ -212,42 +247,69 @@ bool DecalStripperInputControl::UpdateCursorWorldFromScreen_(const int32_t scree
     return true;
 }
 
-TerrainDecalId DecalStripperInputControl::PickNearestDecal_() const {
-    if (!cursorValid_ || !decalService_) {
-        return TerrainDecalId{};
+void DecalStripperInputControl::RefreshHover_() {
+    if (!pickStrategy_ || !cursorValid_) {
+        ClearHover_();
+        return;
     }
-
-    const uint32_t count = decalService_->GetDecalCount();
-    if (count == 0) {
-        return TerrainDecalId{};
-    }
-
-    std::vector<TerrainDecalSnapshot> snapshots(count);
-    const uint32_t copied = decalService_->CopyDecals(
-        snapshots.data(),
-        count,
-        static_cast<uint32_t>(sizeof(TerrainDecalSnapshot)));
-
-    TerrainDecalId nearest{};
-    float nearestDistSq = kPickRadiusMeters * kPickRadiusMeters;
-
-    for (uint32_t i = 0; i < copied; ++i) {
-        const cS3DVector2& center = snapshots[i].state.decalInfo.center;
-        const float dx = center.fX - currentCursorWorld_.fX;
-        const float dz = center.fY - currentCursorWorld_.fZ;
-        const float distSq = dx * dx + dz * dz;
-        if (distSq < nearestDistSq) {
-            nearestDistSq = distSq;
-            nearest = snapshots[i].id;
-        }
-    }
-
-    return nearest;
+    ScenePickContext context;
+    context.city = city_;
+    context.cursorWorld = currentCursorWorld_;
+    hoveredResult_ = pickStrategy_->Pick(context);
+    pickStrategy_->SetHover(hoveredResult_);
 }
 
-void DecalStripperInputControl::PickNearestDecalForHover_() {
-    const TerrainDecalId id = PickNearestDecal_();
-    SetHoveredDecal_(id);
+void DecalStripperInputControl::ClearHover_() {
+    if (pickStrategy_) {
+        pickStrategy_->ClearHover();
+    }
+    hoveredResult_.reset();
+}
+
+bool DecalStripperInputControl::DeleteHovered_() {
+    if (!hoveredResult_) {
+        return false;
+    }
+    const auto* decal = std::get_if<PickedDecal>(&*hoveredResult_);
+    if (!decal) {
+        return false;
+    }
+
+    if (decal->source == PickedDecalSource::Decal) {
+        if (!decalService_) {
+            return false;
+        }
+        const TerrainDecalId id{decal->decalId};
+        TerrainDecalSnapshot snap{};
+        if (!decalService_->GetDecal(id, &snap, static_cast<uint32_t>(sizeof(snap)))) {
+            LOG_WARN("DecalStripperInputControl: failed to get decal before removal");
+            return false;
+        }
+        if (!decalService_->RemoveDecal(id)) {
+            LOG_WARN("DecalStripperInputControl: failed to remove decal id={}", id.value);
+            return false;
+        }
+        undoStack_.push_back(DeletedDecalInfo{snap.state});
+        LOG_INFO("DecalStripperInputControl: removed decal id={}, {} undo(s) available",
+                 id.value, undoStack_.size());
+        return true;
+    }
+
+    // Lot base/overlay texture: edit the per-lot occupant spec vector.
+    const float minX = decal->hasWorldRect ? decal->worldMinX : -1.0e9f;
+    const float minZ = decal->hasWorldRect ? decal->worldMinZ : -1.0e9f;
+    const float maxX = decal->hasWorldRect ? decal->worldMaxX : 1.0e9f;
+    const float maxZ = decal->hasWorldRect ? decal->worldMaxZ : 1.0e9f;
+
+    lottex::RemovedLotTexture removed;
+    if (!lottex::RemoveLotTexture(city_, decal->position.fX, decal->position.fZ,
+                                  decal->instanceId, minX, minZ, maxX, maxZ, removed)) {
+        return false;
+    }
+    undoStack_.push_back(std::move(removed));
+    LOG_INFO("DecalStripperInputControl: removed lot texture 0x{:08X}, {} undo(s) available",
+             decal->instanceId, undoStack_.size());
+    return true;
 }
 
 void DecalStripperInputControl::DeleteDecalsInBrush_() {
@@ -275,7 +337,7 @@ void DecalStripperInputControl::DeleteDecalsInBrush_() {
         const float dz = center.fY - currentCursorWorld_.fZ;
         if (dx * dx + dz * dz <= radiusSq) {
             if (decalService_->RemoveDecal(snapshots[i].id)) {
-                undoStack_.push_back({snapshots[i].state});
+                undoStack_.push_back(DeletedDecalInfo{snapshots[i].state});
                 ++removedCount;
             }
         }
@@ -284,68 +346,6 @@ void DecalStripperInputControl::DeleteDecalsInBrush_() {
     if (removedCount > 0) {
         LOG_INFO("DecalStripperInputControl: brush removed {} decal(s)", removedCount);
     }
-}
-
-void DecalStripperInputControl::SetHoveredDecal_(const TerrainDecalId id) {
-    if (hasHoveredDecal_ && hoveredDecalId_.value == id.value) {
-        return;
-    }
-
-    // Restore previous hovered decal's drawMode
-    if (hasHoveredDecal_ && decalService_) {
-        TerrainDecalSnapshot snap{};
-        if (decalService_->GetDecal(hoveredDecalId_, &snap, static_cast<uint32_t>(sizeof(snap)))) {
-            snap.state.drawMode = hoveredOriginalDrawMode_;
-            decalService_->ReplaceDecal(hoveredDecalId_, &snap.state, static_cast<uint32_t>(sizeof(snap.state)));
-        }
-    }
-
-    hasHoveredDecal_ = (id.value != 0);
-    hoveredDecalId_  = id;
-    hoveredOriginalDrawMode_ = 0;
-
-    // Highlight new hovered decal
-    if (hasHoveredDecal_ && decalService_) {
-        TerrainDecalSnapshot snap{};
-        if (decalService_->GetDecal(id, &snap, static_cast<uint32_t>(sizeof(snap)))) {
-            hoveredOriginalDrawMode_ = snap.state.drawMode;
-            snap.state.drawMode = 1;
-            decalService_->ReplaceDecal(id, &snap.state, static_cast<uint32_t>(sizeof(snap.state)));
-        }
-    }
-}
-
-void DecalStripperInputControl::ClearHoveredDecal_() {
-    SetHoveredDecal_(TerrainDecalId{});
-}
-
-void DecalStripperInputControl::DeleteHoveredDecal_() {
-    if (!hasHoveredDecal_ || !decalService_) {
-        return;
-    }
-
-    TerrainDecalSnapshot snap{};
-    if (!decalService_->GetDecal(hoveredDecalId_, &snap, static_cast<uint32_t>(sizeof(snap)))) {
-        LOG_WARN("DecalStripperInputControl: failed to get decal before removal");
-        hasHoveredDecal_ = false;
-        return;
-    }
-
-    // Restore drawMode before storing for undo
-    snap.state.drawMode = hoveredOriginalDrawMode_;
-
-    if (!decalService_->RemoveDecal(hoveredDecalId_)) {
-        LOG_WARN("DecalStripperInputControl: failed to remove decal id={}", hoveredDecalId_.value);
-        hasHoveredDecal_ = false;
-        return;
-    }
-
-    undoStack_.push_back({snap.state});
-    LOG_INFO("DecalStripperInputControl: removed decal id={}, {} undo(s) available",
-             hoveredDecalId_.value, undoStack_.size());
-
-    hasHoveredDecal_ = false;
-    hoveredDecalId_  = {};
 }
 
 void DecalStripperInputControl::DrawOverlay(IDirect3DDevice7* device) {
@@ -363,6 +363,16 @@ void DecalStripperInputControl::BuildOverlay_() {
 
     const float radius = (stripMode_ == StripMode::Brush) ? kBrushRadiusMeters : kPickRadiusMeters;
     overlay_.BuildStripperPreview(true, currentCursorWorld_, radius, GetTerrain_());
+
+    // Outline the hovered lot texture's footprint so the selection is visible.
+    if (stripMode_ == StripMode::Single && hoveredResult_) {
+        if (const auto* decal = std::get_if<PickedDecal>(&*hoveredResult_);
+            decal != nullptr && decal->hasWorldRect) {
+            overlay_.AddRectOutline(decal->worldMinX, decal->worldMinZ,
+                                    decal->worldMaxX, decal->worldMaxZ,
+                                    GetTerrain_(), kRectHighlightColor);
+        }
+    }
 }
 
 cISTETerrain* DecalStripperInputControl::GetTerrain_() const {
