@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "LotTextureStripSidecar.hpp"
+
 class cISC4City;
 
 // Removal of individual lot base/overlay textures by editing the per-lot
@@ -27,13 +29,12 @@ struct LotTextureSpec {
 };
 static_assert(sizeof(LotTextureSpec) == 0x10, "LotTextureSpec must be 16 bytes");
 
-// Captured removal, enough to undo: where to re-find the lot/occupant plus the
-// FULL spec vector as it was before the edit. Undo replaces the current vector
-// with this, so it restores correctly whether the removal left fewer specs or
-// fully cleared the lot to its empty-zone texture.
+// Captured removal, enough to undo and to persist. `record` identifies the
+// strip (lot anchor cell + IID + footprint) for the save sidecar; `preEditSpecs`
+// is the FULL spec vector before the edit so undo can restore it wholesale
+// (correct whether the removal left fewer specs or cleared the lot entirely).
 struct RemovedLotTexture {
-    float worldX{0.0f};
-    float worldZ{0.0f};
+    StripRecord record{};
     std::vector<LotTextureSpec> preEditSpecs{};
     uint32_t removedCount{0};
 };
@@ -47,6 +48,19 @@ bool RemoveLotTexture(cISC4City* city,
                       float worldMinX, float worldMinZ,
                       float worldMaxX, float worldMaxZ,
                       RemovedLotTexture& out);
+
+// Outcome of re-applying a persisted strip after city load.
+enum class StripApply {
+    Applied,     // lot present and matching, texture stripped
+    Skipped,     // lot present and matching, but nothing to strip (keep record)
+    LotMissing,  // no lot / different lot at the anchor cell (drop the record)
+};
+
+// Re-apply a persisted strip after city load (textures regenerate from config
+// on load). Locates the lot from the record's anchor cell and validates its
+// config ID before stripping. Fills `out` on Applied (preEditSpecs let undo
+// restore the pre-strip state for this session).
+StripApply ApplyStripRecord(cISC4City* city, const StripRecord& record, RemovedLotTexture& out);
 
 // Re-apply previously removed specs (undo). Returns true on success.
 bool RestoreLotTexture(cISC4City* city, const RemovedLotTexture& removed);

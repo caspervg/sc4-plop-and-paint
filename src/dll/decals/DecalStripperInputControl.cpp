@@ -189,6 +189,13 @@ void DecalStripperInputControl::SetOnCancel(std::function<void()> onCancel) {
     onCancel_ = std::move(onCancel);
 }
 
+void DecalStripperInputControl::SetStripPersistence(
+    std::function<void(const lottex::StripRecord&)> onAdded,
+    std::function<void(const lottex::StripRecord&)> onRemoved) {
+    onStripAdded_ = std::move(onAdded);
+    onStripRemoved_ = std::move(onRemoved);
+}
+
 void DecalStripperInputControl::UndoLastDeletion() {
     if (undoStack_.empty()) {
         LOG_DEBUG("DecalStripperInputControl: nothing to undo");
@@ -216,6 +223,9 @@ void DecalStripperInputControl::UndoLastDeletion() {
         if (!lottex::RestoreLotTexture(city_, *lotTex)) {
             LOG_WARN("DecalStripperInputControl: failed to restore lot texture during undo");
             return;
+        }
+        if (onStripRemoved_) {
+            onStripRemoved_(lotTex->record);
         }
         LOG_INFO("DecalStripperInputControl: restored lot texture, {} undo(s) remaining",
                  undoStack_.size());
@@ -305,6 +315,9 @@ bool DecalStripperInputControl::DeleteHovered_() {
     if (!lottex::RemoveLotTexture(city_, decal->position.fX, decal->position.fZ,
                                   decal->instanceId, minX, minZ, maxX, maxZ, removed)) {
         return false;
+    }
+    if (onStripAdded_) {
+        onStripAdded_(removed.record);
     }
     undoStack_.push_back(std::move(removed));
     LOG_INFO("DecalStripperInputControl: removed lot texture 0x{:08X}, {} undo(s) available",

@@ -3,6 +3,7 @@
 #include "cISC4City.h"
 #include "cISC4Lot.h"
 #include "cISC4LotBaseTextureOccupant.h"
+#include "cISC4LotConfiguration.h"
 #include "cISC4LotDeveloper.h"
 #include "cISC4LotManager.h"
 #include "cS3DVector3.h"
@@ -77,6 +78,11 @@ namespace {
         return occupant->SetTextureSpecification(raw, static_cast<uint32_t>(specs.size()), nullptr);
     }
 
+    uint32_t LotConfigID(cISC4Lot* lot) {
+        cISC4LotConfiguration* config = lot ? lot->GetLotConfiguration() : nullptr;
+        return config ? config->GetID() : 0;
+    }
+
     bool CellCenterInRect(const LotTextureSpec& spec,
                           float minX, float minZ, float maxX, float maxZ) {
         const float cx = spec.cellX * kCellSizeMeters + kCellSizeMeters * 0.5f;
@@ -137,21 +143,50 @@ bool RemoveLotTexture(cISC4City* city,
         return false;
     }
 
-    out.worldX = worldX;
-    out.worldZ = worldZ;
+    out.record.lotCellX = 0;
+    out.record.lotCellZ = 0;
+    ctx.lot->GetLocation(out.record.lotCellX, out.record.lotCellZ);
+    out.record.lotConfigID = LotConfigID(ctx.lot);
+    out.record.normalizedIID = normalizedIID & ~0xFu;
+    out.record.minX = worldMinX;
+    out.record.minZ = worldMinZ;
+    out.record.maxX = worldMaxX;
+    out.record.maxZ = worldMaxZ;
     out.preEditSpecs = specs;
     out.removedCount = removed;
-    LOG_INFO("LotTextureStripper: removed {} spec(s) for texture 0x{:08X}",
-             removed, normalizedIID);
+    LOG_INFO("LotTextureStripper: removed {} spec(s) for texture 0x{:08X} on lot ({},{})",
+             removed, normalizedIID, out.record.lotCellX, out.record.lotCellZ);
     return true;
+}
+
+StripApply ApplyStripRecord(cISC4City* city, const StripRecord& record, RemovedLotTexture& out) {
+    const float worldX = record.lotCellX * kCellSizeMeters + kCellSizeMeters * 0.5f;
+    const float worldZ = record.lotCellZ * kCellSizeMeters + kCellSizeMeters * 0.5f;
+
+    LotContext ctx;
+    if (!GetLotContext(city, worldX, worldZ, ctx)) {
+        return StripApply::LotMissing;  // lot demolished / not present
+    }
+    if (LotConfigID(ctx.lot) != record.lotConfigID) {
+        return StripApply::LotMissing;  // a different lot now occupies this cell
+    }
+    if (RemoveLotTexture(city, worldX, worldZ, record.normalizedIID,
+                         record.minX, record.minZ, record.maxX, record.maxZ, out)) {
+        return StripApply::Applied;
+    }
+    // Lot is the right one but the texture was not found (already gone, or a
+    // benign mismatch); keep the record so the save still carries it.
+    return StripApply::Skipped;
 }
 
 bool RestoreLotTexture(cISC4City* city, const RemovedLotTexture& removed) {
     if (removed.preEditSpecs.empty()) {
         return false;
     }
+    const float worldX = removed.record.lotCellX * kCellSizeMeters + kCellSizeMeters * 0.5f;
+    const float worldZ = removed.record.lotCellZ * kCellSizeMeters + kCellSizeMeters * 0.5f;
     LotContext ctx;
-    if (!GetLotContext(city, removed.worldX, removed.worldZ, ctx)) {
+    if (!GetLotContext(city, worldX, worldZ, ctx)) {
         return false;
     }
     // create=true: a full clear may have torn down the occupant.

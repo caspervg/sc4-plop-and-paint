@@ -41,6 +41,10 @@ public:
     // decals and lot base/overlay textures, with Alt+wheel candidate cycling.
     void SetPickStrategy(std::unique_ptr<ScenePickStrategy> strategy);
     void SetOnCancel(std::function<void()> onCancel);
+    // Reports lot-texture strips/undos so the director can persist them into the
+    // city save; lot textures regenerate from config on load and must be redone.
+    void SetStripPersistence(std::function<void(const lottex::StripRecord&)> onAdded,
+                             std::function<void(const lottex::StripRecord&)> onRemoved);
     void UndoLastDeletion();
     void ProcessPendingActions();
     void DrawOverlay(IDirect3DDevice7* device);
@@ -81,6 +85,8 @@ private:
     std::optional<ScenePickResult>      hoveredResult_{};
 
     std::function<void()>               onCancel_;
+    std::function<void(const lottex::StripRecord&)> onStripAdded_;
+    std::function<void(const lottex::StripRecord&)> onStripRemoved_;
     std::vector<UndoEntry>              undoStack_;
     PaintOverlay                        overlay_{};
 };

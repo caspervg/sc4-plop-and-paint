@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 #include "../shared/entities.hpp"
 #include "RecentPaintHistory.hpp"
 #include "GZServPtrs.h"
@@ -50,10 +51,13 @@ class FavoritesRepository;
 class cIGZS3DCameraService;
 class RecentSwapPanel;
 class BuildingStyleService;
+class cISC4DBSegment;
 
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
 static constexpr uint32_t kSC4MessagePostCityInitComplete = 0xEA8AE29A;
+static constexpr uint32_t kSC4MessageLoad = 0x26C63341;
+static constexpr uint32_t kSC4MessageSave = 0x26C63344;
 static constexpr uint32_t kMessageBuildingStyleCheckboxChanged = 0x573D5E8F;
 
 class SC4PlopAndPaintDirector final : public cRZMessage2COMDirector
@@ -130,6 +134,13 @@ private:
     void PostCityInitComplete_();
     void BuildingStyleCheckboxChanged_();
     void PreCityShutdown_(cIGZMessage2Standard* pStandardMsg);
+    // Lot-texture-strip persistence (custom subfile in the city DBPF save).
+    void OnCityLoad_(cIGZMessage2Standard* pStandardMsg);
+    void OnCitySave_(cIGZMessage2Standard* pStandardMsg);
+    void ApplyPendingLotTextureStrips_();
+    void AddLotTextureStrip_(const lottex::StripRecord& record);
+    void RemoveLotTextureStrip_(const lottex::StripRecord& record);
+    [[nodiscard]] cISC4DBSegment* QuerySegmentFromMessage_(const cIGZMessage2Standard* pStandardMsg) const;
     void ToggleLotPlopPanel_();
     bool RegisterLotPlopShortcut_();
     void UnregisterLotPlopShortcut_();
@@ -192,6 +203,10 @@ private:
     cRZAutoRefCount<ScenePickerInputControl>   scenePickerControl_;
     bool scenePicking_{false};
     cIGZTerrainDecalService* terrainDecalService_{nullptr};
+    // Lot-texture strips active in the current city (persisted to the save) and
+    // those loaded from the save awaiting re-apply once lots are built.
+    std::vector<lottex::StripRecord> activeLotTextureStrips_{};
+    std::vector<lottex::StripRecord> pendingLotTextureStrips_{};
     std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};
     std::unique_ptr<ScenePickStatusPanel> pickStatusPanel_;

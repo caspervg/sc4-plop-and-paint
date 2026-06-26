@@ -10,9 +10,15 @@
 #include "cGZPersistResourceKey.h"
 #include "cIGZCommandParameterSet.h"
 #include "cIGZPersistResourceManager.h"
+#include "cIGZPersistDBSegment.h"
 #include "cIGZWinKeyAccelerator.h"
 #include "cIGZWinKeyAcceleratorRes.h"
+#include "cISC4DBSegment.h"
+#include "cISC4DBSegmentIStream.h"
+#include "cISC4DBSegmentOStream.h"
 #include "cRZBaseVariant.h"
+#include "decals/LotTextureStripSidecar.hpp"
+#include "decals/LotTextureStripper.hpp"
 #include "PlopAndPaintPanel.hpp"
 #include "common/Constants.hpp"
 #include "common/Utils.hpp"
@@ -202,6 +208,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         pMS2->AddNotification(this, kSC4MessagePostCityInit);
         pMS2->AddNotification(this, kSC4MessagePreCityShutdown);
         pMS2->AddNotification(this, kSC4MessagePostCityInitComplete);
+        pMS2->AddNotification(this, kSC4MessageLoad);
+        pMS2->AddNotification(this, kSC4MessageSave);
         pMS2->AddNotification(this, kMessageBuildingStyleCheckboxChanged);
         pMS2_ = pMS2;
         LOG_INFO("Registered for city messages");
@@ -354,6 +362,8 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
         pMS2_->RemoveNotification(this, kSC4MessagePostCityInit);
         pMS2_->RemoveNotification(this, kSC4MessagePreCityShutdown);
         pMS2_->RemoveNotification(this, kSC4MessagePostCityInitComplete);
+        pMS2_->RemoveNotification(this, kSC4MessageLoad);
+        pMS2_->RemoveNotification(this, kSC4MessageSave);
         pMS2_->RemoveNotification(this, kMessageBuildingStyleCheckboxChanged);
         pMS2_.Reset();
     }
@@ -499,6 +509,10 @@ bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     case kSC4MessagePreCityShutdown: PreCityShutdown_(pStandardMsg);
         break;
     case kSC4MessagePostCityInitComplete: PostCityInitComplete_();
+        break;
+    case kSC4MessageLoad: OnCityLoad_(pStandardMsg);
+        break;
+    case kSC4MessageSave: OnCitySave_(pStandardMsg);
         break;
     case kMessageBuildingStyleCheckboxChanged: BuildingStyleCheckboxChanged_();
         break;
@@ -954,6 +968,9 @@ bool SC4PlopAndPaintDirector::StartDecalStripping() {
     decalStripperControl_->SetCity(pCity_);
     decalStripperControl_->SetPickStrategy(
         std::make_unique<DecalPickStrategy>(terrainDecalService_, decalRepository_.get()));
+    decalStripperControl_->SetStripPersistence(
+        [this](const lottex::StripRecord& record) { AddLotTextureStrip_(record); },
+        [this](const lottex::StripRecord& record) { RemoveLotTextureStrip_(record); });
     decalStripperControl_->SetWindow(pView3D_->AsIGZWin());
     decalStripperControl_->SetOnCancel([this]() {
         if (pView3D_ && decalStripperControl_ &&
@@ -1635,6 +1652,126 @@ void SC4PlopAndPaintDirector::PostCityInitComplete_() {
         }
         buildingStyleService_->RefreshForCity(pCity_);
     }
+    ApplyPendingLotTextureStrips_();
+}
+
+cISC4DBSegment* SC4PlopAndPaintDirector::QuerySegmentFromMessage_(
+    const cIGZMessage2Standard* pStandardMsg) const {
+    if (!pStandardMsg) {
+        return nullptr;
+    }
+    auto* unknown = static_cast<cIGZUnknown*>(pStandardMsg->GetVoid1());
+    if (!unknown) {
+        return nullptr;
+    }
+    cISC4DBSegment* segment = nullptr;
+    if (!unknown->QueryInterface(GZIID_cISC4DBSegment, reinterpret_cast<void**>(&segment)) || !segment) {
+        return nullptr;
+    }
+    return segment;
+}
+
+void SC4PlopAndPaintDirector::OnCityLoad_(cIGZMessage2Standard* pStandardMsg) {
+    activeLotTextureStrips_.clear();
+    pendingLotTextureStrips_.clear();
+
+    cISC4DBSegment* segment = QuerySegmentFromMessage_(pStandardMsg);
+    if (!segment) {
+        return;
+    }
+
+    cISC4DBSegmentIStream* stream = nullptr;
+    if (!segment->OpenIStream(lottex::sidecar::kKey, &stream) || !stream) {
+        segment->Release();
+        return;  // No sidecar: nothing was stripped in this city.
+    }
+
+    const auto result = lottex::sidecar::Read(*stream);
+    segment->CloseIStream(stream);
+    segment->Release();
+
+    if (!result.ok) {
+        LOG_WARN("Failed to load lot-texture-strip sidecar: {}", result.error);
+        return;
+    }
+    pendingLotTextureStrips_ = result.records;
+    LOG_INFO("Loaded {} persisted lot-texture strip(s)", pendingLotTextureStrips_.size());
+}
+
+void SC4PlopAndPaintDirector::OnCitySave_(cIGZMessage2Standard* pStandardMsg) {
+    cISC4DBSegment* segment = QuerySegmentFromMessage_(pStandardMsg);
+    if (!segment) {
+        return;
+    }
+
+    if (activeLotTextureStrips_.empty()) {
+        lottex::sidecar::DeleteRecord(segment->AsIGZPersistDBSegment());
+        segment->Release();
+        return;
+    }
+
+    cISC4DBSegmentOStream* stream = nullptr;
+    if (!segment->OpenOStream(lottex::sidecar::kKey, &stream, true) || !stream) {
+        segment->Release();
+        return;
+    }
+    const bool ok = lottex::sidecar::Write(*stream, activeLotTextureStrips_);
+    segment->CloseOStream(stream);
+    segment->Release();
+    if (!ok) {
+        LOG_WARN("Failed to write lot-texture-strip sidecar");
+    }
+    else {
+        LOG_INFO("Saved {} lot-texture strip(s)", activeLotTextureStrips_.size());
+    }
+}
+
+void SC4PlopAndPaintDirector::ApplyPendingLotTextureStrips_() {
+    if (pendingLotTextureStrips_.empty()) {
+        return;
+    }
+    size_t applied = 0;
+    size_t dropped = 0;
+    for (const lottex::StripRecord& record : pendingLotTextureStrips_) {
+        lottex::RemovedLotTexture scratch;
+        switch (lottex::ApplyStripRecord(pCity_, record, scratch)) {
+        case lottex::StripApply::Applied:
+            activeLotTextureStrips_.push_back(record);
+            ++applied;
+            break;
+        case lottex::StripApply::Skipped:
+            // Lot still here but texture not found; retain so we don't lose the
+            // strip on the next save (could be a transient/benign mismatch).
+            activeLotTextureStrips_.push_back(record);
+            break;
+        case lottex::StripApply::LotMissing:
+            // Lot demolished or replaced by a different lot: drop the stale
+            // record so it stops accumulating and re-saving.
+            ++dropped;
+            break;
+        }
+    }
+    pendingLotTextureStrips_.clear();
+    LOG_INFO("Re-applied {} lot-texture strip(s), {} retained, {} dropped (stale)",
+             applied, activeLotTextureStrips_.size() - applied, dropped);
+}
+
+void SC4PlopAndPaintDirector::AddLotTextureStrip_(const lottex::StripRecord& record) {
+    for (lottex::StripRecord& existing : activeLotTextureStrips_) {
+        if (existing.lotCellX == record.lotCellX && existing.lotCellZ == record.lotCellZ &&
+            existing.normalizedIID == record.normalizedIID) {
+            existing = record;  // refresh footprint
+            return;
+        }
+    }
+    activeLotTextureStrips_.push_back(record);
+}
+
+void SC4PlopAndPaintDirector::RemoveLotTextureStrip_(const lottex::StripRecord& record) {
+    std::erase_if(activeLotTextureStrips_, [&record](const lottex::StripRecord& existing) {
+        return existing.lotCellX == record.lotCellX && existing.lotCellZ == record.lotCellZ &&
+               existing.normalizedIID == record.normalizedIID;
+    });
 }
 
 void SC4PlopAndPaintDirector::BuildingStyleCheckboxChanged_() {
@@ -1647,6 +1784,8 @@ void SC4PlopAndPaintDirector::BuildingStyleCheckboxChanged_() {
 
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
     PersistRecentPaints_();
+    activeLotTextureStrips_.clear();
+    pendingLotTextureStrips_.clear();
     SetLotPlopPanelVisible(false);
     StopDecalStripping();
     StopDecalPainting();
