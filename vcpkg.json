@@ -50,6 +50,7 @@
     "version>=" : "4.0.9"
   }, {
     "name" : "wil",
-    "version>=" : "1.0.250325.1"
+    "version>=" : "1.0.250325.1",
+    "platform" : "windows"
   } ]
 }

@@ -37,29 +37,21 @@ namespace {
     };
 
     Font getThumbnailFailureFont() {
-        struct FontHolder {
-            Font font{};
-            bool loaded = false;
-
-            ~FontHolder() {
-                if (loaded && IsFontValid(font)) {
-                    UnloadFont(font);
-                }
-            }
-        };
-
-        static FontHolder holder;
+        // Deliberately never unloaded: static destructors run after the renderer has closed its OpenGL context,
+        // and unloading the font texture then calls into a torn-down GL library (segfaults on Linux drivers).
+        static Font font{};
+        static bool loaded = false;
         static bool initialized = false;
         if (!initialized) {
-            holder.font = LoadFontFromMemory(".ttf", FiraMonoBold, static_cast<int>(std::size(FiraMonoBold)), 64, nullptr, 0);
-            holder.loaded = IsFontValid(holder.font);
-            if (!holder.loaded) {
+            font = LoadFontFromMemory(".ttf", FiraMonoBold, static_cast<int>(std::size(FiraMonoBold)), 64, nullptr, 0);
+            loaded = IsFontValid(font);
+            if (!loaded) {
                 spdlog::warn("Failed to load embedded Fira Mono font, using raylib default font");
             }
             initialized = true;
         }
 
-        return holder.loaded ? holder.font : GetFontDefault();
+        return loaded ? font : GetFontDefault();
     }
 
     PreRendered makeRenderFailedThumbnail(const uint32_t size, const DBPF::Tgi* modelTgi = nullptr) {
@@ -823,7 +815,8 @@ Flora ExemplarParser::floraFromParsed(const ParsedFloraExemplar& parsed) const {
             preview.height = rendered->height;
             flora.thumbnail = preview;
         }
-        else {
+        // The placeholder draws with a GPU font, so skip it when the renderer has no OpenGL context.
+        else if (thumbnailRenderer_->isAvailable()) {
             spdlog::debug("Thumbnail render failed for flora {} ({}): {}",
                           parsed.visibleName, parsed.modelTgi->ToString(),
                           rendered.has_value() ? "rendered image was empty" : rendered.error().message);
@@ -926,7 +919,7 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
             preview.height = rendered->height;
             building.thumbnail = preview;
         }
-        else {
+        else if (thumbnailRenderer_->isAvailable()) {
             spdlog::debug("Thumbnail render failed for building {} ({}): {}",
                           parsed.name, parsed.modelTgi->ToString(),
                           rendered.has_value() ? "rendered image was empty" : rendered.error().message);
@@ -986,7 +979,7 @@ Prop ExemplarParser::propFromParsed(const ParsedPropExemplar& parsed) const {
             preview.height = rendered->height;
             prop.thumbnail = preview;
         }
-        else {
+        else if (thumbnailRenderer_->isAvailable()) {
             spdlog::debug("Thumbnail render failed for prop {} ({}): {}",
                           parsed.visibleName, parsed.modelTgi->ToString(),
                           rendered.has_value() ? "rendered image was empty" : rendered.error().message);

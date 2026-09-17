@@ -2,6 +2,7 @@
 setlocal EnableExtensions
 
 set "SCRIPT_DIR=%~dp0"
+cd /d "%SCRIPT_DIR%"
 set "EXE=%SCRIPT_DIR%_SC4PlopAndPaintCacheBuilder.exe"
 
 if not exist "%EXE%" (

@@ -24,8 +24,7 @@ Dependencies:
 - SC4RenderServices (required): GitHub project `https://github.com/caspervg/sc4-render-services`
 - SC4RenderServices download page: `https://community.simtropolis.com/files/file/37372-sc4-render-services/`
 - Visual C++ 2015-2022 Redistributable (x86, required for SimCity 4 / 32-bit): `https://aka.ms/vs/17/release/vc_redist.x86.exe`
-- Visual C++ 2015-2022 Redistributable (x64, required for the cache builder): `https://aka.ms/vs/17/release/vc_redist.x64.exe`
-- The bundled cache builder is x64-only and requires 64-bit Windows.
+- The bundled cache builder is x64-only and requires 64-bit Windows. It has no runtime dependencies of its own.
 
 The installer will:
 
@@ -39,6 +38,12 @@ The installer will:
 To rebuild the cache later, for example after adding or removing plugins, run `Rebuild-Cache.cmd`.
 
 If something looks wrong in game, check the separate services plugin's log output in `Documents\SimCity 4\`.
+
+### Linux (Wine / Steam Proton)
+
+The DLL runs in SimCity 4 under Wine or Proton. Install SC4RenderServices and SC4 Plop and Paint by running their installers inside the prefix the game runs in (for example `WINEPREFIX=/path/to/prefix wine SC4PlopAndPaint-{version}-Setup.exe`), and pick that prefix's `drive_c/users/<user>/Documents/SimCity 4/Plugins` folder.
+
+To build the cache without Wine, download `SC4PlopAndPaintCacheBuilder-{version}-linux-x64.tar.gz` from the releases page. It is a native build of the cache builder that runs on any x86-64 distribution with glibc 2.28 or newer. Extract it anywhere and run `./rebuild-cache.sh`. The game and Plugins folders are detected from `$WINEPREFIX`, `~/.wine`, Steam Proton prefixes and Steam libraries. If the wrong folders are picked, pass `--wine-prefix`, `--game`, or `--plugins`. Running `./SC4PlopAndPaintCacheBuilder` without arguments prints the detected folders. See the `README.txt` in the archive for details.
 
 ## Using it in-game
 
@@ -86,25 +91,40 @@ cd sc4-advanced-plop
 **DLL (32-bit, Windows only - required for SC4):**
 
 ```bash
+./vendor/vcpkg/vcpkg install --triplet x86-windows-static-md
 cmake --preset vs2022-win32-release
 cmake --build --preset vs2022-win32-release-build --target SC4PlopAndPaint
 ```
 
 **Cache builder CLI (64-bit, Windows):**
 
+The CLI links the C++ runtime statically (`x64-windows-static` triplet). If an existing build directory was configured with another triplet, reconfigure it with `--fresh`.
+
 ```bash
+./vendor/vcpkg/vcpkg install --triplet x64-windows-static
 cmake --preset vs2022-x64-release
 cmake --build --preset vs2022-x64-release-build --target SC4PlopAndPaintCli
 ```
 
-**macOS / Linux (CLI only):**
+**Cache builder CLI (64-bit, Linux):**
+
+Requires GCC 14 or newer, Ninja, and the X11/OpenGL development packages needed by GLFW and raylib (on Ubuntu: `xorg-dev libgl1-mesa-dev libglu1-mesa-dev pkg-config`). Release builds are made in the `manylinux_2_28` container, see `.github/workflows/build.yml`.
+
+```bash
+./vendor/vcpkg/bootstrap-vcpkg.sh
+./vendor/vcpkg/vcpkg install --triplet x64-linux
+cmake --preset linux-x64-release
+cmake --build --preset linux-x64-release-build --target SC4PlopAndPaintCli
+```
+
+**macOS (CLI only):**
 
 ```bash
 cmake --preset ninja-release
 cmake --build --preset ninja-release-build
 ```
 
-Use `ninja-debug`, `vs2022-win32-debug`, or `vs2022-x64-debug` for debug builds.
+Use `ninja-debug`, `linux-x64-debug`, `vs2022-win32-debug`, or `vs2022-x64-debug` for debug builds.
 
 Dependencies are managed via vcpkg (bundled in `vendor/vcpkg`). On Windows, the CI workflow also builds `sc4-imgui-service` separately before packaging the release artifact.
 

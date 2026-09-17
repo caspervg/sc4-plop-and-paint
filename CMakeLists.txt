@@ -69,7 +69,17 @@ if(MSVC)
     # Enable debugging in release builds
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
     set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
+
+    # Static-CRT triplets (x64-windows-static, used for the cache builder) link the C++ runtime into the exe,
+    # so it runs without the VC++ redistributable, including under Wine without vcrun2022.
+    if(VCPKG_TARGET_TRIPLET MATCHES "-static$")
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
 endif()
+
+# Keep libsquish (fetched by DBPFKit) from linking OpenMP: its parallel loops gain nothing on SC4's small
+# textures and would add a vcomp140.dll / libgomp runtime dependency to the cache builder.
+set(LIBSQUISH_USE_OPENMP OFF)
 
 find_package(spdlog CONFIG REQUIRED)
 find_package(args CONFIG REQUIRED)

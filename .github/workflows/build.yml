@@ -1,4 +1,4 @@
-name: Windows CI
+name: CI
 
 on:
   push:
@@ -13,6 +13,7 @@ env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   DLL_ARTIFACT_NAME: SC4PlopAndPaint-dll-${{ github.sha }}
   CLI_ARTIFACT_NAME: SC4PlopAndPaint-cli-${{ github.sha }}
+  CLI_LINUX_ARTIFACT_NAME: SC4PlopAndPaint-cli-linux-${{ github.sha }}
 
 concurrency:
   group: build-${{ github.ref }}
@@ -114,7 +115,7 @@ jobs:
           echo "VCPKG_ROOT=${{ github.workspace }}/vendor/vcpkg" >> $env:GITHUB_ENV
 
       - name: Install vcpkg dependencies
-        run: ./vendor/vcpkg/vcpkg.exe install --triplet x64-windows-static-md
+        run: ./vendor/vcpkg/vcpkg.exe install --triplet x64-windows-static
 
       - name: Build CLI
         run: |
@@ -155,6 +156,117 @@ jobs:
           name: ${{ env.CLI_ARTIFACT_NAME }}
           compression-level: 0
           path: staging-cli/
+
+  build-cli-linux:
+    runs-on: ubuntu-24.04
+    # manylinux_2_28 (AlmaLinux 8: glibc 2.28, GCC 14) keeps the binary runnable on older distributions.
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
+            mesa-libGL-devel mesa-libGLU-devel zip unzip
+          pipx install ninja
+          # The workspace is owned by the runner user, not the container's root user.
+          git config --global --add safe.directory '*'
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Fetch full vcpkg history
+        run: |
+          if [ "$(git -C vendor/vcpkg rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C vendor/vcpkg fetch --unshallow
+          fi
+
+      - name: Bootstrap vcpkg
+        run: |
+          ./vendor/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          echo "VCPKG_ROOT=$GITHUB_WORKSPACE/vendor/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Install vcpkg dependencies
+        run: ./vendor/vcpkg/vcpkg install --triplet x64-linux
+
+      - name: Build CLI
+        run: |
+          cmake --preset linux-x64-release
+          cmake --build --preset linux-x64-release-build --target SC4PlopAndPaintCli --parallel
+
+      - name: Check binary portability
+        run: |
+          cli=cmake-build-release-linux/src/app/SC4PlopAndPaintCli
+          ldd "$cli"
+          newest_glibc=$(objdump -T "$cli" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
+          echo "Newest required glibc symbol version: $newest_glibc"
+          if [ "$(printf '%s\n' "$newest_glibc" GLIBC_2.28 | sort -V | tail -1)" != "GLIBC_2.28" ]; then
+            echo "The cache builder requires a glibc newer than 2.28"
+            exit 1
+          fi
+          if objdump -T "$cli" | grep -q 'GLIBCXX_'; then
+            echo "The cache builder links libstdc++ dynamically; expected it to be static"
+            exit 1
+          fi
+
+      - name: Assemble package
+        run: |
+          pkg=staging-cli-linux/SC4PlopAndPaintCacheBuilder
+          mkdir -p "$pkg"
+          install -m 755 cmake-build-release-linux/src/app/SC4PlopAndPaintCli "$pkg/SC4PlopAndPaintCacheBuilder"
+          install -m 755 dist/linux/rebuild-cache.sh "$pkg/rebuild-cache.sh"
+          cp vendor/sc4-properties/new_properties.xml "$pkg/PropertyMapper.xml"
+          cp dist/linux/README.txt LICENSE.txt dist/THIRD_PARTY_NOTICES.txt "$pkg/"
+
+      - name: Smoke test packaged CLI
+        run: |
+          cli="$GITHUB_WORKSPACE/staging-cli-linux/SC4PlopAndPaintCacheBuilder/SC4PlopAndPaintCacheBuilder"
+          "$cli" --version
+
+          # Fake Wine prefix with lowercase folder names; run from another directory so
+          # PropertyMapper.xml has to be found next to the executable.
+          prefix=$(mktemp -d)
+          game="$prefix/drive_c/Program Files (x86)/SimCity 4 Deluxe Edition"
+          mkdir -p "$game/apps" "$prefix/drive_c/users/steamuser/Documents/SimCity 4/Plugins"
+          touch "$game/apps/simcity 4.exe"
+          cd "$(mktemp -d)"
+          "$cli" --scan --wine-prefix "$prefix" | tee scan.log
+          grep -F "Game Root: $game" scan.log
+          grep -F "User Plugins: $prefix/drive_c/users/steamuser/Documents/SimCity 4/Plugins" scan.log
+          grep -F "Loaded property mapper from" scan.log
+
+      - name: Generate SBOM for Linux Cache Builder (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          file: staging-cli-linux/SC4PlopAndPaintCacheBuilder/SC4PlopAndPaintCacheBuilder
+          format: spdx-json
+          output-file: staging-cli-linux/SC4PlopAndPaintCacheBuilder-linux.spdx.json
+          upload-artifact: false
+
+      - name: Create archive
+        run: |
+          # Archived here so the executable bits survive the artifact upload.
+          tar -C staging-cli-linux -czf staging-cli-linux/SC4PlopAndPaintCacheBuilder-linux-x64.tar.gz SC4PlopAndPaintCacheBuilder
+
+      - name: Upload Linux CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CLI_LINUX_ARTIFACT_NAME }}
+          compression-level: 0
+          path: |
+            staging-cli-linux/SC4PlopAndPaintCacheBuilder-linux-x64.tar.gz
+            staging-cli-linux/SC4PlopAndPaintCacheBuilder-linux.spdx.json
 
   package-installer:
     needs: [build-dll, build-cli]
@@ -259,7 +371,7 @@ jobs:
           fi
 
   release:
-    needs: [package-installer, validate-tag]
+    needs: [package-installer, build-cli-linux, validate-tag]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -270,6 +382,16 @@ jobs:
         with:
           name: SC4PlopAndPaint-${{ github.ref_name }}
           path: dist-package
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.CLI_LINUX_ARTIFACT_NAME }}
+          path: dist-linux
+
+      - name: Name Linux cache builder archive
+        run: |
+          mv dist-linux/SC4PlopAndPaintCacheBuilder-linux-x64.tar.gz \
+            "dist-linux/SC4PlopAndPaintCacheBuilder-${{ github.ref_name }}-linux-x64.tar.gz"
 
       - name: Create release zip
         run: |
@@ -286,6 +408,8 @@ jobs:
         with:
           files: |
             SC4PlopAndPaint-${{ github.ref_name }}.zip
+            dist-linux/SC4PlopAndPaintCacheBuilder-${{ github.ref_name }}-linux-x64.tar.gz
             dist-package/SC4PlopAndPaint.spdx.json
             dist-package/SC4PlopAndPaintCacheBuilder.spdx.json
+            dist-linux/SC4PlopAndPaintCacheBuilder-linux.spdx.json
           generate_release_notes: true

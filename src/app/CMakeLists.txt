@@ -50,6 +50,11 @@ if (WIN32)
     target_link_libraries(${APP_NAME} PRIVATE winmm opengl32 gdi32 user32)
 endif()
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Bundle the GCC runtime so the binary runs on distributions with an older libstdc++ than the build machine.
+    target_link_options(${APP_NAME} PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 # Copy DLLs to output directory for execution (only for dynamic triplets)
 if(MSVC)
     # vcpkg stores debug DLLs in debug/bin and release DLLs in bin

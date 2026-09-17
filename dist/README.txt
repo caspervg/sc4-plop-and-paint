@@ -11,8 +11,8 @@ Installation instructions:
 - SC4RenderServices download page: https://community.simtropolis.com/files/file/37372-sc4-render-services/
 - Install the Microsoft Visual C++ 2015-2022 Redistributables:
 - x86 (required for SimCity 4 / 32-bit): https://aka.ms/vs/17/release/vc_redist.x86.exe
-- x64 (required for the cache builder): https://aka.ms/vs/17/release/vc_redist.x64.exe
-- The bundled cache builder is x64-only and requires 64-bit Windows.
+- The bundled cache builder is x64-only and requires 64-bit Windows. It needs no redistributable of its own.
+- Playing on Linux with Wine or Steam Proton? A native Linux cache builder is available as SC4PlopAndPaintCacheBuilder-<version>-linux-x64.tar.gz on the releases page.
 - Run the included SC4 Plop and Paint installer.
 - The installer will ask for your SimCity 4 game root and Plugins folder, verify the SC4RenderServices dependency, and install the plugin files. If SC4RenderServices is missing, the installer will stop and tell you where to download it.
 - The installer also lets you choose the thumbnail size used for cache generation and sets the same size in SC4PlopAndPaint.ini for the in-game UI.

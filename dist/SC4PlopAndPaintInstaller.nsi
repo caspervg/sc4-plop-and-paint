@@ -591,6 +591,7 @@ Section "Install"
   FileWrite $3 '@echo off$\r$\n'
   FileWrite $3 'setlocal EnableExtensions$\r$\n'
   FileWrite $3 'set "SCRIPT_DIR=%~dp0"$\r$\n'
+  FileWrite $3 'cd /d "%SCRIPT_DIR%"$\r$\n'
   FileWrite $3 'set "EXE=%SCRIPT_DIR%_SC4PlopAndPaintCacheBuilder.exe"$\r$\n'
   FileWrite $3 'set "LOG_FILE=%SCRIPT_DIR%cache_build.log"$\r$\n'
   FileWrite $3 'if not exist "%EXE%" ($\r$\n'

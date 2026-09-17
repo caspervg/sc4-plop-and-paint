@@ -28,6 +28,7 @@
 #include "DbpfIndexService.hpp"
 #include "ExemplarParser.hpp"
 #include "BuiltinPropFamilyNames.hpp"
+#include "PathDetection.hpp"
 #include "PluginLocator.hpp"
 #include "PropertyMapper.hpp"
 #include "Utils.hpp"
@@ -48,15 +49,11 @@ namespace {
     constexpr uint32_t kTypeIdCohort = 0x05342861u;
     constexpr uint32_t kMinThumbnailSize = kDefaultThumbnailSize / 2;
     constexpr uint32_t kMaxThumbnailSize = kDefaultThumbnailSize * 4;
-
-    const char* GetFirstEnvironmentValue(std::initializer_list<const char*> names) {
-        for (const char* name : names) {
-            if (const char* value = std::getenv(name); value && value[0] != '\0') {
-                return value;
-            }
-        }
-        return nullptr;
-    }
+#ifdef _WIN32
+    constexpr std::string_view kPathFlagsHint = "";
+#else
+    constexpr std::string_view kPathFlagsHint = ", or --wine-prefix <dir> for the prefix SimCity 4 runs in";
+#endif
 
     struct RgbaImage {
         std::vector<std::byte> pixels;
@@ -164,23 +161,69 @@ namespace {
         }
     }
 
-    PluginConfiguration GetDefaultPluginConfiguration() {
-        PluginConfiguration config{};
-        config.localeDir = "English";
+    struct ResolvedPluginConfiguration {
+        PluginConfiguration config;
+        std::string gameRootSource = "not found";
+        std::string userPluginsSource = "not found";
+        std::optional<fs::path> winePrefix;
+    };
 
-        const char* userProfile = GetFirstEnvironmentValue({"USERPROFILE"});
-        const char* programFiles = GetFirstEnvironmentValue({"PROGRAMFILES(X86)", "PROGRAMFILES(x86)", "PROGRAMFILES"});
+    // Command-line paths win; anything not given is auto-detected. Folder names are matched
+    // case-insensitively so a native build sees the same files as the game running under Wine.
+    ResolvedPluginConfiguration ResolvePluginConfiguration(const std::optional<fs::path>& gameRoot,
+                                                           const std::optional<fs::path>& userPluginsRoot,
+                                                           const std::optional<fs::path>& localeDir,
+                                                           const std::optional<fs::path>& winePrefix) {
+        ResolvedPluginConfiguration resolved;
+        auto& config = resolved.config;
+        config.localeDir = localeDir.value_or("English");
 
-        if (programFiles) {
-            config.gameRoot = fs::path(programFiles) / "SimCity 4 Deluxe Edition";
-            config.gamePluginsRoot = config.gameRoot / "Plugins";
+        DetectedPluginPaths detected;
+        if (!gameRoot || !userPluginsRoot) {
+            detected = DetectPluginPaths(winePrefix);
+            resolved.winePrefix = detected.winePrefix;
         }
 
-        if (userProfile) {
-            config.userPluginsRoot = fs::path(userProfile) / "Documents" / "SimCity 4" / "Plugins";
+        if (gameRoot) {
+            config.gameRoot = *gameRoot;
+            resolved.gameRootSource = "--game";
+        }
+        else if (detected.gameRoot) {
+            config.gameRoot = detected.gameRoot->path;
+            resolved.gameRootSource = detected.gameRoot->source;
         }
 
-        return config;
+        if (userPluginsRoot) {
+            config.userPluginsRoot = *userPluginsRoot;
+            resolved.userPluginsSource = "--plugins";
+        }
+        else if (detected.userPluginsRoot) {
+            config.userPluginsRoot = detected.userPluginsRoot->path;
+            resolved.userPluginsSource = detected.userPluginsRoot->source;
+        }
+
+        if (!config.gameRoot.empty()) {
+            config.gameRoot = ResolvePathCaseInsensitive(config.gameRoot);
+            config.gamePluginsRoot = ResolvePathCaseInsensitive(config.gameRoot / "Plugins");
+            if (config.localeDir.is_relative()) {
+                config.localeDir = ResolvePathCaseInsensitive(config.gameRoot / config.localeDir)
+                    .lexically_relative(config.gameRoot);
+            }
+        }
+        config.userPluginsRoot = ResolvePathCaseInsensitive(config.userPluginsRoot);
+
+        return resolved;
+    }
+
+    void LogPluginConfiguration(spdlog::logger& logger, const ResolvedPluginConfiguration& resolved) {
+        const auto& config = resolved.config;
+        if (resolved.winePrefix) {
+            logger.info("  Wine Prefix: {}", resolved.winePrefix->string());
+        }
+        logger.info("  Game Root: {} ({})", config.gameRoot.string(), resolved.gameRootSource);
+        logger.info("  Game Locale: {}", (config.gameRoot / config.localeDir).string());
+        logger.info("  Game Plugins: {}", config.gamePluginsRoot.string());
+        logger.info("  User Plugins: {} ({})", config.userPluginsRoot.string(), resolved.userPluginsSource);
     }
 
     bool IsDirectoryEmpty(const fs::path& directory) {
@@ -204,7 +247,8 @@ namespace {
     bool ScanAndAnalyzeExemplars(const PluginConfiguration& config,
                                  spdlog::logger& logger,
                                  bool renderModelThumbnails,
-                                 const uint32_t thumbnailSize) {
+                                 const uint32_t thumbnailSize,
+                                 const fs::path& executableDir) {
         try {
             logger.info("Initializing plugin scanner...");
 
@@ -225,15 +269,17 @@ namespace {
             PropertyMapper propertyMapper;
             auto mapperLoaded = false;
 
-            // Try common locations for the property mapper XML
-            std::vector<fs::path> mapperLocations{
-                fs::path("PropertyMapper.xml"),
-                fs::current_path() / "PropertyMapper.xml",
-                config.gameRoot / "PropertyMapper.xml"
-            };
+            // Look next to the executable first so launching from another working directory still works
+            std::vector<fs::path> mapperLocations;
+            if (!executableDir.empty()) {
+                mapperLocations.push_back(executableDir / "PropertyMapper.xml");
+            }
+            mapperLocations.push_back(fs::current_path() / "PropertyMapper.xml");
+            mapperLocations.push_back(config.gameRoot / "PropertyMapper.xml");
 
             for (const auto& loc : mapperLocations) {
-                if (fs::exists(loc)) {
+                std::error_code existsEc;
+                if (fs::exists(loc, existsEc)) {
                     if (propertyMapper.loadFromXml(loc)) {
                         logger.info("Loaded property mapper from: {}", loc.string());
                         mapperLoaded = true;
@@ -245,6 +291,9 @@ namespace {
             if (!mapperLoaded) {
                 logger.error("Could not load PropertyMapper XML - aborting scan, exemplars cannot be "
                              "classified without property definitions");
+                for (const auto& loc : mapperLocations) {
+                    logger.error("  Looked for: {}", loc.string());
+                }
                 indexService.shutdown();
                 return false;
             }
@@ -797,11 +846,21 @@ int main(int argc, char* argv[]) {
         args::HelpFlag helpFlag(parser, "help", "Show this help message", {'h', "help"});
         args::Flag versionFlag(parser, "version", "Print version", {"version"});
         args::Flag scanFlag(parser, "scan", "Scan plugins and extract exemplars", {"scan"});
-        args::ValueFlag<std::string> gameFlag(parser, "path", "Game root directory (plugins will be in {path}/Plugins)",
-                                              {"game"});
-        args::ValueFlag<std::string> pluginsFlag(parser, "path", "User plugins directory", {"plugins"});
+        args::ValueFlag<std::string> gameFlag(
+            parser, "path",
+            "Game root directory containing Apps, auto-detected when omitted (plugins will be in {path}/Plugins)",
+            {"game"});
+        args::ValueFlag<std::string> pluginsFlag(
+            parser, "path", "User plugins directory the cache is written to, auto-detected when omitted", {"plugins"});
         args::ValueFlag<std::string> localeFlag(parser, "path", "Locale directory under game root (e.g., English)",
                                                 {"locale"});
+#ifndef _WIN32
+        args::ValueFlag<std::string> winePrefixFlag(
+            parser, "path",
+            "Wine prefix SimCity 4 runs in, used to detect --game and --plugins "
+            "(default: $WINEPREFIX, else ~/.wine or a Steam Proton prefix)",
+            {"wine-prefix"});
+#endif
         args::Flag renderThumbnailsFlag(parser, "render-thumbnails", "Render 3D thumbnails for buildings without icons",
                                         {"render-thumbnails"});
         args::ValueFlag<uint32_t> thumbnailSizeFlag(
@@ -831,21 +890,24 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
+        const auto optionalPath = [](args::ValueFlag<std::string>& flag) -> std::optional<fs::path> {
+            return flag ? std::optional<fs::path>(args::get(flag)) : std::nullopt;
+        };
+        std::optional<fs::path> winePrefix;
+#ifndef _WIN32
+        winePrefix = optionalPath(winePrefixFlag);
+#endif
+        const auto resolved = ResolvePluginConfiguration(optionalPath(gameFlag), optionalPath(pluginsFlag),
+                                                         optionalPath(localeFlag), winePrefix);
+        const auto& config = resolved.config;
+        if (winePrefix && !resolved.winePrefix && (!gameFlag || !pluginsFlag)) {
+            logger->warn("No SimCity 4 installation or Documents folder found in Wine prefix {}",
+                         winePrefix->string());
+        }
+
         if (scanFlag) {
-            auto config = GetDefaultPluginConfiguration();
             uint32_t thumbnailSize = kDefaultThumbnailSize;
 
-            // Override with command-line arguments if provided
-            if (gameFlag) {
-                config.gameRoot = args::get(gameFlag);
-                config.gamePluginsRoot = config.gameRoot / "Plugins";
-            }
-            if (localeFlag) {
-                config.localeDir = args::get(localeFlag);
-            }
-            if (pluginsFlag) {
-                config.userPluginsRoot = args::get(pluginsFlag);
-            }
             if (thumbnailSizeFlag) {
                 thumbnailSize = args::get(thumbnailSizeFlag);
                 if (thumbnailSize < kMinThumbnailSize || thumbnailSize > kMaxThumbnailSize) {
@@ -856,38 +918,33 @@ int main(int argc, char* argv[]) {
             }
 
             logger->info("Using plugin configuration:");
-            logger->info("  Game Root: {}", config.gameRoot.string());
-            logger->info("  Game Locale: {}", (config.gameRoot / config.localeDir).string());
-            logger->info("  Game Plugins: {}", config.gamePluginsRoot.string());
-            logger->info("  User Plugins: {}", config.userPluginsRoot.string());
+            LogPluginConfiguration(*logger, resolved);
             logger->info("  Thumbnail Size: {} px", thumbnailSize);
+
+            std::error_code gameRootEc;
+            if (config.gameRoot.empty() || !fs::is_directory(config.gameRoot, gameRootEc)) {
+                logger->error("SimCity 4 game root not found. Pass --game <dir> (the folder that contains Apps){}.",
+                              kPathFlagsHint);
+                return 1;
+            }
+            if (config.userPluginsRoot.empty()) {
+                logger->error("User Plugins directory not found. Pass --plugins <dir> "
+                              "(usually Documents/SimCity 4/Plugins){}.", kPathFlagsHint);
+                return 1;
+            }
 
             if (renderThumbnailsFlag) {
                 logger->info("3D thumbnail rendering enabled");
             }
-            return ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailSize) ? 0 : 1;
+            const auto executableDir = GetExecutableDirectory(argc > 0 ? argv[0] : nullptr);
+            return ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailSize, executableDir)
+                       ? 0
+                       : 1;
         }
 
         // Default behavior - show plugin paths
-        auto config = GetDefaultPluginConfiguration();
-
-        // Override with command-line arguments if provided
-        if (gameFlag) {
-            config.gameRoot = args::get(gameFlag);
-            config.gamePluginsRoot = config.gameRoot / "Plugins";
-        }
-        if (localeFlag) {
-            config.localeDir = args::get(localeFlag);
-        }
-        if (pluginsFlag) {
-            config.userPluginsRoot = args::get(pluginsFlag);
-        }
-
         logger->info("Plugin directories:");
-        logger->info("  Game Root: {}", config.gameRoot.string());
-        logger->info("  Game Locale: {}", (config.gameRoot / config.localeDir).string());
-        logger->info("  Game Plugins: {}", config.gamePluginsRoot.string());
-        logger->info("  User Plugins: {}", config.userPluginsRoot.string());
+        LogPluginConfiguration(*logger, resolved);
         logger->info("Use --scan to scan and extract exemplars");
 
         return 0;
