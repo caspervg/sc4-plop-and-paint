@@ -185,7 +185,6 @@ private:
     [[nodiscard]] std::optional<DBPF::Tgi> resolveModelTgi_(const Exemplar::Record& exemplar,
                                                             const DBPF::Tgi& exemplarTgi) const;
     [[nodiscard]] std::optional<std::array<float, 6>> loadModelBounds_(const DBPF::Tgi& modelTgi) const;
-    static std::vector<std::byte> convertBgraToRgba_(const std::vector<std::byte>& pixels);
 
     const PropertyMapper& propertyMapper_;
     const DbpfIndexService* indexService_;

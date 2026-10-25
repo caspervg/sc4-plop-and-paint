@@ -87,11 +87,6 @@ bool LoadDecalTexture(cIGZPersistResourceManager* pRM,
         return false;
     }
 
-    // ImGuiTexture::Create expects BGRA8 - swap R and B channels
-    for (size_t i = 0; i + 3 < rgba.size(); i += 4) {
-        std::swap(rgba[i], rgba[i + 2]);
-    }
-
     if (!outTexture.Create(imguiService, width, height, rgba.data())) {
         LOG_WARN("DecalTextureLoader: texture upload failed for texture 0x{:08X}", instanceId);
         return false;
