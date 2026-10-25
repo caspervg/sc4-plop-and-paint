@@ -6,7 +6,8 @@ This release zip includes:
 - THIRD_PARTY_NOTICES.txt
 
 Installation instructions:
-- Install SC4RenderServices first so SC4RenderServices.dll is already present in your Plugins folder.
+- Install SC4RenderServices v0.8.0 or newer first so SC4RenderServices.dll is already present in your Plugins folder.
+- SC4 Plop and Paint works with the game's built-in DirectX driver, SCD3D11 and scvk.
 - SC4RenderServices project page: https://github.com/caspervg/sc4-render-services
 - SC4RenderServices download page: https://community.simtropolis.com/files/file/37372-sc4-render-services/
 - Install the Microsoft Visual C++ 2015-2022 Redistributables:

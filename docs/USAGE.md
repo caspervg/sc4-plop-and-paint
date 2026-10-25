@@ -482,7 +482,7 @@ The packaged `SC4PlopAndPaint.ini` controls several runtime defaults.
 
 Relevant options:
 
-- `EnableDrawOverlay`: disables the overlay preview if needed
+- `EnableDrawOverlay`: disables the in-city preview (grid, outlines and placement boxes) if needed
 - `DefaultPropPreviewMode`: `outline`, `full`, or `combined`
 - `DefaultShowGridOverlay`, `DefaultSnapPointsToGrid`, `DefaultSnapPlacementsToGrid`, `DefaultGridStepMeters`: default paint popup values
 - `ThumbnailDisplaySize`: thumbnail size in the UI (`22` to `176`)
