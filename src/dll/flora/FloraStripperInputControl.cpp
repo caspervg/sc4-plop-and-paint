@@ -42,6 +42,7 @@ bool FloraStripperInputControl::Init() {
 }
 
 bool FloraStripperInputControl::Shutdown() {
+    overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
     }
@@ -405,11 +406,8 @@ void FloraStripperInputControl::ClearHoveredFlora_() {
     }
 }
 
-void FloraStripperInputControl::DrawOverlay(IDirect3DDevice7* device) {
-    if (!device) {
-        return;
-    }
-    overlay_.Draw(device, false);
+void FloraStripperInputControl::SetWorldDrawService(cIGZWorldDrawService* service) {
+    overlay_.SetWorldDrawService(service);
 }
 
 void FloraStripperInputControl::BuildOverlay_() {

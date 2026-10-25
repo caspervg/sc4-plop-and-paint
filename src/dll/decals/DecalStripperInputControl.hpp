@@ -33,7 +33,7 @@ public:
     void SetOnCancel(std::function<void()> onCancel);
     void UndoLastDeletion();
     void ProcessPendingActions();
-    void DrawOverlay(IDirect3DDevice7* device);
+    void SetWorldDrawService(cIGZWorldDrawService* service);
 
 private:
     enum class StripMode { Single, Brush };

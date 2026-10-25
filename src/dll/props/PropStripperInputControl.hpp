@@ -51,7 +51,7 @@ public:
     [[nodiscard]] bool HasEnabledSource(SourceKind source) const noexcept;
     void UndoLastDeletion();
     void ProcessPendingActions();
-    void DrawOverlay(IDirect3DDevice7* device);
+    void SetWorldDrawService(cIGZWorldDrawService* service);
 
 private:
     enum class StripMode {

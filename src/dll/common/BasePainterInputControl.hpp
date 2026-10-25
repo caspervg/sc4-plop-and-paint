@@ -12,7 +12,6 @@
 #include "cRZAutoRefCount.h"
 #include "cS3DVector3.h"
 #include "cSC4BaseViewInputControl.h"
-#include "public/cIGZS3DCameraService.h"
 
 class WeightedPicker;
 
@@ -34,7 +33,6 @@ public:
 
     void SetTypeToPaint(uint32_t typeID, const PropPaintSettings& settings, const std::string& name);
     void SetCity(cISC4City* pCity);
-    void SetCameraService(cIGZS3DCameraService* cameraService);
     void SetOnCancel(std::function<void()> onCancel);
     void SetOnQuickSwap(std::function<void(size_t)> onQuickSwap);
 
@@ -51,7 +49,7 @@ public:
     [[nodiscard]] std::vector<cS3DVector3> GetResolvedCollectedPoints() const;
     [[nodiscard]] std::vector<cS3DVector3> GetCollectedPointTerrainAnchors() const;
     void ProcessPendingActions();
-    void DrawOverlay(IDirect3DDevice7* device);
+    void SetWorldDrawService(cIGZWorldDrawService* service);
 
     virtual void UndoLastPlacement();
     virtual void CancelAllPlacements();
@@ -147,7 +145,6 @@ protected:
 
     // Shared state
     cRZAutoRefCount<cISC4City> city_;
-    cIGZS3DCameraService* cameraService_{nullptr};
 
     uint32_t typeToPaint_{0};
     uint32_t directPaintTypeID_{0};

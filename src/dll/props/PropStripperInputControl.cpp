@@ -49,6 +49,7 @@ bool PropStripperInputControl::Init() {
 }
 
 bool PropStripperInputControl::Shutdown() {
+    overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
     }
@@ -515,11 +516,8 @@ void PropStripperInputControl::ClearHoveredProp_() {
     }
 }
 
-void PropStripperInputControl::DrawOverlay(IDirect3DDevice7* device) {
-    if (!device) {
-        return;
-    }
-    overlay_.Draw(device, false);
+void PropStripperInputControl::SetWorldDrawService(cIGZWorldDrawService* service) {
+    overlay_.SetWorldDrawService(service);
 }
 
 void PropStripperInputControl::BuildOverlay_() {
