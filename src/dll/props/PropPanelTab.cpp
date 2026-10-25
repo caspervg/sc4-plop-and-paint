@@ -607,7 +607,7 @@ void PropPanelTab::RenderSeasonalSetEditor_() {
     }
 
     ImGui::SetNextWindowSize(ImVec2(540, 460), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Seasonal sets", &seasonalSetEditorOpen_)) {
+    if (!ImGui::Begin("Seasonal sets###PlopAndPaintSeasonalSets", &seasonalSetEditorOpen_)) {
         ImGui::End();
         return;
     }

@@ -19,7 +19,8 @@ void PaintStatusPanel::OnRender() {
         ImGuiWindowFlags_AlwaysAutoResize |
         ImGuiWindowFlags_NoFocusOnAppearing |
         ImGuiWindowFlags_NoNav |
-        ImGuiWindowFlags_NoInputs;
+        ImGuiWindowFlags_NoInputs |
+        ImGuiWindowFlags_NoDocking;
 
     if (!ImGui::Begin("##PropPaintStatus", nullptr, kFlags)) {
         ImGui::End();
