@@ -3,10 +3,8 @@ if(NOT WIN32)
     return()
 endif()
 
-set(IMGUI_SERVICE_ROOT "${CMAKE_SOURCE_DIR}/vendor/sc4-render-services" CACHE PATH "Path to sc4-render-services")
-set(IMGUI_PUBLIC_DIR "${IMGUI_SERVICE_ROOT}/src")
-set(IMGUI_INCLUDE_DIR "${IMGUI_SERVICE_ROOT}/vendor/d3d7imgui/ImGui")
-set(IMGUI_LIB_DIR "${IMGUI_SERVICE_ROOT}" CACHE PATH "Path containing imgui.lib from sc4-render-services build")
+set(SC4RS_ROOT "${CMAKE_SOURCE_DIR}/vendor/sc4-render-services" CACHE PATH "Path to sc4-render-services")
+set(SC4RS_LIB_DIR "${SC4RS_ROOT}" CACHE PATH "Path containing SC4RenderServices.lib from a sc4-render-services build")
 
 set(GZCOM_DIR ${CMAKE_SOURCE_DIR}/vendor/gzcom-dll/gzcom-dll)
 
@@ -31,18 +29,23 @@ target_include_directories(gzcom2 PUBLIC ${GZCOM_DIR}/include)
 file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 set(SC4_DLL_DEF "${CMAKE_CURRENT_SOURCE_DIR}/SC4PlopAndPaint.def")
 
-add_library(${PROJECT_NAME} SHARED ${PROJECT_SOURCES} ${SC4_DLL_DEF})
-target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX IMGUI_DLL_IMPORT)
+add_library(${PROJECT_NAME} SHARED ${PROJECT_SOURCES} ${SC4_DLL_DEF}
+    ${SC4RS_ROOT}/src/public/SC4RenderServicesDelayLoad.cpp
+)
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    NOMINMAX
+    IMGUI_DLL_IMPORT
+    IMGUI_USER_CONFIG="ImGuiUserConfig.h"
+)
 
 # Include paths required by the plugin
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/vendor/DirectXTK/Inc
     ${CMAKE_SOURCE_DIR}/vendor/mINI/src
-    ${IMGUI_PUBLIC_DIR}
-    ${IMGUI_INCLUDE_DIR}
-    ${CMAKE_SOURCE_DIR}/vendor/wil/include
+    ${SC4RS_ROOT}/src
+    ${SC4RS_ROOT}/src/public
+    ${SC4RS_ROOT}/vendor/imgui
     ${CMAKE_SOURCE_DIR}/vendor/DBPFKit/src
 )
 
@@ -55,34 +58,38 @@ set(SC4_DLL_LINK_LIBS
 list(APPEND SC4_DLL_LINK_LIBS SC4PlopAndPaintCore)
 list(APPEND SC4_DLL_LINK_LIBS DBPFKitLib)
 
-# Locate and link imgui library produced by sc4-imgui-service
-# IMPORTANT: Must use the sc4-imgui-service imgui.lib, NOT the vcpkg version!
-# The sc4-imgui-service version has DirectX 7 backend support and matches the runtime imgui.dll
-find_library(IMGUI_LIB NAMES imgui
+# ImGui is compiled into SC4RenderServices.dll and exported from it, so link its import library,
+# NOT the vcpkg imgui. The import is delay-loaded: the game may load this plugin before
+# SC4RenderServices.dll, and ImGui only resolves on the first ImGui call, made once the ImGui
+# service is obtained.
+find_library(SC4RS_IMPORT_LIB NAMES SC4RenderServices
     PATHS
-        "${IMGUI_LIB_DIR}"
-        "${IMGUI_LIB_DIR}/Release"
-        "${IMGUI_LIB_DIR}/Debug"
-        "${IMGUI_LIB_DIR}/build/Release"
-        "${IMGUI_LIB_DIR}/build/Debug"
-        "${IMGUI_LIB_DIR}/cmake-build-debug-visual-studio/Debug"
-        "${IMGUI_LIB_DIR}/cmake-build-release-visual-studio/Release"
+        "${SC4RS_LIB_DIR}"
+        "${SC4RS_LIB_DIR}/Release"
+        "${SC4RS_LIB_DIR}/Debug"
+        "${SC4RS_LIB_DIR}/build/Release"
+        "${SC4RS_LIB_DIR}/build/Debug"
+        "${SC4RS_LIB_DIR}/cmake-build-release-visual-studio/Release"
+        "${SC4RS_LIB_DIR}/cmake-build-debug-visual-studio/Debug"
     NO_DEFAULT_PATH
 )
 
-if(IMGUI_LIB)
-    list(APPEND SC4_DLL_LINK_LIBS "${IMGUI_LIB}")
-    message(STATUS "Using imgui.lib: ${IMGUI_LIB}")
+if(SC4RS_IMPORT_LIB)
+    message(STATUS "Using SC4RenderServices.lib: ${SC4RS_IMPORT_LIB}")
 else()
-    message(WARNING "imgui.lib not found in vcpkg or sc4-imgui-service build directory. Linking may fail if imgui symbols are needed.")
+    message(FATAL_ERROR "SC4RenderServices.lib not found. Build the SC4RenderServices target in "
+                        "vendor/sc4-render-services first, or point SC4RS_LIB_DIR at a build of it.")
 endif()
+
+list(APPEND SC4_DLL_LINK_LIBS "${SC4RS_IMPORT_LIB}" delayimp)
 
 # Core dependencies
 if(WIN32)
-    list(APPEND SC4_DLL_LINK_LIBS kernel32 user32 Version d3d11 dxgi windowscodecs ddraw dxguid)
+    list(APPEND SC4_DLL_LINK_LIBS kernel32 user32 Version)
 endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE ${SC4_DLL_LINK_LIBS})
+target_link_options(${PROJECT_NAME} PRIVATE "/DELAYLOAD:SC4RenderServices.dll")
 
 # Build settings
 set_target_properties(${PROJECT_NAME} PROPERTIES
@@ -130,7 +137,7 @@ if(WIN32)
             COMMAND ${CMAKE_COMMAND}
                 -DSRC=${CMAKE_SOURCE_DIR}/dist/SC4PlopAndPaint.ini
                 -DDST=${SC4_PLUGINS_DIR}/SC4PlopAndPaint.ini
-                -P ${IMGUI_SERVICE_ROOT}/cmake/CopyIfNotExists.cmake
+                -P ${SC4RS_ROOT}/cmake/CopyIfNotExists.cmake
             COMMENT "Deploying SC4PlopAndPaint.dll to Plugins folder (INI only if missing)"
         )
 

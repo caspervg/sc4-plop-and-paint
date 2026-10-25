@@ -5,7 +5,6 @@
 #include "decals/DecalRepository.hpp"
 #include "flora/FloraCollectionsPanelTab.hpp"
 #include "flora/FloraPanelTab.hpp"
-#include "imgui_impl_win32.h"
 #include "lots/BuildingsPanelTab.hpp"
 #include "lots/OccupantGroups.hpp"
 #include "props/FamiliesPanelTab.hpp"

@@ -56,7 +56,7 @@ jobs:
         working-directory: vendor/sc4-render-services
         run: |
           cmake -B build -G "Visual Studio 17 2022" -A Win32
-          cmake --build build --config Release --target imgui --parallel
+          cmake --build build --config Release --target SC4RenderServices --parallel
 
       - name: Build DLL
         run: |
