@@ -70,6 +70,7 @@ bool BasePainterInputControl::Init() {
 }
 
 bool BasePainterInputControl::Shutdown() {
+    overlay_.SetWorldDrawService(nullptr);
     if (state_ == ControlState::Uninitialized) {
         return true;
     }
@@ -182,10 +183,6 @@ void BasePainterInputControl::SetCity(cISC4City* pCity) {
     OnCityChanged_(pCity);
 }
 
-void BasePainterInputControl::SetCameraService(cIGZS3DCameraService* cameraService) {
-    cameraService_ = cameraService;
-}
-
 void BasePainterInputControl::SetOnCancel(std::function<void()> onCancel) {
     onCancel_ = std::move(onCancel);
 }
@@ -266,16 +263,8 @@ void BasePainterInputControl::ProcessPendingActions() {
     }
 }
 
-void BasePainterInputControl::DrawOverlay(IDirect3DDevice7* device) {
-    if (!device || settings_.previewMode == PreviewMode::Hidden) {
-        return;
-    }
-
-    if (state_ == ControlState::ActiveDirect ||
-        state_ == ControlState::ActiveLine ||
-        state_ == ControlState::ActivePolygon) {
-        overlay_.Draw(device);
-    }
+void BasePainterInputControl::SetWorldDrawService(cIGZWorldDrawService* service) {
+    overlay_.SetWorldDrawService(service);
 }
 
 // ── Undo / commit ────────────────────────────────────────────────────────────

@@ -30,8 +30,6 @@
 #include "props/PropPainterInputControl.hpp"
 #include "props/PropRepository.hpp"
 #include "props/PropStripperInputControl.hpp"
-#include "public/cIGZS3DCameraService.h"
-#include "public/S3DCameraServiceIds.h"
 #include "utils/Logger.h"
 #include "utils/Settings.h"
 
@@ -132,7 +130,6 @@ namespace {
 
 SC4PlopAndPaintDirector::SC4PlopAndPaintDirector()
     : imguiService_(nullptr)
-      , drawService_(nullptr)
       , pView3D_(nullptr)
       , panelRegistered_(false) {}
 
@@ -208,32 +205,27 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
                                                      reinterpret_cast<void**>(&imguiService_))) {
         LOG_INFO("Acquired ImGui service");
 
-        if (mpFrameWork->GetSystemService(kS3DCameraServiceID, GZIID_cIGZS3DCameraService,
-                                          reinterpret_cast<void**>(&cameraService_))) {
-            LOG_INFO("Acquired S3D camera service");
-        }
-        else {
-            LOG_WARN("S3D camera service not available");
-        }
-
         drawOverlayEnabled_ = settings.GetEnableDrawOverlay();
         if (!drawOverlayEnabled_) {
             LOG_INFO("Draw overlay disabled in settings");
         }
 
-        if (mpFrameWork->GetSystemService(kDrawServiceID, GZIID_cIGZDrawService,
-                                          reinterpret_cast<void**>(&drawService_))) {
-            LOG_INFO("Acquired draw service");
-            if (!drawService_->RegisterDrawPassCallback(
-                DrawServicePass::PreDynamic,
-                &DrawOverlayCallback_,
-                this,
-                &drawCallbackToken_)) {
-                LOG_WARN("Failed to register draw pass callback");
-            }
+        if (mpFrameWork->GetSystemService(kWorldDrawServiceID, GZIID_cIGZWorldDrawService,
+                                          reinterpret_cast<void**>(&worldDrawService_))) {
+            LOG_INFO("Acquired world draw service");
         }
         else {
-            LOG_WARN("Draw service not available");
+            LOG_WARN("World draw service not available, tool previews are not drawn in the city");
+        }
+
+        // Tools hand deferred work (cancels, picks, seasonal preview refreshes) to this tick,
+        // outside their own input handlers.
+        if (toolTickService_.Init() && mpFrameWork->AddSystemService(&toolTickService_) &&
+            mpFrameWork->AddToTick(&toolTickService_)) {
+            toolTickServiceRegistered_ = true;
+        }
+        else {
+            LOG_WARN("Failed to register the tool tick service");
         }
 
         lotRepository_       = std::make_unique<LotRepository>();
@@ -442,29 +434,26 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     lotRepository_.reset();
     decalRepository_.reset();
 
-    if (drawService_ && drawCallbackToken_ != 0) {
-        drawService_->UnregisterDrawPassCallback(drawCallbackToken_);
-        drawCallbackToken_ = 0;
+    if (toolTickServiceRegistered_ && mpFrameWork) {
+        mpFrameWork->RemoveFromTick(&toolTickService_);
+        mpFrameWork->RemoveSystemService(&toolTickService_);
+        toolTickServiceRegistered_ = false;
     }
+    toolTickService_.Shutdown();
 
     if (imguiService_) {
         imguiService_->Release();
         imguiService_ = nullptr;
     }
 
-    if (drawService_) {
-        drawService_->Release();
-        drawService_ = nullptr;
+    if (worldDrawService_) {
+        worldDrawService_->Release();
+        worldDrawService_ = nullptr;
     }
 
     if (terrainDecalService_) {
         terrainDecalService_->Release();
         terrainDecalService_ = nullptr;
-    }
-
-    if (cameraService_) {
-        cameraService_->Release();
-        cameraService_ = nullptr;
     }
 
     Logger::Shutdown();
@@ -583,7 +572,7 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
     }) : std::function<void(size_t)>());
     propPainterControl_->SetCity(pCity_);
     propPainterControl_->SetWindow(pView3D_->AsIGZWin());
-    propPainterControl_->SetCameraService(cameraService_);
+    propPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     propPainterControl_->SetPropRepository(propRepository_.get());
     propPainterControl_->SetOnCancel([this]() {
         if (pView3D_ && propPainterControl_ &&
@@ -694,7 +683,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
     }) : std::function<void(size_t)>());
     floraPlacerControl_->SetCity(pCity_);
     floraPlacerControl_->SetWindow(pView3D_->AsIGZWin());
-    floraPlacerControl_->SetCameraService(cameraService_);
+    floraPlacerControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     floraPlacerControl_->SetFloraRepository(floraRepository_.get());
     floraPlacerControl_->SetOnCancel([this]() {
         if (pView3D_ && floraPlacerControl_ &&
@@ -770,6 +759,7 @@ bool SC4PlopAndPaintDirector::StartFloraStripping() {
 
     floraStripperControl_->SetCity(pCity_);
     floraStripperControl_->SetWindow(pView3D_->AsIGZWin());
+    floraStripperControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     floraStripperControl_->SetOnCancel([this]() {
         if (pView3D_ && floraStripperControl_ &&
             pView3D_->GetCurrentViewInputControl() == floraStripperControl_) {
@@ -854,7 +844,7 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
 
     decalPainterControl_->SetCity(pCity_);
     decalPainterControl_->SetWindow(pView3D_->AsIGZWin());
-    decalPainterControl_->SetCameraService(cameraService_);
+    decalPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     decalPainterControl_->SetDecalService(terrainDecalService_);
     decalPainterControl_->SetOnCancel([this]() {
         if (pView3D_ && decalPainterControl_ &&
@@ -936,6 +926,7 @@ bool SC4PlopAndPaintDirector::StartDecalStripping() {
     decalStripperControl_->SetDecalService(terrainDecalService_);
     decalStripperControl_->SetCity(pCity_);
     decalStripperControl_->SetWindow(pView3D_->AsIGZWin());
+    decalStripperControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     decalStripperControl_->SetOnCancel([this]() {
         if (pView3D_ && decalStripperControl_ &&
             pView3D_->GetCurrentViewInputControl() == decalStripperControl_) {
@@ -1037,6 +1028,7 @@ bool SC4PlopAndPaintDirector::StartScenePicking_(std::unique_ptr<ScenePickStrate
 
     scenePickerControl_->SetCity(pCity_);
     scenePickerControl_->SetWindow(pView3D_->AsIGZWin());
+    scenePickerControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     scenePickerControl_->SetStrategy(std::move(strategy));
     scenePickerControl_->SetOnPick(std::move(onPick));
     scenePickerControl_->SetOnCancel([this]() {
@@ -1157,6 +1149,7 @@ bool SC4PlopAndPaintDirector::StartPropStripping() {
     propStripperControl_->SetCity(pCity_);
     propStripperControl_->SetPropRepository(propRepository_.get());
     propStripperControl_->SetWindow(pView3D_->AsIGZWin());
+    propStripperControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     propStripperControl_->SetOnCancel([this]() {
         if (pView3D_ && propStripperControl_ &&
             pView3D_->GetCurrentViewInputControl() == propStripperControl_) {
@@ -1328,64 +1321,8 @@ void SC4PlopAndPaintDirector::ProcessPendingToolActions_() {
     }
 }
 
-void SC4PlopAndPaintDirector::DrawOverlayCallback_(const DrawServicePass pass, const bool begin, void* pThis) {
-    if (pass != DrawServicePass::PreDynamic || begin) {
-        return;
-    }
-
-    auto* director = static_cast<SC4PlopAndPaintDirector*>(pThis);
-    if (!director) {
-        return;
-    }
-
-    director->ProcessPendingToolActions_();
-
-    // Capture control pointers to avoid race conditions with flag changes
-    PropPainterInputControl* painterControl = director->propPainterControl_;
-    PropStripperInputControl* stripperControl = director->propStripperControl_;
-    FloraPainterInputControl* floraControl = director->floraPlacerControl_;
-    FloraStripperInputControl* floraStripperControl = director->floraStripperControl_;
-    DecalPainterInputControl* decalPainterControl = director->decalPainterControl_;
-    DecalStripperInputControl* decalStripperControl = director->decalStripperControl_;
-    ScenePickerInputControl* scenePickerControl = director->scenePickerControl_;
-
-    const bool needsOverlay = painterControl || stripperControl || floraControl
-        || floraStripperControl || decalPainterControl || decalStripperControl
-        || scenePickerControl;
-
-    if (!director->drawOverlayEnabled_ || !director->imguiService_ || !needsOverlay) {
-        return;
-    }
-
-    IDirect3DDevice7* device = nullptr;
-    IDirectDraw7* dd = nullptr;
-    if (!director->imguiService_->AcquireD3DInterfaces(&device, &dd)) {
-        return;
-    }
-
-    if (painterControl) {
-        painterControl->DrawOverlay(device);
-    }
-    if (stripperControl) {
-        stripperControl->DrawOverlay(device);
-    }
-    if (floraControl) {
-        floraControl->DrawOverlay(device);
-    }
-    if (floraStripperControl) {
-        floraStripperControl->DrawOverlay(device);
-    }
-    if (decalPainterControl) {
-        decalPainterControl->DrawOverlay(device);
-    }
-    if (decalStripperControl) {
-        decalStripperControl->DrawOverlay(device);
-    }
-    if (scenePickerControl) {
-        scenePickerControl->DrawOverlay(device);
-    }
-    device->Release();
-    dd->Release();
+cIGZWorldDrawService* SC4PlopAndPaintDirector::GetOverlayWorldDrawService_() const {
+    return drawOverlayEnabled_ ? worldDrawService_ : nullptr;
 }
 
 void SC4PlopAndPaintDirector::SetLotPlopPanelVisible(const bool visible) {
@@ -1585,6 +1522,11 @@ RecentPaintEntry SC4PlopAndPaintDirector::BuildRecentPaintEntry_(
 
 void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandardMsg) {
     pCity_ = static_cast<cISC4City*>(pStandardMsg->GetVoid1());
+
+    SC4GraphicsDriverInfo driver{};
+    if (imguiService_ && imguiService_->GetActiveDriverInfo(driver)) {
+        LOG_INFO("Graphics driver: {}", driver.name);
+    }
 
     if (decalRepository_) {
         cIGZPersistResourceManagerPtr pRM;

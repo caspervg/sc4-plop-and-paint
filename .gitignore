@@ -373,11 +373,10 @@ plans/
 *.zip
 cmake-build-*/
 .ai-extra-info/
-imgui.lib
-/vendor/sc4-imgui-service/imgui.lib
 dist/PropertyMapper.xml
 dist/_SC4PlopAndPaintCacheBuilder.exe
 dist/SC4PlopAndPaint.dll
 .codex
 .agents
 .claude
+.mcp.json

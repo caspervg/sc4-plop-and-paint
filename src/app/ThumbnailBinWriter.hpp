@@ -17,7 +17,7 @@
 // Format:
 //   Header (16 bytes):
 //     [0-3]   char[4]  magic = "SPTH"
-//     [4-5]   uint16_t version = 1
+//     [4-5]   uint16_t version = 2 (version 1 stored BGRA instead of RGBA)
 //     [6-7]   uint16_t reserved = 0
 //     [8-11]  uint32_t entry_count N
 //     [12-13] uint16_t width   (all thumbnails share the same dimensions)
@@ -77,7 +77,7 @@ namespace ThumbnailBin {
 
             // Header
             constexpr char magic[4] = {'S', 'P', 'T', 'H'};
-            constexpr uint16_t version = 1;
+            constexpr uint16_t version = 2;
             constexpr uint16_t reserved = 0;
             const uint32_t count = static_cast<uint32_t>(entries.size());
 

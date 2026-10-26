@@ -47,7 +47,8 @@ void ScenePickStatusPanel::OnRender() {
         ImGuiWindowFlags_AlwaysAutoResize |
         ImGuiWindowFlags_NoFocusOnAppearing |
         ImGuiWindowFlags_NoNav |
-        ImGuiWindowFlags_NoInputs;
+        ImGuiWindowFlags_NoInputs |
+        ImGuiWindowFlags_NoDocking;
 
     if (!ImGui::Begin("##ScenePickStatus", nullptr, kFlags)) {
         ImGui::End();

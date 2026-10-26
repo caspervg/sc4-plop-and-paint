@@ -3,12 +3,15 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <utility>
 
 #include "../utils/Logger.h"
 
 namespace {
     constexpr std::array<char, 4> kMagic = {'S', 'P', 'T', 'H'};
-    constexpr uint16_t kVersion = 1;
+    // Version 1 files were written in BGRA for the old DirectX 7 ImGui backend.
+    constexpr uint16_t kVersionBgra = 1;
+    constexpr uint16_t kVersion = 2;
     constexpr uint32_t kHeaderSize = 16;
     constexpr uint32_t kKeySize    = 8;
 }
@@ -20,6 +23,7 @@ void ThumbnailStore::Load(const std::filesystem::path& path) {
     entryCount_ = 0;
     width_ = 0;
     height_ = 0;
+    storedAsBgra_ = false;
 
     if (!std::filesystem::exists(path)) {
         LOG_WARN("ThumbnailStore: file not found: {}", path.string());
@@ -57,7 +61,7 @@ void ThumbnailStore::Load(const std::filesystem::path& path) {
         file_.close();
         return;
     }
-    if (version != kVersion) {
+    if (version != kVersion && version != kVersionBgra) {
         LOG_ERROR("ThumbnailStore: unsupported version {} in {}", version, path.string());
         file_.close();
         return;
@@ -74,9 +78,10 @@ void ThumbnailStore::Load(const std::filesystem::path& path) {
         return;
     }
 
-    entryCount_ = count;
-    width_      = width;
-    height_     = height;
+    entryCount_   = count;
+    width_        = width;
+    height_       = height;
+    storedAsBgra_ = version == kVersionBgra;
 
     LOG_INFO("ThumbnailStore: loaded {} thumbnails ({}x{}) from {}",
              count, width, height, path.string());
@@ -120,6 +125,12 @@ std::optional<ThumbnailStore::ThumbnailData> ThumbnailStore::LoadThumbnail(const
     if (!file_) {
         LOG_ERROR("ThumbnailStore: read failed for rank {}", rank);
         return std::nullopt;
+    }
+
+    if (storedAsBgra_) {
+        for (size_t i = 0; i + 3 < result.rgba.size(); i += 4) {
+            std::swap(result.rgba[i], result.rgba[i + 2]);
+        }
     }
 
     return result;

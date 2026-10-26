@@ -9,8 +9,6 @@
 #include "cISTETerrain.h"
 
 namespace {
-    constexpr DWORD kFvf = D3DFVF_XYZ | D3DFVF_DIFFUSE;
-    constexpr DWORD kMaxBatchVertices = 60000;
     constexpr float kEpsilon = 1e-4f;
     constexpr float kTerrainGridSpacing = 16.0f;
 
@@ -88,19 +86,90 @@ namespace {
     }
 }
 
-void PaintOverlay::Clear() {
-    for (auto& layer : layers_) {
-        layer.vertices.clear();
+PaintOverlay::~PaintOverlay() {
+    DestroyLayers_();
+}
+
+void PaintOverlay::SetWorldDrawService(cIGZWorldDrawService* service) {
+    if (service == worldDraw_) {
+        return;
     }
+    DestroyLayers_();
+    worldDraw_ = service;
+    for (auto& layer : layers_) {
+        layer.dirty = true;
+    }
+    Upload_();
+}
+
+void PaintOverlay::Clear() {
+    ClearLayers_();
+    Upload_();
 }
 
 bool PaintOverlay::Empty() const {
     for (const auto& layer : layers_) {
-        if (!layer.vertices.empty()) {
+        if (!layer.mesh.Empty() || !layer.lines.empty()) {
             return false;
         }
     }
     return true;
+}
+
+void PaintOverlay::ClearLayers_() {
+    for (auto& layer : layers_) {
+        if (!layer.mesh.Empty() || !layer.lines.empty()) {
+            layer.mesh.Clear();
+            layer.lines.clear();
+            layer.dirty = true;
+        }
+    }
+}
+
+void PaintOverlay::Upload_() {
+    if (!worldDraw_) {
+        return;
+    }
+
+    // Drawn at the end of PreDynamic, so hills and buildings hide the preview and moving
+    // traffic goes over it. The depth bias keeps it from flickering against the terrain.
+    static constexpr SC4WorldStyle kStyle{.depthBias = 8};
+
+    for (uint32_t i = 0; i < layers_.size(); ++i) {
+        Layer& layer = layers_[i];
+        if (!layer.dirty) {
+            continue;
+        }
+
+        const bool empty = layer.mesh.Empty() && layer.lines.empty();
+        if (layer.id == 0) {
+            if (empty) {
+                layer.dirty = false;
+                continue;
+            }
+            layer.id = worldDraw_->CreateLayer(DrawServicePass::PreDynamic, kStyle, static_cast<int32_t>(i));
+            if (layer.id == 0) {
+                // The service cannot draw (yet); keep the geometry and try again next time.
+                continue;
+            }
+        }
+
+        worldDraw_->SetLayerTriangles(layer.id, layer.mesh.Data(), layer.mesh.Count());
+        for (const auto& line : layer.lines) {
+            worldDraw_->AddLayerLine(layer.id, line.style, line.points.data(),
+                                     static_cast<uint32_t>(line.points.size()));
+        }
+        layer.dirty = false;
+    }
+}
+
+void PaintOverlay::DestroyLayers_() {
+    for (auto& layer : layers_) {
+        if (layer.id != 0 && worldDraw_) {
+            worldDraw_->DestroyLayer(layer.id);
+        }
+        layer.id = 0;
+    }
 }
 
 void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector3& cursorPos,
@@ -109,9 +178,10 @@ void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector
 }
 
 void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector3& cursorPos,
-                                             const float pickRadius, cISTETerrain* terrain, const DWORD rectColor) {
-    Clear();
+                                             const float pickRadius, cISTETerrain* terrain, const uint32_t rectColor) {
+    ClearLayers_();
     if (!cursorValid) {
+        Upload_();
         return;
     }
 
@@ -125,17 +195,12 @@ void PaintOverlay::BuildStripperPreview(const bool cursorValid, const cS3DVector
     const cS3DVector3 se(cx + r, SampleStableTerrainHeight(terrain, cx + r, cz + r) + kHeightOffset, cz + r);
     const cS3DVector3 sw(cx - r, SampleStableTerrainHeight(terrain, cx - r, cz + r) + kHeightOffset, cz + r);
 
-    constexpr float kThick = 0.5f;
-    EmitLine_(nw, ne, kThick, rectColor, kLayerShape);
-    EmitLine_(ne, se, kThick, rectColor, kLayerShape);
-    EmitLine_(se, sw, kThick, rectColor, kLayerShape);
-    EmitLine_(sw, nw, kThick, rectColor, kLayerShape);
-
+    EmitScreenLine_({nw, ne, se, sw}, kPickRectWidthPx, rectColor, true, kLayerShape);
+    Upload_();
 }
 
 void PaintOverlay::AddRectOutline(const float minX, const float minZ, const float maxX, const float maxZ,
-                                  cISTETerrain* terrain, const DWORD color) {
-    constexpr float kThick = 0.5f;
+                                  cISTETerrain* terrain, const uint32_t color) {
     constexpr float kMaxSegmentLength = 4.0f;
 
     // Use the game's own continuous altitude query so the outline hugs the
@@ -145,26 +210,26 @@ void PaintOverlay::AddRectOutline(const float minX, const float minZ, const floa
         return terrain ? terrain->GetAltitude(x, z) + kHeightOffset : kHeightOffset;
     };
 
-    const auto emitEdge = [&](const float x0, const float z0, const float x1, const float z1) {
+    // Each edge is cut into short pieces so the outline follows the ground; the corner that
+    // ends one edge starts the next, so it is added only once.
+    std::vector<cS3DVector3> outline;
+    const auto addEdge = [&](const float x0, const float z0, const float x1, const float z1) {
         const float length = std::max(std::abs(x1 - x0), std::abs(z1 - z0));
         const int segments = std::max(1, static_cast<int>(std::ceil(length / kMaxSegmentLength)));
         for (int i = 0; i < segments; ++i) {
-            const float t0 = static_cast<float>(i) / static_cast<float>(segments);
-            const float t1 = static_cast<float>(i + 1) / static_cast<float>(segments);
-            const float ax = x0 + (x1 - x0) * t0;
-            const float az = z0 + (z1 - z0) * t0;
-            const float bx = x0 + (x1 - x0) * t1;
-            const float bz = z0 + (z1 - z0) * t1;
-            const cS3DVector3 a(ax, surfaceHeight(ax, az), az);
-            const cS3DVector3 b(bx, surfaceHeight(bx, bz), bz);
-            EmitLine_(a, b, kThick, color, kLayerShape);
+            const float t = static_cast<float>(i) / static_cast<float>(segments);
+            const float x = x0 + (x1 - x0) * t;
+            const float z = z0 + (z1 - z0) * t;
+            outline.emplace_back(x, surfaceHeight(x, z), z);
         }
     };
 
-    emitEdge(minX, minZ, maxX, minZ);
-    emitEdge(maxX, minZ, maxX, maxZ);
-    emitEdge(maxX, maxZ, minX, maxZ);
-    emitEdge(minX, maxZ, minX, minZ);
+    addEdge(minX, minZ, maxX, minZ);
+    addEdge(maxX, minZ, maxX, maxZ);
+    addEdge(maxX, maxZ, minX, maxZ);
+    addEdge(minX, maxZ, minX, minZ);
+    EmitScreenLine_(outline, kRectOutlineWidthPx, color, true, kLayerShape);
+    Upload_();
 }
 
 void PaintOverlay::BuildDirectPreview(const bool cursorValid,
@@ -173,14 +238,14 @@ void PaintOverlay::BuildDirectPreview(const bool cursorValid,
                                           const PropPaintSettings& settings,
                                           const PreviewPlacement& plannedPlacement,
                                           const bool drawPlacement) {
-    Clear();
-    if (!cursorValid) {
-        return;
+    ClearLayers_();
+    if (cursorValid) {
+        EmitGrid_(cursorPos, terrain, settings);
+        if (drawPlacement) {
+            EmitPreviewPlacement_(plannedPlacement, terrain, kLayerMarkers);
+        }
     }
-    EmitGrid_(cursorPos, terrain, settings);
-    if (drawPlacement) {
-        EmitPreviewPlacement_(plannedPlacement, terrain, kLayerMarkers);
-    }
+    Upload_();
 }
 
 void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
@@ -191,27 +256,26 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
                                         cISTETerrain* terrain,
                                         const PropPaintSettings& settings,
                                         const std::vector<PreviewPlacement>& plannedPlacements) {
-    Clear();
+    ClearLayers_();
 
     if (cursorValid) {
         EmitGrid_(cursorPos, terrain, settings);
     }
 
-    for (size_t i = 1; i < points.size(); ++i) {
-        EmitLine_(points[i - 1], points[i], kLineThickness, kLineColor, kLayerShape);
-    }
+    EmitScreenLine_(points, kPathWidthPx, kLineColor, false, kLayerShape);
 
     if (!points.empty() && cursorValid) {
-        EmitLine_(points.back(), cursorPos, kLineThickness, kCursorColor, kLayerShape);
+        EmitScreenLine_({points.back(), cursorPos}, kPathWidthPx, kCursorColor, false, kLayerShape);
     }
 
     for (const auto& pt : points) {
-        EmitMarker_(pt, kMarkerSize, kMarkerColor, kLayerShape);
+        EmitMarker_(pt, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 
     for (const auto& placement : plannedPlacements) {
         EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
     }
+    Upload_();
 }
 
 void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
@@ -222,36 +286,35 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
                                            cISTETerrain* terrain,
                                            const PropPaintSettings& settings,
                                            const std::vector<PreviewPlacement>& plannedPlacements) {
-    Clear();
+    ClearLayers_();
 
     if (cursorValid) {
         EmitGrid_(cursorPos, terrain, settings);
     }
 
-    for (size_t i = 1; i < vertices.size(); ++i) {
-        EmitLine_(vertices[i - 1], vertices[i], kLineThickness, kLineColor, kLayerShape);
-    }
+    EmitScreenLine_(vertices, kPathWidthPx, kLineColor, false, kLayerShape);
 
     if (!vertices.empty() && cursorValid) {
-        EmitLine_(vertices.back(), cursorPos, kLineThickness, kCursorColor, kLayerShape);
+        EmitScreenLine_({vertices.back(), cursorPos}, kPathWidthPx, kCursorColor, false, kLayerShape);
     }
 
     if (vertices.size() >= 2 && cursorValid) {
-        EmitLine_(cursorPos, vertices.front(), kLineThickness * 0.5f, kCursorColor, kLayerShape);
+        EmitScreenLine_({cursorPos, vertices.front()}, kCursorCloseWidthPx, kCursorColor, false, kLayerShape);
     }
 
     if (vertices.size() >= 3) {
-        EmitLine_(vertices.back(), vertices.front(), kLineThickness * 0.85f, kLineColor, kLayerShape);
+        EmitScreenLine_({vertices.back(), vertices.front()}, kPolygonCloseWidthPx, kLineColor, false, kLayerShape);
         EmitFilledPolygon_(vertices, kPolygonFillColor, kLayerShape);
     }
 
     for (const auto& vertex : vertices) {
-        EmitMarker_(vertex, kMarkerSize, kMarkerColor, kLayerShape);
+        EmitMarker_(vertex, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 
     for (const auto& placement : plannedPlacements) {
         EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
     }
+    Upload_();
 }
 
 void PaintOverlay::EmitGrid_(const cS3DVector3& center, cISTETerrain* terrain, const PropPaintSettings& settings) {
@@ -276,214 +339,79 @@ void PaintOverlay::EmitGrid_(const cS3DVector3& center, cISTETerrain* terrain, c
         return remainder <= kEpsilon || std::abs(remainder - majorStep) <= kEpsilon;
     };
 
+    // Each grid line follows the terrain with a point every terrain cell length. EmitScreenLine_
+    // lifts the points by kHeightOffset on top of kGridHeightExtraOffset.
+    std::vector<cS3DVector3> line;
     for (float x = xStart; x <= xEnd + kEpsilon; x += gridStep) {
-        const bool major = isMajorLine(x);
-        const DWORD color = major ? kGridMajorColor : kGridMinorColor;
-        const float thickness = major ? 0.42f : 0.26f;
-        for (float z = zStart; z < zEnd - kEpsilon; z += kTerrainGridSpacing) {
-            const float nextZ = std::min(z + kTerrainGridSpacing, zEnd);
-            EmitLine_(
-                cS3DVector3(x, SampleStableTerrainHeight(terrain, x, z) + kGridHeightExtraOffset, z),
-                cS3DVector3(x, SampleStableTerrainHeight(terrain, x, nextZ) + kGridHeightExtraOffset, nextZ),
-                thickness,
-                color,
-                kLayerGrid);
+        line.clear();
+        for (float z = zStart;; z += kTerrainGridSpacing) {
+            const float clampedZ = std::min(z, zEnd);
+            line.emplace_back(x, SampleStableTerrainHeight(terrain, x, clampedZ) + kGridHeightExtraOffset, clampedZ);
+            if (clampedZ >= zEnd - kEpsilon) {
+                break;
+            }
         }
+        const bool major = isMajorLine(x);
+        EmitScreenLine_(line, major ? kGridMajorWidthPx : kGridMinorWidthPx,
+                        major ? kGridMajorColor : kGridMinorColor, false, kLayerGrid);
     }
 
     for (float z = zStart; z <= zEnd + kEpsilon; z += gridStep) {
-        const bool major = isMajorLine(z);
-        const DWORD color = major ? kGridMajorColor : kGridMinorColor;
-        const float thickness = major ? 0.42f : 0.26f;
-        for (float x = xStart; x < xEnd - kEpsilon; x += kTerrainGridSpacing) {
-            const float nextX = std::min(x + kTerrainGridSpacing, xEnd);
-            EmitLine_(
-                cS3DVector3(x, SampleStableTerrainHeight(terrain, x, z) + kGridHeightExtraOffset, z),
-                cS3DVector3(nextX, SampleStableTerrainHeight(terrain, nextX, z) + kGridHeightExtraOffset, z),
-                thickness,
-                color,
-                kLayerGrid);
-        }
-    }
-}
-
-void PaintOverlay::Draw(IDirect3DDevice7* device, const bool drawGrid) {
-    if (!device || Empty()) {
-        return;
-    }
-
-    SetupRenderState_(device);
-
-    for (size_t i = 0; i < layers_.size(); ++i) {
-        if (!drawGrid && i == kLayerGrid) {
-            continue;
-        }
-
-        const auto& layer = layers_[i];
-        if (!layer.visible || layer.vertices.empty()) {
-            continue;
-        }
-
-        DWORD offset = 0;
-        DWORD remaining = static_cast<DWORD>(layer.vertices.size());
-        while (remaining > 0) {
-            DWORD batch = std::min(remaining, kMaxBatchVertices);
-            batch -= batch % 3;
-            if (batch == 0) {
+        line.clear();
+        for (float x = xStart;; x += kTerrainGridSpacing) {
+            const float clampedX = std::min(x, xEnd);
+            line.emplace_back(clampedX, SampleStableTerrainHeight(terrain, clampedX, z) + kGridHeightExtraOffset, z);
+            if (clampedX >= xEnd - kEpsilon) {
                 break;
             }
-
-            device->DrawPrimitive(
-                D3DPT_TRIANGLELIST,
-                kFvf,
-                const_cast<OverlayVertex*>(layer.vertices.data() + offset),
-                batch,
-                D3DDP_WAIT);
-
-            offset += batch;
-            remaining -= batch;
         }
+        const bool major = isMajorLine(z);
+        EmitScreenLine_(line, major ? kGridMajorWidthPx : kGridMinorWidthPx,
+                        major ? kGridMajorColor : kGridMinorColor, false, kLayerGrid);
     }
-
-    RestoreRenderState_(device);
-}
-
-void PaintOverlay::SetupRenderState_(IDirect3DDevice7* device) {
-    if (savedState_.texture0) {
-        savedState_.texture0->Release();
-        savedState_.texture0 = nullptr;
-    }
-
-    device->GetRenderState(D3DRENDERSTATE_ZENABLE, &savedState_.zEnable);
-    device->GetRenderState(D3DRENDERSTATE_ZWRITEENABLE, &savedState_.zWriteEnable);
-    device->GetRenderState(D3DRENDERSTATE_LIGHTING, &savedState_.lighting);
-    device->GetRenderState(D3DRENDERSTATE_ALPHABLENDENABLE, &savedState_.alphaBlend);
-    device->GetRenderState(D3DRENDERSTATE_ALPHATESTENABLE, &savedState_.alphaTest);
-    device->GetRenderState(D3DRENDERSTATE_CULLMODE, &savedState_.cullMode);
-    device->GetRenderState(D3DRENDERSTATE_FOGENABLE, &savedState_.fogEnable);
-    device->GetRenderState(D3DRENDERSTATE_ZBIAS, &savedState_.zBias);
-    device->GetRenderState(D3DRENDERSTATE_SRCBLEND, &savedState_.srcBlend);
-    device->GetRenderState(D3DRENDERSTATE_DESTBLEND, &savedState_.dstBlend);
-    device->GetTextureStageState(0, D3DTSS_COLOROP, &savedState_.colorOp);
-    device->GetTextureStageState(0, D3DTSS_COLORARG1, &savedState_.colorArg1);
-    device->GetTextureStageState(0, D3DTSS_COLORARG2, &savedState_.colorArg2);
-    device->GetTextureStageState(0, D3DTSS_ALPHAOP, &savedState_.alphaOp);
-    device->GetTextureStageState(0, D3DTSS_ALPHAARG1, &savedState_.alphaArg1);
-    device->GetTextureStageState(0, D3DTSS_ALPHAARG2, &savedState_.alphaArg2);
-    device->GetTextureStageState(1, D3DTSS_COLOROP, &savedState_.stage1ColorOp);
-    device->GetTextureStageState(1, D3DTSS_ALPHAOP, &savedState_.stage1AlphaOp);
-    device->GetTexture(0, &savedState_.texture0);
-
-    device->SetRenderState(D3DRENDERSTATE_ZENABLE, TRUE);
-    device->SetRenderState(D3DRENDERSTATE_ZWRITEENABLE, FALSE);
-    device->SetRenderState(D3DRENDERSTATE_LIGHTING, FALSE);
-    device->SetRenderState(D3DRENDERSTATE_ALPHABLENDENABLE, TRUE);
-    device->SetRenderState(D3DRENDERSTATE_ALPHATESTENABLE, FALSE);
-    device->SetRenderState(D3DRENDERSTATE_SRCBLEND, D3DBLEND_SRCALPHA);
-    device->SetRenderState(D3DRENDERSTATE_DESTBLEND, D3DBLEND_INVSRCALPHA);
-    device->SetRenderState(D3DRENDERSTATE_CULLMODE, D3DCULL_NONE);
-    device->SetRenderState(D3DRENDERSTATE_FOGENABLE, FALSE);
-    device->SetRenderState(D3DRENDERSTATE_ZBIAS, 8);
-    device->SetTexture(0, nullptr);
-    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
-    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_CURRENT);
-    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
-    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
-    device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
-    device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-    device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-}
-
-void PaintOverlay::RestoreRenderState_(IDirect3DDevice7* device) {
-    device->SetRenderState(D3DRENDERSTATE_ZENABLE, savedState_.zEnable);
-    device->SetRenderState(D3DRENDERSTATE_ZWRITEENABLE, savedState_.zWriteEnable);
-    device->SetRenderState(D3DRENDERSTATE_LIGHTING, savedState_.lighting);
-    device->SetRenderState(D3DRENDERSTATE_ALPHABLENDENABLE, savedState_.alphaBlend);
-    device->SetRenderState(D3DRENDERSTATE_ALPHATESTENABLE, savedState_.alphaTest);
-    device->SetRenderState(D3DRENDERSTATE_CULLMODE, savedState_.cullMode);
-    device->SetRenderState(D3DRENDERSTATE_FOGENABLE, savedState_.fogEnable);
-    device->SetRenderState(D3DRENDERSTATE_ZBIAS, savedState_.zBias);
-    device->SetRenderState(D3DRENDERSTATE_SRCBLEND, savedState_.srcBlend);
-    device->SetRenderState(D3DRENDERSTATE_DESTBLEND, savedState_.dstBlend);
-    device->SetTexture(0, savedState_.texture0);
-    device->SetTextureStageState(0, D3DTSS_COLOROP, savedState_.colorOp);
-    device->SetTextureStageState(0, D3DTSS_COLORARG1, savedState_.colorArg1);
-    device->SetTextureStageState(0, D3DTSS_COLORARG2, savedState_.colorArg2);
-    device->SetTextureStageState(0, D3DTSS_ALPHAOP, savedState_.alphaOp);
-    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, savedState_.alphaArg1);
-    device->SetTextureStageState(0, D3DTSS_ALPHAARG2, savedState_.alphaArg2);
-    device->SetTextureStageState(1, D3DTSS_COLOROP, savedState_.stage1ColorOp);
-    device->SetTextureStageState(1, D3DTSS_ALPHAOP, savedState_.stage1AlphaOp);
-    savedState_.texture0 = nullptr;
 }
 
 void PaintOverlay::EmitLine_(const cS3DVector3& a, const cS3DVector3& b,
-                                 const float thickness, const DWORD color, const uint32_t layer) {
+                                 const float thickness, const uint32_t color, const uint32_t layer) {
     if (layer >= layers_.size()) {
         return;
     }
 
-    const float dx = b.fX - a.fX;
-    const float dy = b.fY - a.fY;
-    const float dz = b.fZ - a.fZ;
-    const float len = std::sqrt(dx * dx + dz * dz);
-    if (len <= kEpsilon) {
-        if (std::abs(dy) <= kEpsilon) {
-            return;
-        }
+    // A flat band lifted off the surface, or two crossed bands when it runs straight up.
+    layers_[layer].dirty = true;
+    layers_[layer].mesh.AddLine(a.fX, a.fY + kHeightOffset, a.fZ, b.fX, b.fY + kHeightOffset, b.fZ, thickness, color);
+}
 
-        const float half = thickness * 0.5f;
-        const float ax = a.fX;
-        const float az = a.fZ;
-        const float bx = b.fX;
-        const float bz = b.fZ;
-        const float ay = a.fY + kHeightOffset;
-        const float by = b.fY + kHeightOffset;
-
-        // Crossed quads keep pure vertical edges visible from more than one angle.
-        const cS3DVector3 x0(ax - half, ay, az);
-        const cS3DVector3 x1(ax + half, ay, az);
-        const cS3DVector3 x2(bx + half, by, bz);
-        const cS3DVector3 x3(bx - half, by, bz);
-        EmitQuad_(x0, x1, x2, x3, color, layer);
-
-        const cS3DVector3 z0(ax, ay, az - half);
-        const cS3DVector3 z1(ax, ay, az + half);
-        const cS3DVector3 z2(bx, by, bz + half);
-        const cS3DVector3 z3(bx, by, bz - half);
-        EmitQuad_(z0, z1, z2, z3, color, layer);
+void PaintOverlay::EmitScreenLine_(const std::vector<cS3DVector3>& points, const float widthPixels,
+                                   const uint32_t color, const bool closed, const uint32_t layer) {
+    if (layer >= layers_.size() || points.size() < 2) {
         return;
     }
 
-    const float nx = (-dz / len) * thickness * 0.5f;
-    const float nz = (dx / len) * thickness * 0.5f;
-
-    const cS3DVector3 v0(a.fX + nx, a.fY + kHeightOffset, a.fZ + nz);
-    const cS3DVector3 v1(a.fX - nx, a.fY + kHeightOffset, a.fZ - nz);
-    const cS3DVector3 v2(b.fX - nx, b.fY + kHeightOffset, b.fZ - nz);
-    const cS3DVector3 v3(b.fX + nx, b.fY + kHeightOffset, b.fZ + nz);
-
-    EmitQuad_(v0, v1, v2, v3, color, layer);
+    ScreenLine line;
+    line.style = SC4WorldLineStyle{.width = widthPixels, .unit = SC4WorldLineWidth::Pixels, .closed = closed};
+    line.points.reserve(points.size());
+    for (const auto& point : points) {
+        line.points.push_back({point.fX, point.fY + kHeightOffset, point.fZ, color, 0.0f, 0.0f});
+    }
+    layers_[layer].lines.push_back(std::move(line));
+    layers_[layer].dirty = true;
 }
 
 void PaintOverlay::EmitQuad_(const cS3DVector3& a, const cS3DVector3& b, const cS3DVector3& c,
-                                 const cS3DVector3& d, const DWORD color, const uint32_t layer) {
+                                 const cS3DVector3& d, const uint32_t color, const uint32_t layer) {
     if (layer >= layers_.size()) {
         return;
     }
 
-    auto& verts = layers_[layer].vertices;
-    verts.push_back({a.fX, a.fY, a.fZ, color});
-    verts.push_back({b.fX, b.fY, b.fZ, color});
-    verts.push_back({c.fX, c.fY, c.fZ, color});
-
-    verts.push_back({a.fX, a.fY, a.fZ, color});
-    verts.push_back({c.fX, c.fY, c.fZ, color});
-    verts.push_back({d.fX, d.fY, d.fZ, color});
+    layers_[layer].dirty = true;
+    layers_[layer].mesh.AddQuad({a.fX, a.fY, a.fZ, color, 0.0f, 0.0f},
+                                {b.fX, b.fY, b.fZ, color, 0.0f, 0.0f},
+                                {c.fX, c.fY, c.fZ, color, 0.0f, 0.0f},
+                                {d.fX, d.fY, d.fZ, color, 0.0f, 0.0f});
 }
 
-void PaintOverlay::EmitMarker_(const cS3DVector3& center, const float size, const DWORD color,
+void PaintOverlay::EmitMarker_(const cS3DVector3& center, const float size, const uint32_t color,
                                    const uint32_t layer) {
     if (layer >= layers_.size()) {
         return;
@@ -500,10 +428,10 @@ void PaintOverlay::EmitMarker_(const cS3DVector3& center, const float size, cons
 }
 
 void PaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, cISTETerrain* terrain, const uint32_t layer) {
-    const DWORD markerColor = preview.valid ? kPlannedMarkerColor : kInvalidMarkerColor;
-    const DWORD topColor = preview.valid ? kPlannedBoxTopColor : kInvalidBoxTopColor;
-    const DWORD sideColor = preview.valid ? kPlannedBoxSideColor : kInvalidBoxSideColor;
-    const DWORD stiltColor = preview.valid ? kPlannedStiltColor : kInvalidStiltColor;
+    const uint32_t markerColor = preview.valid ? kPlannedMarkerColor : kInvalidMarkerColor;
+    const uint32_t topColor = preview.valid ? kPlannedBoxTopColor : kInvalidBoxTopColor;
+    const uint32_t sideColor = preview.valid ? kPlannedBoxSideColor : kInvalidBoxSideColor;
+    const uint32_t stiltColor = preview.valid ? kPlannedStiltColor : kInvalidStiltColor;
 
     const bool hasBounds = preview.maxX > preview.minX && preview.maxZ > preview.minZ;
     if (!hasBounds && (preview.width <= 0.0f || preview.depth <= 0.0f)) {
@@ -615,19 +543,25 @@ void PaintOverlay::EmitPreviewPlacement_(const PreviewPlacement& preview, cISTET
         tip.fX + (topC.fX - tip.fX) * barbT, tip.fY + (topC.fY - tip.fY) * barbT,
         tip.fZ + (topC.fZ - tip.fZ) * barbT);
 
-    constexpr DWORD kArrowColor = 0xD0FFFFFF;
+    constexpr uint32_t kArrowColor = 0xD0FFFFFF;
     EmitLine_(tail, tip, kLineThickness * 0.5f, kArrowColor, layer);
     EmitLine_(tip, barbLeft, kLineThickness * 0.5f, kArrowColor, layer);
     EmitLine_(tip, barbRight, kLineThickness * 0.5f, kArrowColor, layer);
 }
 
 void PaintOverlay::EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices,
-                                          const DWORD color, const uint32_t layer) {
+                                          const uint32_t color, const uint32_t layer) {
     if (layer >= layers_.size() || vertices.size() < 3) {
         return;
     }
 
-    auto& verts = layers_[layer].vertices;
+    layers_[layer].dirty = true;
+    auto& mesh = layers_[layer].mesh;
+    const auto emitTriangle = [&](const cS3DVector3& v0, const cS3DVector3& v1, const cS3DVector3& v2) {
+        mesh.AddTriangle({v0.fX, v0.fY + kHeightOffset, v0.fZ, color, 0.0f, 0.0f},
+                         {v1.fX, v1.fY + kHeightOffset, v1.fZ, color, 0.0f, 0.0f},
+                         {v2.fX, v2.fY + kHeightOffset, v2.fZ, color, 0.0f, 0.0f});
+    };
     const size_t n = vertices.size();
     std::vector<size_t> indices(n);
     std::iota(indices.begin(), indices.end(), 0);
@@ -674,9 +608,7 @@ void PaintOverlay::EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices,
             const auto& v0 = vertices[prev];
             const auto& v1 = vertices[curr];
             const auto& v2 = vertices[next];
-            verts.push_back({v0.fX, v0.fY + kHeightOffset, v0.fZ, color});
-            verts.push_back({v1.fX, v1.fY + kHeightOffset, v1.fZ, color});
-            verts.push_back({v2.fX, v2.fY + kHeightOffset, v2.fZ, color});
+            emitTriangle(v0, v1, v2);
 
             indices.erase(indices.begin() + static_cast<std::ptrdiff_t>(i));
             earClipped = true;
@@ -693,9 +625,7 @@ void PaintOverlay::EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices,
         const auto& v0 = vertices[indices[0]];
         const auto& v1 = vertices[indices[1]];
         const auto& v2 = vertices[indices[2]];
-        verts.push_back({v0.fX, v0.fY + kHeightOffset, v0.fZ, color});
-        verts.push_back({v1.fX, v1.fY + kHeightOffset, v1.fZ, color});
-        verts.push_back({v2.fX, v2.fY + kHeightOffset, v2.fZ, color});
+        emitTriangle(v0, v1, v2);
         return;
     }
 
@@ -704,8 +634,6 @@ void PaintOverlay::EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices,
         const auto& v0 = vertices[0];
         const auto& v1 = vertices[i];
         const auto& v2 = vertices[i + 1];
-        verts.push_back({v0.fX, v0.fY + kHeightOffset, v0.fZ, color});
-        verts.push_back({v1.fX, v1.fY + kHeightOffset, v1.fZ, color});
-        verts.push_back({v2.fX, v2.fY + kHeightOffset, v2.fZ, color});
+        emitTriangle(v0, v1, v2);
     }
 }

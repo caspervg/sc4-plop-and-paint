@@ -313,11 +313,6 @@ namespace thumb {
         rendered.pixels.resize(size * size * 4);
         if (finalImage.data) {
             std::memcpy(rendered.pixels.data(), finalImage.data, rendered.pixels.size());
-            for (size_t i = 0; i + 3 < rendered.pixels.size(); i += 4) {
-                std::byte tmp = rendered.pixels[i];
-                rendered.pixels[i] = rendered.pixels[i + 2];
-                rendered.pixels[i + 2] = tmp;
-            }
         }
 
         UnloadImage(finalImage);

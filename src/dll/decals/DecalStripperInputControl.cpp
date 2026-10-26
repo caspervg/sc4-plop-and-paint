@@ -26,6 +26,7 @@ bool DecalStripperInputControl::Init() {
 }
 
 bool DecalStripperInputControl::Shutdown() {
+    overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
     }
@@ -348,11 +349,8 @@ void DecalStripperInputControl::DeleteHoveredDecal_() {
     hoveredDecalId_  = {};
 }
 
-void DecalStripperInputControl::DrawOverlay(IDirect3DDevice7* device) {
-    if (!device) {
-        return;
-    }
-    overlay_.Draw(device, false);
+void DecalStripperInputControl::SetWorldDrawService(cIGZWorldDrawService* service) {
+    overlay_.SetWorldDrawService(service);
 }
 
 void DecalStripperInputControl::BuildOverlay_() {

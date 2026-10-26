@@ -10,7 +10,8 @@
 // The file layout is:
 //   Header (16 bytes): magic "SPTH", version, entry_count, common width/height.
 //   Index  (N x 8 bytes): uint64_t gi_keys, sorted ascending.
-//   Data   (N blobs): width * height * 4 RGBA bytes each.
+//   Data   (N blobs): width * height * 4 RGBA bytes each (BGRA in version 1 files, which
+//                    LoadThumbnail converts so callers always get RGBA).
 //
 // The byte offset of blob[rank] = 16 + N*8 + rank * (width * height * 4).
 // The index is binary-searched so HasThumbnail / LoadThumbnail are O(log N).
@@ -44,5 +45,6 @@ private:
     uint32_t entryCount_ = 0;
     uint16_t width_      = 0;
     uint16_t height_     = 0;
+    bool storedAsBgra_   = false;
     std::vector<uint64_t> giKeys_; // sorted, index position == data blob rank
 };

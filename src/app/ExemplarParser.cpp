@@ -255,22 +255,14 @@ namespace {
         constexpr auto cropWidth = kIconCropWidth;
         const auto cropHeight = static_cast<uint32_t>(height);
 
-        // Copy the second 44-pixel region and swap R/B channels in a single pass
+        // Copy the second 44-pixel region
         const size_t croppedDataSize = static_cast<size_t>(cropWidth) * cropHeight * 4;
         result.pixels.resize(croppedDataSize);
 
         for (uint32_t y = 0; y < cropHeight; ++y) {
             const size_t srcOffset = (static_cast<size_t>(y) * width + kIconSkipWidth) * 4;
             const size_t dstOffset = static_cast<size_t>(y) * cropWidth * 4;
-            const auto* src = pixels + srcOffset;
-            auto* dst = result.pixels.data() + dstOffset;
-            for (uint32_t x = 0; x < cropWidth; ++x) {
-                const size_t px = x * 4;
-                dst[px + 0] = static_cast<std::byte>(src[px + 2]); // B <- R
-                dst[px + 1] = static_cast<std::byte>(src[px + 1]); // G
-                dst[px + 2] = static_cast<std::byte>(src[px + 0]); // R <- B
-                dst[px + 3] = static_cast<std::byte>(src[px + 3]); // A
-            }
+            std::memcpy(result.pixels.data() + dstOffset, pixels + srcOffset, static_cast<size_t>(cropWidth) * 4);
         }
 
         result.width = cropWidth;
@@ -1319,14 +1311,3 @@ std::optional<std::array<float, 6>> ExemplarParser::loadModelBounds_(const DBPF:
     return std::nullopt;
 }
 
-std::vector<std::byte> ExemplarParser::convertBgraToRgba_(const std::vector<std::byte>& pixels) {
-    std::vector<std::byte> rgba;
-    rgba.resize(pixels.size());
-    for (size_t i = 0; i + 3 < pixels.size(); i += 4) {
-        rgba[i + 0] = pixels[i + 2];
-        rgba[i + 1] = pixels[i + 1];
-        rgba[i + 2] = pixels[i + 0];
-        rgba[i + 3] = pixels[i + 3];
-    }
-    return rgba;
-}

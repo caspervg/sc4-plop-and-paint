@@ -127,7 +127,8 @@ void RecentSwapPanel::OnRender() {
         ImGuiWindowFlags_NoFocusOnAppearing |
         ImGuiWindowFlags_NoNav |
         ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoScrollbar;
+        ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoDocking;
 
     if (!ImGui::Begin("##RecentSwapPanel", nullptr, kFlags)) {
         ImGui::End();

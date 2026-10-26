@@ -10,6 +10,7 @@
 #include <string>
 #include "../shared/entities.hpp"
 #include "RecentPaintHistory.hpp"
+#include "common/FrameTickService.hpp"
 #include "GZServPtrs.h"
 #include "cIGZCommandServer.h"
 #include "cIGZMessage2Standard.h"
@@ -38,8 +39,8 @@
 #include "public/ImGuiPanel.h"
 #include "public/ImGuiPanelAdapter.h"
 #include "public/ImGuiServiceIds.h"
-#include "public/cIGZDrawService.h"
 #include "public/cIGZImGuiService.h"
+#include "public/cIGZWorldDrawService.h"
 #include "utils/Settings.h"
 
 class PlopAndPaintPanel;
@@ -47,11 +48,11 @@ class FloraRepository;
 class LotRepository;
 class PropRepository;
 class FavoritesRepository;
-class cIGZS3DCameraService;
 class RecentSwapPanel;
 
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
+static constexpr uint32_t kToolTickServiceID = 0xCA5000F1;
 
 class SC4PlopAndPaintDirector final : public cRZMessage2COMDirector
 {
@@ -129,8 +130,8 @@ private:
     bool RegisterLotPlopShortcut_();
     void UnregisterLotPlopShortcut_();
     static std::filesystem::path GetUserPluginsPath_();
-    static void DrawOverlayCallback_(DrawServicePass pass, bool begin, void* pThis);
     void ProcessPendingToolActions_();
+    [[nodiscard]] cIGZWorldDrawService* GetOverlayWorldDrawService_() const;
     void UpdatePaintPanels_();
     void SyncRecentPaintsCache_();
     void PersistRecentPaints_();
@@ -154,11 +155,10 @@ private:
 
 private:
     cIGZImGuiService* imguiService_ = nullptr;
-    cIGZDrawService* drawService_ = nullptr;
+    cIGZWorldDrawService* worldDrawService_ = nullptr;
     cRZAutoRefCount<cISC4City> pCity_;
     cISC4View3DWin* pView3D_ = nullptr;
     cRZAutoRefCount<cIGZMessageServer2> pMS2_;
-    cIGZS3DCameraService* cameraService_ = nullptr;
 
     std::unique_ptr<LotRepository>       lotRepository_;
     std::unique_ptr<PropRepository>      propRepository_;
@@ -196,7 +196,8 @@ private:
     bool enableRecentPaints_{true};
     PaintSwitchPolicy paintSwitchPolicy_{PaintSwitchPolicy::KeepPending};
     bool drawOverlayEnabled_{true};
-    uint32_t drawCallbackToken_{0};
+    FrameTickService toolTickService_{kToolTickServiceID, [this] { ProcessPendingToolActions_(); }};
+    bool toolTickServiceRegistered_{false};
     PreviewMode defaultPropPreviewMode_ = PreviewMode::Outline;
     bool defaultShowGridOverlay_ = true;
     bool defaultSnapPointsToGrid_ = false;

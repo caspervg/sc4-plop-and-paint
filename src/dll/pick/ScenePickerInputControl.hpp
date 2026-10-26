@@ -41,7 +41,7 @@ public:
     void SetOnPick(std::function<void(const ScenePickResult&)> onPick);
     void SetOnCancel(std::function<void()> onCancel);
     void ProcessPendingActions();
-    void DrawOverlay(IDirect3DDevice7* device);
+    void SetWorldDrawService(cIGZWorldDrawService* service);
 
 private:
     bool UpdateCursorWorldFromScreen_(int32_t screenX, int32_t screenZ);

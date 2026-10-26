@@ -49,6 +49,7 @@ bool PropStripperInputControl::Init() {
 }
 
 bool PropStripperInputControl::Shutdown() {
+    overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
     }
@@ -315,7 +316,8 @@ bool PropStripperInputControl::TryGetCursorCell_(int& cellX, int& cellZ) const {
         return false;
     }
 
-    return city_->PositionToCell(currentCursorWorld_.fX, currentCursorWorld_.fZ, cellX, cellZ) != 0;
+    city_->PositionToCell(currentCursorWorld_.fX, currentCursorWorld_.fZ, cellX, cellZ);
+    return city_->CellIsInBounds(cellX, cellZ);
 }
 
 void PropStripperInputControl::AppendCandidateProps_(std::vector<CollectedProp>& candidates, const SourceKind source) const {
@@ -515,11 +517,8 @@ void PropStripperInputControl::ClearHoveredProp_() {
     }
 }
 
-void PropStripperInputControl::DrawOverlay(IDirect3DDevice7* device) {
-    if (!device) {
-        return;
-    }
-    overlay_.Draw(device, false);
+void PropStripperInputControl::SetWorldDrawService(cIGZWorldDrawService* service) {
+    overlay_.SetWorldDrawService(service);
 }
 
 void PropStripperInputControl::BuildOverlay_() {
