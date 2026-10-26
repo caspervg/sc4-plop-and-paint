@@ -1,5 +1,7 @@
-if(NOT WIN32)
-    message(STATUS "SC4PlopAndPaint DLL is only built on Win32. Skipping the dll target.")
+# SimCity 4 only loads 32-bit DLLs, so x64 builds (the cache builder CLI) skip the plugin and its
+# SC4RenderServices dependency.
+if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+    message(STATUS "SC4PlopAndPaint DLL is only built for 32-bit Windows. Skipping the dll target.")
     return()
 endif()
 
