@@ -52,12 +52,6 @@ jobs:
       - name: Install vcpkg dependencies
         run: ./vendor/vcpkg/vcpkg.exe install --triplet x86-windows-static-md
 
-      - name: Build sc4-render-services
-        working-directory: vendor/sc4-render-services
-        run: |
-          cmake -B build -G "Visual Studio 17 2022" -A Win32
-          cmake --build build --config Release --target SC4RenderServices --parallel
-
       - name: Build DLL
         run: |
           cmake --preset vs2022-win32-release

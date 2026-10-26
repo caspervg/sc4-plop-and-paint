@@ -92,11 +92,9 @@ cd sc4-advanced-plop
 
 **DLL (32-bit, Windows only - required for SC4):**
 
-The DLL uses the ImGui that `SC4RenderServices.dll` exports, so build the `SC4RenderServices` target in the submodule first. The DLL build links its `SC4RenderServices.lib` (set `SC4RS_LIB_DIR` to use another build).
+The DLL uses the ImGui that `SC4RenderServices.dll` exports. The build compiles `SC4RenderServices` from the submodule and links against it, so no separate step is needed.
 
 ```bash
-cmake -S vendor/sc4-render-services -B vendor/sc4-render-services/build -G "Visual Studio 17 2022" -A Win32
-cmake --build vendor/sc4-render-services/build --config Release --target SC4RenderServices
 ./vendor/vcpkg/vcpkg install --triplet x86-windows-static-md
 cmake --preset vs2022-win32-release
 cmake --build --preset vs2022-win32-release-build --target SC4PlopAndPaint
