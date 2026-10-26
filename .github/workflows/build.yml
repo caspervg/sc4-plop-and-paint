@@ -15,6 +15,9 @@ env:
   CLI_ARTIFACT_NAME: SC4PlopAndPaint-cli-${{ github.sha }}
   CLI_LINUX_ARTIFACT_NAME: SC4PlopAndPaint-cli-linux-${{ github.sha }}
 
+permissions:
+  contents: read
+
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
