@@ -316,7 +316,8 @@ bool PropStripperInputControl::TryGetCursorCell_(int& cellX, int& cellZ) const {
         return false;
     }
 
-    return city_->PositionToCell(currentCursorWorld_.fX, currentCursorWorld_.fZ, cellX, cellZ) != 0;
+    city_->PositionToCell(currentCursorWorld_.fX, currentCursorWorld_.fZ, cellX, cellZ);
+    return city_->CellIsInBounds(cellX, cellZ);
 }
 
 void PropStripperInputControl::AppendCandidateProps_(std::vector<CollectedProp>& candidates, const SourceKind source) const {
