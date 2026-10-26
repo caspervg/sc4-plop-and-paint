@@ -21,7 +21,7 @@ Install SC4RenderServices first, then download `SC4PlopAndPaint-{version}-Setup.
 
 Dependencies:
 
-- SC4RenderServices v0.8.0 or newer (required): GitHub project `https://github.com/caspervg/sc4-render-services`
+- SC4RenderServices v0.8.1 or newer (required): GitHub project `https://github.com/caspervg/sc4-render-services`
 - SC4RenderServices download page: `https://community.simtropolis.com/files/file/37372-sc4-render-services/`
 - Visual C++ 2015-2022 Redistributable (x86, required for SimCity 4 / 32-bit): `https://aka.ms/vs/17/release/vc_redist.x86.exe`
 - The bundled cache builder is x64-only and requires 64-bit Windows. It has no runtime dependencies of its own.
