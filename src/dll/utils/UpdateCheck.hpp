@@ -2,7 +2,7 @@
 
 #include <string>
 
-// Asks GitHub whether a newer release is out, and tells the player in SC4's notification dialog.
+// Asks GitHub whether a newer release is out, and offers the player its download page in an SC4 dialog.
 namespace UpdateCheck
 {
     // Runs on its own thread, so a slow or missing connection never holds up the game.

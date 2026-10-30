@@ -5,6 +5,7 @@
 #include "utils/Logger.h"
 
 #include <Windows.h>
+#include <shellapi.h>
 #include <wininet.h>
 
 #include <array>
@@ -19,6 +20,7 @@ namespace
 
     std::mutex noticeMutex;
     std::string notice;
+    std::string releasesPage;
 
     std::string WithoutPrefix(std::string text)
     {
@@ -93,9 +95,9 @@ namespace
             return;
         }
         std::lock_guard lock(noticeMutex);
-        notice = product + " v" + newest + " is out.\nYou have v" + current + ". Get it from:\ngithub.com/" + repository +
-                 "/releases";
-        LOG_INFO("Update check: {}", notice);
+        notice = product + " v" + newest + " is out.\nYou have v" + current + ".";
+        releasesPage = "https://github.com/" + repository + "/releases";
+        LOG_INFO("Update check: {} v{} is out, you have v{}", product, newest, current);
     }
 }
 
@@ -106,15 +108,21 @@ void UpdateCheck::Start(const std::string& repository, const std::string& produc
 
 void UpdateCheck::ShowNotice()
 {
-    std::string text;
+    std::string text, url;
     {
         std::lock_guard lock(noticeMutex);
         text.swap(notice);
+        url.swap(releasesPage);
     }
     if (text.empty() || VersionDetection::GetInstance().GetGameVersion() != 641) {
         return;
     }
-    // SC4's own notification dialog, the one it uses for its game messages.
-    using ShowDialog = bool(__cdecl*)(const cIGZString& caption, const cIGZString& message);
-    reinterpret_cast<ShowDialog>(0x78DD80)(cRZBaseString("Update available"), cRZBaseString(text.c_str()));
+    // SC4's own two-button dialog. It waits for a click and returns true for the first button.
+    using ShowConfirmation = bool(__cdecl*)(const cIGZString& caption, const cIGZString& message,
+                                            const cIGZString* confirmLabel, const cIGZString* cancelLabel);
+    const cRZBaseString download("Download"), later("Later");
+    if (reinterpret_cast<ShowConfirmation>(0x78DFF0)(cRZBaseString("Update available"), cRZBaseString(text.c_str()),
+                                                     &download, &later)) {
+        ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
 }
