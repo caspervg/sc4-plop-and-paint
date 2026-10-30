@@ -95,7 +95,8 @@ namespace
             return;
         }
         std::lock_guard lock(noticeMutex);
-        notice = product + " v" + newest + " is out.\nYou have v" + current + ".";
+        notice = product + " v" + newest + " is out, you have v" + current +
+                 ".\nPlease update, as older versions are not supported.";
         releasesPage = "https://github.com/" + repository + "/releases";
         LOG_INFO("Update check: {} v{} is out, you have v{}", product, newest, current);
     }
