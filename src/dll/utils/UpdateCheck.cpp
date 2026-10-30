@@ -75,12 +75,30 @@ namespace
         return body.substr(open + 1, close - open - 1);
     }
 
+    std::string Today()
+    {
+        SYSTEMTIME time{};
+        GetLocalTime(&time);
+        char text[16];
+        sprintf_s(text, "%04u-%02u-%02u", time.wYear, time.wMonth, time.wDay);
+        return text;
+    }
+
     void Check(const std::string& repository, const std::string& product, const std::string& installedVersion)
     {
         const std::string current = WithoutPrefix(installedVersion);
         const std::optional<Version> installed = ParseVersion(current);
         if (!installed || *installed == Version{}) {
             LOG_INFO("Update check: skipped for a development build");
+            return;
+        }
+        // The day of the last answer from GitHub, so players see the notice at most once a day.
+        const std::string key = "Software\\" + product;
+        char checked[16]{};
+        DWORD size = sizeof(checked);
+        if (RegGetValueA(HKEY_CURRENT_USER, key.c_str(), "LastUpdateCheck", RRF_RT_REG_SZ, nullptr, checked, &size) ==
+                ERROR_SUCCESS && Today() == checked) {
+            LOG_INFO("Update check: already done today");
             return;
         }
         const std::optional<std::string> tag = LatestReleaseTag(repository, product + "/" + current);
@@ -90,6 +108,9 @@ namespace
             LOG_INFO("Update check: GitHub could not be reached");
             return;
         }
+        const std::string today = Today();
+        RegSetKeyValueA(HKEY_CURRENT_USER, key.c_str(), "LastUpdateCheck", REG_SZ, today.c_str(),
+                        static_cast<DWORD>(today.size() + 1));
         if (*latest <= *installed) {
             LOG_INFO("Update check: v{} is the latest release", current);
             return;
