@@ -52,6 +52,7 @@ class RecentSwapPanel;
 
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
+static constexpr uint32_t kSC4MessagePostRegionInit = 0xCBB5BB45;
 static constexpr uint32_t kToolTickServiceID = 0xCA5000F1;
 
 class SC4PlopAndPaintDirector final : public cRZMessage2COMDirector

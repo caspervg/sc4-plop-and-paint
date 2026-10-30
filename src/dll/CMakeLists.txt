@@ -34,8 +34,10 @@ add_subdirectory(${SC4RS_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/sc4-render-services E
 file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 set(SC4_DLL_DEF "${CMAKE_CURRENT_SOURCE_DIR}/SC4PlopAndPaint.def")
 
-add_library(${PROJECT_NAME} SHARED ${PROJECT_SOURCES} ${SC4_DLL_DEF})
-target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.rc.in ${CMAKE_CURRENT_BINARY_DIR}/version.rc @ONLY)
+
+add_library(${PROJECT_NAME} SHARED ${PROJECT_SOURCES} ${SC4_DLL_DEF} ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
+target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX SC4_PLOP_AND_PAINT_VERSION="${PROJECT_VERSION}")
 
 # Include paths required by the plugin
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -57,7 +59,7 @@ list(APPEND SC4_DLL_LINK_LIBS DBPFKitLib)
 
 # Core dependencies
 if(WIN32)
-    list(APPEND SC4_DLL_LINK_LIBS kernel32 user32 Version)
+    list(APPEND SC4_DLL_LINK_LIBS kernel32 user32 Version wininet)
 endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE ${SC4_DLL_LINK_LIBS})

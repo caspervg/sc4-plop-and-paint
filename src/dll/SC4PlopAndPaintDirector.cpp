@@ -32,6 +32,7 @@
 #include "props/PropStripperInputControl.hpp"
 #include "utils/Logger.h"
 #include "utils/Settings.h"
+#include "utils/UpdateCheck.hpp"
 
 namespace {
     constexpr auto kSC4AdvancedLotPlopDirectorID = 0xE5C2B9A7u;
@@ -193,10 +194,15 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
     LOG_INFO("Applied logging settings: level={}, file={}",
              spdlog::level::to_string_view(settings.GetLogLevel()), settings.GetLogToFile());
 
+    if (settings.GetCheckForUpdates()) {
+        UpdateCheck::Start("caspervg/sc4-plop-and-paint", "SC4PlopAndPaint", SC4_PLOP_AND_PAINT_VERSION);
+    }
+
     cIGZMessageServer2Ptr pMS2;
     if (pMS2) {
         pMS2->AddNotification(this, kSC4MessagePostCityInit);
         pMS2->AddNotification(this, kSC4MessagePreCityShutdown);
+        pMS2->AddNotification(this, kSC4MessagePostRegionInit);
         pMS2_ = pMS2;
         LOG_INFO("Registered for city messages");
     }
@@ -339,6 +345,7 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     if (pMS2_) {
         pMS2_->RemoveNotification(this, kSC4MessagePostCityInit);
         pMS2_->RemoveNotification(this, kSC4MessagePreCityShutdown);
+        pMS2_->RemoveNotification(this, kSC4MessagePostRegionInit);
         pMS2_.Reset();
     }
 
@@ -473,6 +480,8 @@ bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     case kSC4MessagePostCityInit: PostCityInit_(pStandardMsg);
         break;
     case kSC4MessagePreCityShutdown: PreCityShutdown_(pStandardMsg);
+        break;
+    case kSC4MessagePostRegionInit: UpdateCheck::ShowNotice();
         break;
     case kToggleLotPlopWindowShortcutID: ToggleLotPlopPanel_();
         break;
