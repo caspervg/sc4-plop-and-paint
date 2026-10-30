@@ -195,7 +195,7 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
              spdlog::level::to_string_view(settings.GetLogLevel()), settings.GetLogToFile());
 
     if (settings.GetCheckForUpdates()) {
-        UpdateCheck::Start("caspervg/sc4-plop-and-paint", "SC4 Plop and Paint", SC4_PLOP_AND_PAINT_VERSION);
+        UpdateCheck::Start("caspervg/sc4-plop-and-paint", "SC4PlopAndPaint", SC4_PLOP_AND_PAINT_VERSION);
     }
 
     cIGZMessageServer2Ptr pMS2;

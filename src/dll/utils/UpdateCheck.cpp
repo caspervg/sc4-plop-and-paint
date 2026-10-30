@@ -20,11 +20,16 @@ namespace
     std::mutex noticeMutex;
     std::string notice;
 
-    std::optional<Version> ParseVersion(std::string text)
+    std::string WithoutPrefix(std::string text)
     {
         if (text.starts_with('v')) {
             text.erase(0, 1);
         }
+        return text;
+    }
+
+    std::optional<Version> ParseVersion(const std::string& text)
+    {
         Version version{};
         if (sscanf_s(text.c_str(), "%d.%d.%d", &version[0], &version[1], &version[2]) != 3) {
             return std::nullopt;
@@ -70,23 +75,25 @@ namespace
 
     void Check(const std::string& repository, const std::string& product, const std::string& installedVersion)
     {
-        const std::optional<Version> installed = ParseVersion(installedVersion);
+        const std::string current = WithoutPrefix(installedVersion);
+        const std::optional<Version> installed = ParseVersion(current);
         if (!installed || *installed == Version{}) {
             LOG_INFO("Update check: skipped for a development build");
             return;
         }
-        const std::optional<std::string> tag = LatestReleaseTag(repository, product + "/" + installedVersion);
-        const std::optional<Version> latest = tag ? ParseVersion(*tag) : std::nullopt;
+        const std::optional<std::string> tag = LatestReleaseTag(repository, product + "/" + current);
+        const std::string newest = tag ? WithoutPrefix(*tag) : std::string();
+        const std::optional<Version> latest = ParseVersion(newest);
         if (!latest) {
             LOG_INFO("Update check: GitHub could not be reached");
             return;
         }
         if (*latest <= *installed) {
-            LOG_INFO("Update check: {} is the latest release", installedVersion);
+            LOG_INFO("Update check: v{} is the latest release", current);
             return;
         }
         std::lock_guard lock(noticeMutex);
-        notice = product + " " + tag->substr(tag->starts_with('v') ? 1 : 0) + " is out, you have " + installedVersion +
+        notice = product + " v" + newest + " is out, you have v" + current +
                  ".\nGet it from https://github.com/" + repository + "/releases";
         LOG_INFO("Update check: {}", notice);
     }
