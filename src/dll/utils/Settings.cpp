@@ -15,6 +15,7 @@
 namespace {
     constexpr spdlog::level::level_enum kDefaultLogLevel = spdlog::level::info;
     constexpr bool kDefaultLogToFile = true;
+    constexpr bool kDefaultCheckForUpdates = true;
     constexpr bool kDefaultEnableDrawOverlay = true;
     constexpr auto kDefaultPropPreviewMode = PreviewMode::Combined;
     constexpr bool kDefaultShowGridOverlay = true;
@@ -187,6 +188,7 @@ namespace {
 Settings::Settings()
     : logLevel_(kDefaultLogLevel)
     , logToFile_(kDefaultLogToFile)
+    , checkForUpdates_(kDefaultCheckForUpdates)
     , enableDrawOverlay_(kDefaultEnableDrawOverlay)
     , defaultPropPreviewMode_(kDefaultPropPreviewMode)
     , defaultShowGridOverlay_(kDefaultShowGridOverlay)
@@ -238,6 +240,18 @@ void Settings::Load(const std::filesystem::path& settingsFilePath) {
             if (!valid) {
                 logToFile_ = kDefaultLogToFile;
                 LOG_ERROR("Invalid LogToFile value '{}' in {}. Using default true.", text, settingsFilePath.string());
+            }
+        }
+
+        // CheckForUpdates
+        if (section.has("CheckForUpdates")) {
+            bool valid = false;
+            const std::string text = section.get("CheckForUpdates");
+            checkForUpdates_ = ParseBool(text, valid);
+            if (!valid) {
+                checkForUpdates_ = kDefaultCheckForUpdates;
+                LOG_ERROR("Invalid CheckForUpdates value '{}' in {}. Using default true.", text,
+                          settingsFilePath.string());
             }
         }
 
@@ -395,6 +409,7 @@ void Settings::Load(const std::filesystem::path& settingsFilePath) {
 
 spdlog::level::level_enum Settings::GetLogLevel() const noexcept { return logLevel_; }
 bool Settings::GetLogToFile() const noexcept { return logToFile_; }
+bool Settings::GetCheckForUpdates() const noexcept { return checkForUpdates_; }
 bool Settings::GetEnableDrawOverlay() const noexcept { return enableDrawOverlay_; }
 PreviewMode Settings::GetDefaultPropPreviewMode() const noexcept { return defaultPropPreviewMode_; }
 bool Settings::GetDefaultShowGridOverlay() const noexcept { return defaultShowGridOverlay_; }
