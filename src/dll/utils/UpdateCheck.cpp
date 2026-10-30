@@ -93,8 +93,8 @@ namespace
             return;
         }
         std::lock_guard lock(noticeMutex);
-        notice = product + " v" + newest + " is out, you have v" + current +
-                 ".\nGet it from https://github.com/" + repository + "/releases";
+        notice = product + " v" + newest + " is out.\nYou have v" + current + ". Get it from:\ngithub.com/" + repository +
+                 "/releases";
         LOG_INFO("Update check: {}", notice);
     }
 }
