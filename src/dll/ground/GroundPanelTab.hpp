@@ -33,8 +33,8 @@ private:
     void RenderToolRow_();
     // What to do next with the tool in use, from the city's input control.
     void RenderStatus_();
-    // Opacity, soft edge and wear, folded away by default.
-    void RenderFinish_(Ground::Look& look, float& wear, bool& changed, bool& committed);
+    // Opacity, soft edge, wear, rough edge (when roughness is given) and depth.
+    void RenderFinish_(Ground::Look& look, float& wear, float* roughness, bool& changed, bool& committed);
     void RenderGrid_();
     // What the look editor remembers between frames: Texture chosen while no texture is picked
     // yet, and the plain colour while a texture is in use. The look's colour is the paint colour
@@ -62,6 +62,10 @@ private:
     void RenderShapeSettings_();
     void RenderSelection_(Ground::GroundPaintDocument& document);
     void RenderSelectionActions_(Ground::GroundPaintDocument& document);
+    // Border, repeat and mirror for the selection.
+    void RenderShapeTools_(Ground::GroundPaintDocument& document, const std::vector<uint32_t>& selection);
+    // Fill the selected object with the last props or flora painted, or plant them along it.
+    void RenderPlanting_(uint32_t objectId);
     void RenderTransform_(Ground::GroundPaintDocument& document);
     void RenderLayers_(Ground::GroundPaintDocument& document);
     // Marks the tool settings changed; FlushSettings_ hands them to the city's tool, at most every
@@ -77,13 +81,26 @@ private:
     ThumbnailCache<uint32_t> thumbnails_{};
 
     Ground::ToolSettings settings_{};
+    // As the city's tool last got them.
+    Ground::ToolSettings pushedSettings_{};
     bool settingsDirty_ = false;
     std::chrono::steady_clock::time_point lastSettingsPush_{};
+    // When the selection's edit was last shown in the city with a new cut.
+    std::chrono::steady_clock::time_point lastLivePreview_{};
     bool stamping_ = false;
 
     // The selected object being edited, applied when a control is let go.
     uint32_t editingId_ = 0;
     Ground::PaintObject editing_{};
+
+    // Border, repeat and mirror settings; the repeat step is reset for each new selection.
+    float borderWidth_ = 1.0f;
+    Ground::BorderSide borderSide_ = Ground::BorderSide::Outside;
+    int repeatColumns_ = 3;
+    int repeatRows_ = 1;
+    Ground::Vec2 repeatStep_{};
+    uint32_t toolsFor_ = 0;
+    bool mirrorCopy_ = false;
 
     // Turning and scaling the selection: shown while a control is dragged, done when let go.
     float turnDegrees_ = 0.0f;

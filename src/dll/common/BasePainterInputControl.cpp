@@ -135,6 +135,11 @@ void BasePainterInputControl::Activate() {
         return;
     }
     TransitionTo_(typeToPaint_ != 0 ? ActiveStateForMode_(settings_.mode) : ControlState::ActiveNoTarget, "Activate");
+    if (pendingGroundShape_) {
+        const GroundShape shape = std::move(*pendingGroundShape_);
+        pendingGroundShape_.reset();
+        UseGroundShape(shape);
+    }
 }
 
 // The game also deactivates a control it covers, e.g. with its right-drag camera pan, and does
@@ -202,6 +207,52 @@ void BasePainterInputControl::SetOnCancel(std::function<void()> onCancel) {
 
 void BasePainterInputControl::SetOnQuickSwap(std::function<void(size_t)> onQuickSwap) {
     onQuickSwap_ = std::move(onQuickSwap);
+}
+
+void BasePainterInputControl::SetGroundShapeLookup(GroundShapeLookup lookup) {
+    groundShapeLookup_ = std::move(lookup);
+}
+
+bool BasePainterInputControl::UseGroundShape(const GroundShape& shape) {
+    if (state_ == ControlState::ReadyWithTarget &&
+        (settings_.mode == PaintMode::Line || settings_.mode == PaintMode::Polygon)) {
+        // Not on the view yet: taken once it is.
+        pendingGroundShape_ = shape;
+        return true;
+    }
+    const bool line = state_ == ControlState::ActiveLine;
+    if ((!line && state_ != ControlState::ActivePolygon) || shape.points.size() < (line ? 2u : 3u)) {
+        return false;
+    }
+    ClearCollectedPoints_();
+    cISTETerrain* terrain = GetTerrain_();
+    const auto add = [&](const Ground::Vec2 p) {
+        const float y = terrain ? SampleStableTerrainHeight(terrain, p.x, p.z) : 0.0f;
+        collectedPoints_.push_back({cS3DVector3(p.x, y, p.z), y, 0.0f});
+    };
+    for (const Ground::Vec2 p : shape.points) {
+        add(p);
+    }
+    if (line && shape.closed) {
+        add(shape.points.front());  // all the way round
+    }
+    if (!line) {
+        fillMask_ = shape.mask;
+        fillMaskBounds_ = Ground::BoundsOf(fillMask_);
+    }
+    polygonPreviewDirty_ = true;
+    RebuildPreviewOverlay_();
+    LOG_INFO("Took a sketch of {} points from painted ground", collectedPoints_.size());
+    return true;
+}
+
+bool BasePainterInputControl::OutsideFillMask_(const cS3DVector3& position) const {
+    const Ground::Vec2 p{position.fX, position.fZ};
+    return !fillMask_.empty() && (!Ground::Contains(fillMaskBounds_, p) || !Ground::Contains(fillMask_, p));
+}
+
+void BasePainterInputControl::DropFillMask_() {
+    fillMask_.clear();
 }
 
 bool BasePainterInputControl::HasPendingSketch() const {
@@ -451,6 +502,7 @@ bool BasePainterInputControl::HandleActiveMouseDownL_(const int32_t x, const int
                 terrainPos.fY + captureOffset,
                 captureOffset
             });
+            DropFillMask_();
         }
         if (state_ == ControlState::ActivePolygon) {
             polygonPreviewDirty_ = true;
@@ -498,6 +550,15 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         return true;
     }
 
+    if (vkCode == 'F' && groundShapeLookup_ && cursorValid_ &&
+        (state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon)) {
+        const bool along = state_ == ControlState::ActiveLine;
+        if (const auto shape = groundShapeLookup_({currentCursorWorld_.fX, currentCursorWorld_.fZ}, along)) {
+            UseGroundShape(*shape);
+        }
+        return true;
+    }
+
     if (vkCode == 'H' && state_ == ControlState::ActiveDirect && SupportsVerticalAdjustment_()) {
         CaptureDirectAbsoluteHeight_();
         SyncPreviewForState_();
@@ -517,6 +578,7 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
     if (vkCode == VK_BACK && (state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon)) {
         if (!collectedPoints_.empty()) {
             collectedPoints_.pop_back();
+            DropFillMask_();
             if (state_ == ControlState::ActivePolygon) {
                 polygonPreviewDirty_ = true;
             }
@@ -718,6 +780,7 @@ void BasePainterInputControl::SnapPlacementToGrid_(PlannedPaint& placement) cons
 
 void BasePainterInputControl::ClearCollectedPoints_() {
     collectedPoints_.clear();
+    DropFillMask_();
     cursorValid_ = false;
     cachedPolygonPlacements_.clear();
     polygonPreviewDirty_ = true;
@@ -968,6 +1031,9 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
     BeginUndoGroup_();
     size_t placedCount = 0;
     for (auto placement : placements) {
+        if (OutsideFillMask_(placement.position)) {
+            continue;
+        }
         placement.position.fY += GetActiveVerticalOffset_();
         SnapPlacementToGrid_(placement);
         if (PlaceAtWorld_(placement.position, placement.rotation, placement.itemId)) {
@@ -1114,6 +1180,9 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
             kMaxPreviewPlacements);
 
         for (const auto& placement : placements) {
+            if (OutsideFillMask_(placement.position)) {
+                continue;
+            }
             PaintOverlay::PreviewPlacement pp;
             pp.placement = placement;
             pp.placement.position.fY += GetActiveVerticalOffset_();

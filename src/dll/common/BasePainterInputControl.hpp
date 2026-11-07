@@ -1,10 +1,12 @@
 #pragma once
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "../../shared/entities.hpp"
+#include "../ground/GroundGeometry.hpp"
 #include "../paint/PaintOverlay.hpp"
 #include "../paint/PaintSettings.hpp"
 #include "cISC4City.h"
@@ -37,6 +39,21 @@ public:
     void SetCity(cISC4City* pCity);
     void SetOnCancel(std::function<void()> onCancel);
     void SetOnQuickSwap(std::function<void(size_t)> onQuickSwap);
+
+    // Painted ground as a sketch: Polygon mode fills it (mask: only there, so holes stay empty),
+    // Line mode plants along points.
+    struct GroundShape {
+        std::vector<Ground::Vec2> points;
+        bool closed = true;
+        Ground::Area mask{};
+    };
+    // Finds the painted ground at a point, as a sketch for Line mode (along) or Polygon mode.
+    using GroundShapeLookup = std::function<std::optional<GroundShape>(Ground::Vec2 point, bool along)>;
+    // F in Line or Polygon mode takes the shape of the painted ground under the cursor.
+    void SetGroundShapeLookup(GroundShapeLookup lookup);
+    // Makes the shape the sketch, as F does; false outside Line and Polygon mode.
+    bool UseGroundShape(const GroundShape& shape);
+    [[nodiscard]] bool CanUseGroundShapes() const { return static_cast<bool>(groundShapeLookup_); }
 
     [[nodiscard]] const PropPaintSettings& GetSettings() const { return settings_; }
     [[nodiscard]] bool HasPendingSketch() const;
@@ -204,6 +221,14 @@ private:
 
     std::function<void()> onCancel_{};
     std::function<void(size_t)> onQuickSwap_{};
+    GroundShapeLookup groundShapeLookup_{};
+    // From painted ground: placements outside it are left out. Clicking or removing a point by
+    // hand drops it, as the sketch is no longer that shape.
+    Ground::Area fillMask_{};
+    std::optional<GroundShape> pendingGroundShape_{};
+    Ground::Bounds fillMaskBounds_{};
+    [[nodiscard]] bool OutsideFillMask_(const cS3DVector3& position) const;
+    void DropFillMask_();
 
     struct UndoGroup {
         std::vector<cRZAutoRefCount<cISC4Occupant>> props;

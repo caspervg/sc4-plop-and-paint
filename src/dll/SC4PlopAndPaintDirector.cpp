@@ -623,6 +623,7 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
     propPainterControl_->SetOnQuickSwap(enableRecentPaints_ ? std::function<void(size_t)>([this](const size_t index) {
         ActivateRecentPaint(index);
     }) : std::function<void(size_t)>());
+    propPainterControl_->SetGroundShapeLookup(MakeGroundShapeLookup_());
     propPainterControl_->SetCity(pCity_);
     propPainterControl_->SetWindow(pView3D_->AsIGZWin());
     propPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
@@ -735,6 +736,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
     floraPlacerControl_->SetOnQuickSwap(enableRecentPaints_ ? std::function<void(size_t)>([this](const size_t index) {
         ActivateRecentPaint(index);
     }) : std::function<void(size_t)>());
+    floraPlacerControl_->SetGroundShapeLookup(MakeGroundShapeLookup_());
     floraPlacerControl_->SetCity(pCity_);
     floraPlacerControl_->SetWindow(pView3D_->AsIGZWin());
     floraPlacerControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
@@ -1843,6 +1845,53 @@ const GroundPainterInputControl* SC4PlopAndPaintDirector::GetGroundPainter() con
 
 GroundPainterInputControl* SC4PlopAndPaintDirector::GetGroundPainter() {
     return const_cast<GroundPainterInputControl*>(std::as_const(*this).GetGroundPainter());
+}
+
+std::optional<BasePainterInputControl::GroundShape> SC4PlopAndPaintDirector::GroundShapeOf_(const uint32_t objectId,
+                                                                                           const bool along) const {
+    const Ground::PaintObject* const object = groundDocument_ ? groundDocument_->Find(objectId) : nullptr;
+    if (!object) {
+        return std::nullopt;
+    }
+    const Ground::Area& area = groundDocument_->AreaOf(objectId);
+    Ground::PlantingOutline outline = Ground::PlantingOutlineOf(*object, area, along);
+    if (outline.points.size() < (along ? 2u : 3u)) {
+        return std::nullopt;
+    }
+    return BasePainterInputControl::GroundShape{std::move(outline.points), outline.closed, along ? Ground::Area{} : area};
+}
+
+BasePainterInputControl::GroundShapeLookup SC4PlopAndPaintDirector::MakeGroundShapeLookup_() const {
+    return [this](const Ground::Vec2 point, const bool along) -> std::optional<BasePainterInputControl::GroundShape> {
+        const auto hit = groundDocument_ ? groundDocument_->HitTest(point) : std::nullopt;
+        return hit ? GroundShapeOf_(*hit, along) : std::nullopt;
+    };
+}
+
+bool SC4PlopAndPaintDirector::PlantOnGround(const uint32_t objectId, const bool along) {
+    if (recentPaints_.Empty()) {
+        LOG_INFO("Nothing to plant on painted ground: no prop or flora painted yet");
+        return false;
+    }
+    const std::optional<BasePainterInputControl::GroundShape> shape = GroundShapeOf_(objectId, along);
+    if (!shape) {
+        return false;
+    }
+    const RecentPaintEntry entry = recentPaints_.Entries().front();
+    const bool prop = entry.kind == RecentPaintEntry::Kind::Prop;
+    // The settings the painter last had, in the mode the shape needs.
+    BasePainterInputControl* const control =
+        prop ? static_cast<BasePainterInputControl*>(propPainterControl_) : floraPlacerControl_;
+    PropPaintSettings settings = control ? control->GetSettings() : PropPaintSettings{};
+    settings.mode = along ? PaintMode::Line : PaintMode::Polygon;
+    settings.activePalette = entry.palette;
+    settings.randomSeed = 0;
+    const RecentPaintSource source{.sourceKind = entry.sourceKind, .sourceId = entry.sourceId};
+    const bool started = prop ? StartPropPainting(entry.typeId, settings, entry.name, source)
+                              : StartFloraPainting(entry.typeId, settings, entry.name, source);
+    BasePainterInputControl* const painter =
+        prop ? static_cast<BasePainterInputControl*>(propPainterControl_) : floraPlacerControl_;
+    return started && painter && painter->UseGroundShape(*shape);
 }
 
 namespace {

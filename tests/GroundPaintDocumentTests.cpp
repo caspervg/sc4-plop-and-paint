@@ -48,6 +48,7 @@ namespace {
             }
             it->second.ringCount = shape.ringCount;
             it->second.pointCount = Points(shape);
+            ++shapeSets;
             return true;
         }
         bool SetPaintStyle(const TerrainPaintId id, const TerrainPaintStyle* style, uint32_t) override {
@@ -71,6 +72,7 @@ namespace {
         std::map<uint32_t, Paint> paints;
         uint32_t nextId = 100;
         int creates = 0;
+        int shapeSets = 0;
 
     private:
         static uint32_t Points(const TerrainPaintShape& shape) {
@@ -239,6 +241,154 @@ int main() {
     CHECK(reloaded.Load(edits.Save()));
     CHECK(reloaded.Find(m)->shape.marking.kind == MarkingKind::Zebra);
     CHECK(std::abs(AreaOf(reloaded.AreaOf(m)) - AreaOf(edits.AreaOf(m))) < 1.0e-6);
+
+    // A change of look alone restyles the paint without cutting it again; a change of shape does.
+    {
+        GroundPaintDocument looks(kWhite);
+        looks.SetPaintService(&service);
+        const uint32_t id = looks.Add(Square(0, 0, 10));
+        PaintObject recoloured = *looks.Find(id);
+        recoloured.look.color = {0.2f, 0.4f, 0.6f};
+        recoloured.look.textureOffset = {3.0f, -2.0f};
+        recoloured.look.depthOffset = 5;
+        int shapeSets = service.shapeSets;
+        looks.Update({recoloured});
+        CHECK(service.shapeSets == shapeSets);
+        const TerrainPaintStyle& style = service.paints.at(looks.Find(id)->paintId).style;
+        CHECK(style.color.fY == 0.4f && style.textureOffsetX == 3.0f && style.textureOffsetZ == -2.0f &&
+              style.depthOffset == 5);
+        // Shown while a control is held, then put back.
+        recoloured.look.opacity = 0.5f;
+        looks.ShowChanged(recoloured);
+        CHECK(service.shapeSets == shapeSets && service.paints.at(looks.Find(id)->paintId).style.opacity == 0.5f);
+        looks.Select(id, false);
+        looks.ShowSelectionMoved({});
+        CHECK(service.paints.at(looks.Find(id)->paintId).style.opacity == 1.0f);
+        // Order changes restyle too.
+        looks.Add(Square(50, 0, 10));
+        shapeSets = service.shapeSets;
+        looks.MoveToTop(id);
+        CHECK(service.shapeSets == shapeSets);
+        CHECK(service.paints.at(looks.Find(id)->paintId).style.drawOrder == looks.Objects().back().drawOrder);
+        // Dragged, then let go: the move cuts it once, putting the selection back cuts nothing more.
+        looks.Select(id, false);
+        looks.ShowSelectionTransformed({.offset = {5.0f, 0.0f}});
+        CHECK(service.shapeSets == shapeSets + 1);
+        const uint32_t dragged[] = {id};
+        looks.Transform(dragged, {.offset = {5.0f, 0.0f}});
+        const int afterMove = service.shapeSets;
+        looks.ShowSelectionMoved({});
+        CHECK(service.shapeSets == afterMove);
+        shapeSets = afterMove;
+        PaintObject rough = *looks.Find(id);
+        rough.shape.roughness = 0.5f;
+        looks.Update({rough});
+        CHECK(service.shapeSets > shapeSets);
+        CHECK(std::abs(AreaOf(looks.AreaOf(id)) - 100.0) < 15.0);
+    }
+
+    // Texture patches: one terrain paint per texture, the later ones patches on the first.
+    {
+        GroundPaintDocument mixed(kWhite);
+        mixed.SetPaintService(&service);
+        PaintObject meadow = Square(0, 0, 64);
+        meadow.look.textures = {{0x1111, 1.0f}, {0x2222, 1.0f}, {0x3333, 1.0f}};
+        meadow.look.mix = TextureMix::Patches;
+        meadow.look.variationSeed = 7;
+        const size_t paintsBefore = service.paints.size();
+        const uint32_t id = mixed.Add(meadow);
+        const PaintObject& added = *mixed.Find(id);
+        CHECK(added.patchPaintIds.size() == 2 && service.paints.size() == paintsBefore + 3);
+        CHECK(service.paints.at(added.paintId).style.textureCount == 1 &&
+              service.paints.at(added.paintId).style.textures[0].key.instance == 0x1111);
+        const TerrainPaintStyle& patch = service.paints.at(added.patchPaintIds[1]).style;
+        CHECK(patch.textures[0].key.instance == 0x3333 && patch.featherMeters == meadow.look.patchBlendMeters);
+        CHECK(service.paints.at(added.patchPaintIds[0]).pointCount > 3);
+        // Moved: the patches go along; removed: all paints go.
+        const uint32_t ids[] = {id};
+        mixed.Transform(ids, {.offset = {100.0f, 0.0f}});
+        CHECK(mixed.Find(id)->patchPaintIds.size() == 2);
+        CHECK(mixed.Find(id)->shape.patternOrigin.x == 100.0f);
+        // Saved paints are kept by Restore.
+        const std::vector<char> bytes = mixed.Save();
+        GroundPaintDocument again(kWhite);
+        again.SetPaintService(&service);
+        CHECK(again.Load(bytes));
+        const int creates = service.creates;
+        again.Restore();
+        CHECK(service.creates == creates);
+        mixed.Remove(ids);
+        CHECK(service.paints.size() == paintsBefore);
+        CHECK(mixed.Undo() && service.paints.size() == paintsBefore + 3);
+        // Back to one texture: the patch paints go.
+        PaintObject plain = *mixed.Find(id);
+        plain.look.textures.resize(1);
+        mixed.Update({plain});
+        CHECK(mixed.Find(id)->patchPaintIds.empty() && service.paints.size() == paintsBefore + 1);
+    }
+
+    // Borders, repeats and mirrors.
+    {
+        GroundPaintDocument tools(kWhite);
+        tools.SetPaintService(&service);
+        const uint32_t square = tools.Add(Square(0, 0, 10));
+        const uint32_t ids[] = {square};
+        const uint32_t border = tools.AddBorder(ids, 1.0f, BorderSide::Outside);
+        CHECK(border != 0 && tools.Selection() == std::vector<uint32_t>{border});
+        CHECK(std::abs(AreaOf(tools.AreaOf(border)) - 44.0) < 0.05);
+        CHECK(tools.HitTest({-0.5f, 5}) == border && tools.HitTest({5, 5}) == square);
+        CHECK(tools.Undo() && !tools.Find(border));
+
+        tools.Repeat(ids, 3, 2, {20, 0}, {0, 20});
+        CHECK(tools.Objects().size() == 6 && tools.Selection().size() == 6);
+        CHECK(tools.HitTest({45, 25}) && tools.HitTest({45, 25}) != square);
+        CHECK(tools.Undo() && tools.Objects().size() == 1);
+
+        PaintObject l;
+        l.shape.kind = ShapeKind::Area;
+        l.shape.points = {{0, 0}, {4, 0}, {4, 1}, {1, 1}, {1, 3}, {0, 3}};
+        const uint32_t shapeL = tools.Add(l);
+        const uint32_t justL[] = {shapeL};
+        tools.Mirror(justL, {10, 0}, 1.5707964f, true);  // in the line x = 10, as a copy
+        CHECK(tools.Objects().size() == 3 && tools.Selection().size() == 1);
+        const uint32_t copyL = tools.Selection().front();
+        CHECK(tools.HitTest({19.5f, 2.5f}) == copyL && tools.HitTest({16.5f, 0.5f}) == copyL);
+        CHECK(std::abs(AreaOf(tools.AreaOf(copyL)) - 6.0) < 0.01);
+        tools.Mirror(justL, {10, 0}, 1.5707964f, false);  // in place
+        CHECK(tools.HitTest({19.5f, 2.5f}) == shapeL || tools.HitTest({19.5f, 2.5f}) == copyL);
+        CHECK(tools.BoundsOf(shapeL).min.x > 15.9f);
+
+        // A mirrored parking row keeps its bays on the mirrored side.
+        PaintObject row;
+        row.shape.kind = ShapeKind::Marking;
+        row.shape.marking.kind = MarkingKind::ParkingRow;
+        row.shape.points = {{0, 50}, {20, 50}};
+        const uint32_t parking = tools.Add(row);
+        const Bounds before = tools.BoundsOf(parking);
+        const uint32_t justRow[] = {parking};
+        tools.Mirror(justRow, {0, 50}, 0.0f, false);  // in the line z = 50
+        const Bounds after = tools.BoundsOf(parking);
+        CHECK(std::abs((before.min.z - 50) + (after.max.z - 50)) < 0.05);
+    }
+
+    // Outlines for the prop and flora painters: the biggest part, or the path of a line, thinned.
+    {
+        PaintObject ring = Square(0, 0, 40);
+        ring.erased = AreaFromOutline(std::vector<Vec2>{{10, 10}, {30, 10}, {30, 30}, {10, 30}});
+        ring.shape.roughness = 1.0f;
+        const Area area = BuildArea(ring);
+        const PlantingOutline fill = PlantingOutlineOf(ring, area, false, 64);
+        CHECK(fill.closed && fill.points.size() >= 3 && fill.points.size() <= 64);
+        CHECK(std::abs(AreaOf(AreaFromOutline(fill.points)) - 1600.0) < 200.0);
+        PaintObject line;
+        line.shape.kind = ShapeKind::Line;
+        line.shape.points = {{0, 0}, {50, 0}, {50, 50}};
+        line.shape.pathStyle = PathStyle::Curved;
+        const PlantingOutline along = PlantingOutlineOf(line, BuildArea(line), true, 32);
+        CHECK(!along.closed && along.points.size() <= 32);
+        CHECK(std::hypot(along.points.front().x, along.points.front().z) < 0.01f);
+        CHECK(std::hypot(along.points.back().x - 50, along.points.back().z - 50) < 0.01f);
+    }
 
     std::puts("ok");
     return 0;

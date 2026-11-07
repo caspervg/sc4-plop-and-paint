@@ -1,6 +1,7 @@
 #include "GroundGeometry.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -308,14 +309,345 @@ namespace Ground {
     }
 
     bool Contains(const Area& area, const Vec2 point) {
-        const PointD p(point.x, point.z);
+        // Crossings of a ray to +x, counted over all rings: the even-odd rule.
         bool inside = false;
         for (const Ring& ring : area) {
-            if (ring.size() >= 3 && PointInPolygon(p, ToPath(ring)) != PointInPolygonResult::IsOutside) {
-                inside = !inside;
+            const size_t n = ring.size();
+            if (n < 3) {
+                continue;
+            }
+            for (size_t i = 0, j = n - 1; i < n; j = i++) {
+                const Vec2 a = ring[i];
+                const Vec2 b = ring[j];
+                if ((a.z > point.z) != (b.z > point.z) &&
+                    point.x < (b.x - a.x) * (point.z - a.z) / (b.z - a.z) + a.x) {
+                    inside = !inside;
+                }
             }
         }
         return inside;
+    }
+
+    bool Overlaps(const Bounds& a, const Bounds& b) {
+        return a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.z <= b.max.z && b.min.z <= a.max.z;
+    }
+
+    bool Contains(const Bounds& bounds, const Vec2 point, const float margin) {
+        return point.x >= bounds.min.x - margin && point.x <= bounds.max.x + margin && point.z >= bounds.min.z - margin &&
+               point.z <= bounds.max.z + margin;
+    }
+
+    double PerimeterOf(const Area& area) {
+        double total = 0.0;
+        for (const Ring& ring : area) {
+            for (size_t i = 0; i < ring.size(); ++i) {
+                const Vec2 a = ring[i];
+                const Vec2 b = ring[(i + 1) % ring.size()];
+                total += std::hypot(b.x - a.x, b.z - a.z);
+            }
+        }
+        return total;
+    }
+
+    Area BorderOf(const Area& area, const float width, const BorderSide side) {
+        if (!(width > 0.0f) || area.empty()) {
+            return {};
+        }
+        const PathsD paths = Normalized(ToPaths(area));
+        // Mitred, so square corners stay square.
+        const auto grown = [&](const double distance) {
+            return Offset(paths, distance, JoinType::Miter, EndType::Polygon);
+        };
+        switch (side) {
+        case BorderSide::Outside:
+            return ToArea(Difference(grown(width), paths, FillRule::NonZero, kPrecision));
+        case BorderSide::Inside:
+            return ToArea(Difference(paths, grown(-width), FillRule::NonZero, kPrecision));
+        case BorderSide::Centred:
+            return ToArea(Difference(grown(width * 0.5), grown(-width * 0.5), FillRule::NonZero, kPrecision));
+        }
+        return {};
+    }
+
+    namespace {
+        uint32_t Hash(const int32_t x, const int32_t z, const uint32_t seed) {
+            uint32_t h = seed * 0x9E3779B1u;
+            h ^= static_cast<uint32_t>(x) * 0x85EBCA77u;
+            h = (h << 13) | (h >> 19);
+            h ^= static_cast<uint32_t>(z) * 0xC2B2AE3Du;
+            h ^= h >> 16;
+            h *= 0x7FEB352Du;
+            h ^= h >> 15;
+            h *= 0x846CA68Bu;
+            h ^= h >> 16;
+            return h;
+        }
+
+        // -1 to 1 at the lattice points, smoothly in between.
+        float ValueNoise(const float x, const float z, const uint32_t seed) {
+            const float fx = std::floor(x);
+            const float fz = std::floor(z);
+            const auto ix = static_cast<int32_t>(fx);
+            const auto iz = static_cast<int32_t>(fz);
+            const float tx = x - fx;
+            const float tz = z - fz;
+            const float sx = tx * tx * (3.0f - 2.0f * tx);
+            const float sz = tz * tz * (3.0f - 2.0f * tz);
+            const auto corner = [&](const int32_t dx, const int32_t dz) {
+                return static_cast<float>(Hash(ix + dx, iz + dz, seed) & 0xFFFFFFu) / 8388607.5f - 1.0f;
+            };
+            const float top = corner(0, 0) + (corner(1, 0) - corner(0, 0)) * sx;
+            const float bottom = corner(0, 1) + (corner(1, 1) - corner(0, 1)) * sx;
+            return top + (bottom - top) * sz;
+        }
+
+        // A pattern frame with its turn worked out once, for sampling many points.
+        class FrameSampler {
+        public:
+            FrameSampler(const PatternFrame& frame, const float featureSize)
+                : origin_(frame.origin)
+                , scale_(1.0f / std::max(0.05f, featureSize))
+                , c_(std::cos(frame.turnRadians) * scale_)
+                , s_(std::sin(frame.turnRadians) * scale_) {}
+
+            [[nodiscard]] float operator()(const Vec2 point, const uint32_t seed) const;
+
+        private:
+            Vec2 origin_;
+            float scale_;
+            float c_;
+            float s_;
+        };
+
+        // Three octaves, each half as strong and twice as fine.
+        float Fractal(const float x, const float z, const uint32_t seed) {
+            return (ValueNoise(x, z, seed) + 0.5f * ValueNoise(x * 2.03f + 17.1f, z * 2.03f - 3.7f, seed + 1) +
+                    0.25f * ValueNoise(x * 4.07f - 9.3f, z * 4.07f + 11.9f, seed + 2)) /
+                   1.75f;
+        }
+    }
+
+    float FrameSampler::operator()(const Vec2 point, const uint32_t seed) const {
+        const float dx = point.x - origin_.x;
+        const float dz = point.z - origin_.z;
+        return Fractal(c_ * dx + s_ * dz, -s_ * dx + c_ * dz, seed);
+    }
+
+    float PatternNoise(const Vec2 point, const PatternFrame& frame, const float featureSize, const uint32_t seed) {
+        return FrameSampler(frame, featureSize)(point, seed);
+    }
+
+    Area Roughened(const Area& area, const float amount, const PatternFrame& frame, const uint32_t seed) {
+        if (!(amount > 0.0f) || area.empty()) {
+            return area;
+        }
+        // Points about every quarter feature, but never so many that a big shape gets slow.
+        constexpr double kMaxPoints = 40000.0;
+        const float feature = amount * 3.0f;
+        const double perimeter = PerimeterOf(area);
+        const auto spacing = static_cast<float>(std::max<double>({0.15, feature * 0.25, perimeter / kMaxPoints}));
+
+        const FrameSampler noise(frame, feature);
+        PathsD rough;
+        rough.reserve(area.size());
+        for (const Ring& ring : area) {
+            PathD path;
+            for (size_t i = 0; i < ring.size(); ++i) {
+                const Vec2 a = ring[i];
+                const Vec2 b = ring[(i + 1) % ring.size()];
+                const int pieces = std::max(1, static_cast<int>(std::ceil(std::hypot(b.x - a.x, b.z - a.z) / spacing)));
+                for (int k = 0; k < pieces; ++k) {
+                    const float t = static_cast<float>(k) / static_cast<float>(pieces);
+                    const Vec2 p{a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t};
+                    // Two independent noises push the point sideways and along.
+                    path.emplace_back(p.x + amount * noise(p, seed), p.z + amount * noise(p, seed + 101));
+                }
+            }
+            if (path.size() >= 3) {
+                rough.push_back(std::move(path));
+            }
+        }
+        return ToArea(Normalized(rough));
+    }
+
+    Area PatchesOf(const Area& area, const float patchSize, const float coverage, const PatternFrame& frame,
+                   const uint32_t seed, const size_t maxCells) {
+        if (area.empty() || !(coverage > 0.0f)) {
+            return {};
+        }
+        if (coverage >= 1.0f) {
+            return area;
+        }
+        const Bounds bounds = BoundsOf(area);
+        const float width = bounds.max.x - bounds.min.x;
+        const float depth = bounds.max.z - bounds.min.z;
+        if (!(width > 0.0f) || !(depth > 0.0f)) {
+            return {};
+        }
+        // A sixth of a patch per cell draws its outline smoothly; big areas get coarser cells.
+        float cell = std::max(0.25f, patchSize / 6.0f);
+        const auto cellsFor = [&](const float size) {
+            return (static_cast<double>(std::ceil(width / size)) + 1.0) * (static_cast<double>(std::ceil(depth / size)) + 1.0);
+        };
+        while (cellsFor(cell) > static_cast<double>(std::max<size_t>(64, maxCells))) {
+            cell *= 1.25f;
+        }
+        const auto columns = static_cast<size_t>(std::ceil(width / cell)) + 1;
+        const auto rows = static_cast<size_t>(std::ceil(depth / cell)) + 1;
+        const auto at = [&](const size_t column, const size_t row) {
+            return Vec2{bounds.min.x + static_cast<float>(column) * cell, bounds.min.z + static_cast<float>(row) * cell};
+        };
+
+        const FrameSampler noise(frame, patchSize);
+        std::vector<float> values((columns + 1) * (rows + 1));
+        for (size_t row = 0; row <= rows; ++row) {
+            for (size_t column = 0; column <= columns; ++column) {
+                values[row * (columns + 1) + column] = noise(at(column, row), seed);
+            }
+        }
+        // The level above which the given share of the ground lies.
+        std::vector<float> sorted = values;
+        const auto nth = sorted.begin() + static_cast<std::ptrdiff_t>(
+                                              std::clamp((1.0f - coverage) * static_cast<float>(sorted.size() - 1), 0.0f,
+                                                         static_cast<float>(sorted.size() - 1)));
+        std::nth_element(sorted.begin(), nth, sorted.end());
+        const float level = *nth;
+
+        // Marching squares that links the crossings into closed outlines as it goes, so no union
+        // of thousands of cell pieces is needed. The grid gets a border below the level, so every
+        // outline closes.
+        const size_t stride = columns + 3;  // corners per padded row
+        const size_t height = rows + 3;
+        const auto padded = [&](const size_t column, const size_t row) {
+            if (column == 0 || row == 0 || column > columns + 1 || row > rows + 1) {
+                return level - 1.0f;
+            }
+            return values[(row - 1) * (columns + 1) + (column - 1)];
+        };
+        const auto corner = [&](const size_t column, const size_t row) {
+            return Vec2{bounds.min.x + (static_cast<float>(column) - 1.0f) * cell,
+                        bounds.min.z + (static_cast<float>(row) - 1.0f) * cell};
+        };
+        // Edges: 2 per corner, horizontal (to the right) and vertical (down).
+        const auto horizontal = [&](const size_t column, const size_t row) {
+            return static_cast<uint32_t>(2 * (row * stride + column));
+        };
+        const auto vertical = [&](const size_t column, const size_t row) {
+            return static_cast<uint32_t>(2 * (row * stride + column) + 1);
+        };
+        const auto crossing = [&](const uint32_t edge) {
+            const size_t index = edge / 2;
+            const size_t column = index % stride;
+            const size_t row = index / stride;
+            const size_t column2 = (edge & 1) ? column : column + 1;
+            const size_t row2 = (edge & 1) ? row + 1 : row;
+            const float v0 = padded(column, row);
+            const float v1 = padded(column2, row2);
+            const float t = std::clamp((level - v0) / (v1 - v0), 0.0f, 1.0f);
+            const Vec2 p = corner(column, row);
+            const Vec2 q = corner(column2, row2);
+            return PointD(p.x + (q.x - p.x) * t, p.z + (q.z - p.z) * t);
+        };
+
+        constexpr uint32_t kNone = UINT32_MAX;
+        std::vector<std::array<uint32_t, 2>> links(2 * stride * height, {kNone, kNone});
+        const auto link = [&](const uint32_t a, const uint32_t b) {
+            links[a][links[a][0] == kNone ? 0 : 1] = b;
+            links[b][links[b][0] == kNone ? 0 : 1] = a;
+        };
+        for (size_t row = 0; row + 1 < height; ++row) {
+            for (size_t column = 0; column + 1 < stride; ++column) {
+                const bool tl = padded(column, row) > level;
+                const bool tr = padded(column + 1, row) > level;
+                const bool br = padded(column + 1, row + 1) > level;
+                const bool bl = padded(column, row + 1) > level;
+                const int pattern = (tl ? 8 : 0) | (tr ? 4 : 0) | (br ? 2 : 0) | (bl ? 1 : 0);
+                if (pattern == 0 || pattern == 15) {
+                    continue;
+                }
+                const uint32_t top = horizontal(column, row);
+                const uint32_t bottom = horizontal(column, row + 1);
+                const uint32_t left = vertical(column, row);
+                const uint32_t right = vertical(column + 1, row);
+                switch (pattern) {
+                case 1: case 14: link(left, bottom); break;
+                case 2: case 13: link(bottom, right); break;
+                case 3: case 12: link(left, right); break;
+                case 4: case 11: link(top, right); break;
+                case 6: case 9: link(top, bottom); break;
+                case 7: case 8: link(left, top); break;
+                case 5: case 10: {
+                    // A saddle: the middle decides which corners join.
+                    const float middle = (padded(column, row) + padded(column + 1, row) + padded(column + 1, row + 1) +
+                                          padded(column, row + 1)) * 0.25f;
+                    if ((middle > level) == (pattern == 5)) {
+                        link(left, top);
+                        link(bottom, right);
+                    }
+                    else {
+                        link(left, bottom);
+                        link(top, right);
+                    }
+                    break;
+                }
+                default:
+                    break;
+                }
+            }
+        }
+
+        PathsD outlines;
+        std::vector<bool> used(links.size(), false);
+        for (uint32_t start = 0; start < links.size(); ++start) {
+            if (used[start] || links[start][0] == kNone) {
+                continue;
+            }
+            PathD outline;
+            uint32_t previous = kNone;
+            uint32_t current = start;
+            while (current != kNone && !used[current]) {
+                used[current] = true;
+                outline.push_back(crossing(current));
+                const uint32_t next = links[current][0] != previous ? links[current][0] : links[current][1];
+                previous = current;
+                current = next;
+            }
+            if (outline.size() >= 3) {
+                outlines.push_back(std::move(outline));
+            }
+        }
+        // Outlines never cross, so even-odd reads them right whichever way round they go.
+        const PathsD simple = SimplifyPaths(outlines, cell * 0.05, true);
+        return ToArea(Clipper2Lib::Intersect(simple, Normalized(ToPaths(area)), FillRule::EvenOdd, kPrecision));
+    }
+
+    Vec2 NearestOnSegment(const Vec2 p, const Vec2 a, const Vec2 b) {
+        const float dx = b.x - a.x;
+        const float dz = b.z - a.z;
+        const float lengthSquared = dx * dx + dz * dz;
+        const float t =
+            lengthSquared > 0.0f ? std::clamp(((p.x - a.x) * dx + (p.z - a.z) * dz) / lengthSquared, 0.0f, 1.0f) : 0.0f;
+        return {a.x + t * dx, a.z + t * dz};
+    }
+
+    Vec2 MirroredPoint(const Vec2 point, const Vec2 pivot, const float axisRadians) {
+        const float c = std::cos(2.0f * axisRadians);
+        const float s = std::sin(2.0f * axisRadians);
+        const float dx = point.x - pivot.x;
+        const float dz = point.z - pivot.z;
+        return {pivot.x + c * dx + s * dz, pivot.z + s * dx - c * dz};
+    }
+
+    Area Mirrored(const Area& area, const Vec2 pivot, const float axisRadians) {
+        Area result = area;
+        for (Ring& ring : result) {
+            for (Vec2& p : ring) {
+                p = MirroredPoint(p, pivot, axisRadians);
+            }
+            // A mirror turns the rings round; keep them the way the rest of the code makes them.
+            std::ranges::reverse(ring);
+        }
+        return result;
     }
 
     bool IsEmpty(const Area& area) {

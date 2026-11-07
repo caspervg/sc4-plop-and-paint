@@ -7,6 +7,7 @@
 
 #include "../paint/PaintOverlay.hpp"
 #include "GroundPaintDocument.hpp"
+#include "GroundSnapping.hpp"
 #include "GroundToolSettings.hpp"
 #include "cISC4City.h"
 #include "cRZAutoRefCount.h"
@@ -53,6 +54,8 @@ public:
     [[nodiscard]] bool IsDrawing() const { return !anchors_.empty() || strokeActive_; }
     // What to do next with the current tool, for the panel: one or two short sentences.
     [[nodiscard]] std::string StatusText() const;
+    // Lengths, turns and areas of what is being drawn or is selected; empty when there are none.
+    [[nodiscard]] const std::string& MeasureText() const;
 
     // The next click on painted ground copies its look (and wear) into the tool's settings
     // instead of painting. Alt+click does the same without arming it.
@@ -64,6 +67,16 @@ public:
 
 private:
     bool UpdateCursor_(int32_t screenX, int32_t screenZ);
+    // Whether clicks place points that should snap: shapes drawn by clicking, and dragged points.
+    [[nodiscard]] bool SnapsPoints_() const;
+    // The point the next one is measured and lined up from, if any.
+    [[nodiscard]] std::optional<Ground::Vec2> LastPoint_() const;
+    // Moves cursor_ onto what is painted, a 15 degree step (Shift) or the grid, and remembers what
+    // it snapped to for the preview.
+    void SnapCursor_(int32_t screenX, int32_t screenZ);
+    // Makes the snap index again if the painting changed since it was made.
+    void UpdateSnapIndex_();
+    void UpdateMeasure_();
     void Commit_();
     void CancelShape_();
     void FinishStroke_();
@@ -75,6 +88,13 @@ private:
     [[nodiscard]] const Ground::PaintObject* PointEditTarget_() const;
     bool StartPointEdit_(bool insert, bool remove);
     void FinishPointDrag_();
+    // Shift+drag in Select: moves the flat textures of the selection, not the shapes.
+    bool StartTextureDrag_();
+    void FinishTextureDrag_();
+    // The selection with its textures moved as far as the mouse since the drag started.
+    [[nodiscard]] std::vector<Ground::PaintObject> TextureDragged_() const;
+    // Joins a brush stroke to the topmost brush paint painted the same way that it overlaps.
+    bool JoinStroke_(const Ground::PaintObject& stroke);
     [[nodiscard]] size_t MarkingMaxPoints_() const;
     [[nodiscard]] bool UsesBrush_() const;
     void Undo_();
@@ -90,6 +110,22 @@ private:
     // Shows what mouse moves since the last tick changed.
     void ShowMove_();
     [[nodiscard]] cISTETerrain* Terrain_() const;
+
+    // Snapping: the index of what is painted and the revision it was made for, the object left
+    // out of it (whose point is being dragged), what the cursor snapped to, how far a snap
+    // reaches (a few pixels, in metres at the current zoom), and the direction of the last edge
+    // snapped to, to line up with.
+    Ground::SnapIndex snapIndex_{};
+    uint64_t snapRevision_ = 0;
+    uint32_t snapLeftOut_ = 0;
+    std::optional<Ground::SnapResult> snap_{};
+    float snapReach_ = 1.5f;
+    std::optional<Ground::Vec2> alignDirection_{};
+    std::string measure_{};
+    // The selection's measure, worked out again only when it or the painting changes.
+    mutable std::string selectionMeasure_{};
+    mutable uint32_t selectionMeasureId_ = 0;
+    mutable uint64_t selectionMeasureRevision_ = 0;
 
     cRZAutoRefCount<cISC4City> city_{};
     Ground::GroundPaintDocument* document_ = nullptr;
@@ -110,8 +146,9 @@ private:
     // Freehand lines, brush and eraser strokes while the left button is down.
     bool strokeActive_ = false;
     std::vector<Ground::Vec2> stroke_{};
-    // Moving the selection.
+    // Moving the selection, or its textures.
     bool dragging_ = false;
+    bool textureDrag_ = false;
     Ground::Vec2 dragStart_{};
     // Dragging one point of the selected object: which, and the object as it is being changed.
     std::optional<size_t> pointDrag_{};

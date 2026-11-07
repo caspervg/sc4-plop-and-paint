@@ -35,13 +35,21 @@ namespace Ground {
         float dashLength = 0.0f;
         float gapLength = 0.0f;
         float brushRadius = 4.0f;
+        // A brush stroke that overlaps one painted the same way becomes part of it.
+        bool joinBrushStrokes = true;
         bool eraseWithBrush = true;
         MarkingSpec marking{.lineWidth = 0.3f};
         float wear = 0.0f;
+        float roughness = 0.0f;
         Look look{};
+        // Snap points to what is already painted: its corners, the middles of its sides, its
+        // edges, and lines parallel or square to them (M).
+        bool snapToPaint = true;
         // The grid, as the other painters have it.
         bool showGrid = true;
         bool snapPointsToGrid = false;
         float gridStepMeters = 16.0f;
+
+        bool operator==(const ToolSettings&) const = default;
     };
 }

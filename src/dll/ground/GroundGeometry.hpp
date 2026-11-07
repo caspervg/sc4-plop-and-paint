@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -72,6 +74,7 @@ namespace Ground {
     [[nodiscard]] Area Grow(const Area& area, float distance);
 
     [[nodiscard]] double AreaOf(const Area& area);
+    // Even-odd, without copying the rings: cheap enough to call for every mouse move.
     [[nodiscard]] bool Contains(const Area& area, Vec2 point);
     [[nodiscard]] bool IsEmpty(const Area& area);
 
@@ -80,5 +83,43 @@ namespace Ground {
         Vec2 max{};
     };
     [[nodiscard]] Bounds BoundsOf(const Area& area);
+    [[nodiscard]] bool Overlaps(const Bounds& a, const Bounds& b);
+    [[nodiscard]] bool Contains(const Bounds& bounds, Vec2 point, float margin = 0.0f);
     [[nodiscard]] Area Transformed(const Area& area, Vec2 pivot, float rotationRadians, float scale, Vec2 offset);
+    // The area mirrored in the line through pivot at angle (radians) to the x axis.
+    [[nodiscard]] Area Mirrored(const Area& area, Vec2 pivot, float axisRadians);
+    [[nodiscard]] Vec2 MirroredPoint(Vec2 point, Vec2 pivot, float axisRadians);
+
+    // How long the rings are, all together.
+    [[nodiscard]] double PerimeterOf(const Area& area);
+
+    // A band along the area's edge, width wide: outside it, inside it, or half and half.
+    enum class BorderSide : uint8_t {
+        Outside,
+        Inside,
+        Centred,
+    };
+    [[nodiscard]] Area BorderOf(const Area& area, float width, BorderSide side);
+
+    // Patterns that move, turn and scale with what they are drawn on: noise is read in this frame.
+    struct PatternFrame {
+        Vec2 origin{};
+        float turnRadians = 0.0f;
+    };
+
+    // Smooth noise, about -1 to 1, with detail about every featureSize metres. The same for the
+    // same seed and point.
+    [[nodiscard]] float PatternNoise(Vec2 point, const PatternFrame& frame, float featureSize, uint32_t seed);
+
+    // The area with a natural, rough outline: the edge wanders up to about amount metres either way.
+    [[nodiscard]] Area Roughened(const Area& area, float amount, const PatternFrame& frame, uint32_t seed);
+
+    // Soft-edged patches of the area that cover about coverage (0 to 1) of it, each about
+    // patchSize across. Noise is sampled on a grid of at most maxCells cells, so a big area
+    // gets coarser patches rather than a slow cut.
+    [[nodiscard]] Area PatchesOf(const Area& area, float patchSize, float coverage, const PatternFrame& frame,
+                                 uint32_t seed, size_t maxCells);
+
+    // The point of a segment nearest to p.
+    [[nodiscard]] Vec2 NearestOnSegment(Vec2 p, Vec2 a, Vec2 b);
 }

@@ -70,6 +70,8 @@ namespace Ground {
         std::string text{};
         float textHeight = 1.5f;     // capital height
         float letterSpacing = 0.1f;  // extra space between letters, as a share of the height
+
+        bool operator==(const MarkingSpec&) const = default;
     };
 
     struct MarkingPoints {

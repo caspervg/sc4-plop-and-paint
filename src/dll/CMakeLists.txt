@@ -153,6 +153,15 @@ target_include_directories(GroundMarkingsTests PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 target_link_libraries(GroundMarkingsTests PRIVATE Clipper2::Clipper2 tinysplinecxx::tinysplinecxx)
 add_test(NAME GroundMarkingsTests COMMAND GroundMarkingsTests)
 
+add_executable(GroundSnappingTests
+    ${CMAKE_SOURCE_DIR}/tests/GroundSnappingTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundGeometry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundSnapping.cpp
+)
+target_include_directories(GroundSnappingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(GroundSnappingTests PRIVATE Clipper2::Clipper2 tinysplinecxx::tinysplinecxx)
+add_test(NAME GroundSnappingTests COMMAND GroundSnappingTests)
+
 add_executable(GroundPaintDocumentTests
     ${CMAKE_SOURCE_DIR}/tests/GroundPaintDocumentTests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundGeometry.cpp
