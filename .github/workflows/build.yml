@@ -412,6 +412,15 @@ jobs:
             dist-linux/SC4PlopAndPaintCacheBuilder-linux.spdx.json
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # The action publishes prereleases before uploading assets, which immutable releases reject.
+          # Keep them as drafts and publish below once the assets are in.
+          draft: ${{ contains(github.ref_name, '-') }}
+
+      - name: Publish prerelease
+        if: contains(github.ref_name, '-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
 
   # Points the sc4pac package at the new release on a branch of caspervg/simtropolis-channel, and
   # links to a prefilled pull request in the job summary.
