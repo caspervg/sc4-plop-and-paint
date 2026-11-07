@@ -9,7 +9,7 @@ GAME_DIR=""           # SimCity 4 game folder, the one that contains Apps
 PLUGINS_DIR=""        # Your Documents/SimCity 4/Plugins folder, where the cache is written
 WINE_PREFIX=""        # Wine prefix SimCity 4 runs in, used to detect the two folders above
 LOCALE="English"      # Locale folder under the game folder
-THUMBNAIL_SIZE=44     # 22-176; keep in sync with ThumbnailDisplaySize in SC4PlopAndPaint.ini
+THUMBNAIL_SIZE=132    # 22-220; the plugin scales it down to ThumbnailDisplaySize in SC4PlopAndPaint.ini
 RENDER_THUMBNAILS=0   # 1 renders 3D thumbnails for items without an icon (slower, needs a desktop session)
 
 set -uo pipefail

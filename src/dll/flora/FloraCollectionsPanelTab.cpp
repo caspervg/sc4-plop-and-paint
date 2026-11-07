@@ -129,6 +129,7 @@ void FloraCollectionsPanelTab::OnRender() {
 void FloraCollectionsPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
     if (deviceGeneration != lastDeviceGeneration_) {
         thumbnailCache_.OnDeviceReset();
+        previewCache_.OnDeviceReset();
         lastDeviceGeneration_ = deviceGeneration;
     }
 }
@@ -139,7 +140,7 @@ ImGuiTexture FloraCollectionsPanelTab::LoadFloraTexture_(const uint64_t key) con
         return texture;
     }
 
-    auto data = flora_->GetFloraThumbnailStore().LoadThumbnail(key);
+    auto data = flora_->GetFloraThumbnailStore().LoadThumbnail(key, static_cast<uint32_t>(UI::kIconSize));
     if (!data.has_value()) {
         return texture;
     }
@@ -309,7 +310,7 @@ void FloraCollectionsPanelTab::RenderSelectedCollectionPanel_(const std::vector<
                     thumbnailCache_.Request(key);
                 }
                 auto thumbId = thumbnailCache_.Get(key);
-                RenderThumbnail_(thumbId);
+                RenderThumbnailWithPreview_(thumbId, flora_->GetFloraThumbnailStore(), key);
             }
             else {
                 RenderThumbnail_(std::nullopt);

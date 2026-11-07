@@ -27,10 +27,14 @@ public:
     [[nodiscard]] const char* GetTabName() const override;
     void OnRender() override;
     void OnDeviceReset(uint32_t deviceGeneration) override;
-    void OnShutdown() override { thumbnailCache_.Clear(); }
+    void OnShutdown() override {
+        thumbnailCache_.Clear();
+        previewCache_.Clear();
+    }
 
 private:
     ImGuiTexture LoadPropTexture_(uint64_t propKey) const;
+    void RenderMemberGrid_(const PropFamily& family, bool isAuto, size_t userIndex);
     void RenderNewFamilyPopup_();
     void RenderDeleteFamilyPopup_(size_t userFamilyIndex);
     void QueuePaintForSelectedFamily_();

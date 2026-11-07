@@ -64,7 +64,7 @@ constexpr auto kPropRandomChance = "Prop Random Chance";
 constexpr auto kLotObjectIndexType = 0; // Rep 1: Object type (0 = building, 1 = prop, etc.)
 constexpr auto kLotObjectIndexObjectID = 11; // Rep 12: ObjectID (0xABBBBCCC format)
 constexpr auto kLotObjectIndexIID = 12; // Rep 13: IID (building exemplar) or Family ID (for growables)
-constexpr auto kDefaultThumbnailSize = 44u;
+constexpr auto kDefaultThumbnailSize = 132u;
 
 enum class ExemplarType {
     Building, // Exemplar Type 0x02

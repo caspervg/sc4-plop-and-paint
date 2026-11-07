@@ -3,6 +3,7 @@
 #include "SC4PlopAndPaintDirector.hpp"
 
 #include <cIGZFrameWork.h>
+#include <utility>
 #include <cstdio>
 #include <wil/resource.h>
 #include <wil/win32_helpers.h>
@@ -12,6 +13,8 @@
 #include "cIGZPersistResourceManager.h"
 #include "cIGZWinKeyAccelerator.h"
 #include "cIGZWinKeyAcceleratorRes.h"
+#include "cISC4DBSegment.h"
+#include "public/cIGZTerrainPaintService.h"
 #include "cRZBaseVariant.h"
 #include "PlopAndPaintPanel.hpp"
 #include "common/Constants.hpp"
@@ -21,6 +24,7 @@
 #include "decals/DecalRepository.hpp"
 #include "decals/DecalStripperInputControl.hpp"
 #include "flora/FloraRepository.hpp"
+#include "ground/GroundPaintRecord.hpp"
 #include "lots/LotRepository.hpp"
 #include "paint/RecentSwapPanel.hpp"
 #include "pick/DecalPickStrategy.hpp"
@@ -203,6 +207,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         pMS2->AddNotification(this, kSC4MessagePostCityInit);
         pMS2->AddNotification(this, kSC4MessagePreCityShutdown);
         pMS2->AddNotification(this, kSC4MessagePostRegionInit);
+        pMS2->AddNotification(this, kSC4MessageLoad);
+        pMS2->AddNotification(this, kSC4MessageSave);
         pMS2_ = pMS2;
         LOG_INFO("Registered for city messages");
     }
@@ -238,7 +244,9 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         propRepository_      = std::make_unique<PropRepository>();
         floraRepository_     = std::make_unique<FloraRepository>();
         favoritesRepository_ = std::make_unique<FavoritesRepository>(*propRepository_);
-        decalRepository_     = std::make_unique<DecalRepository>();
+        packCatalog_         = std::make_unique<PackCatalogRepository>();
+        packCatalog_->Load();
+        decalRepository_     = std::make_unique<DecalRepository>(packCatalog_.get());
 
         if (mpFrameWork->GetSystemService(kTerrainDecalServiceID, GZIID_cIGZTerrainDecalService,
                                           reinterpret_cast<void**>(&terrainDecalService_))) {
@@ -246,6 +254,19 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         }
         else {
             LOG_WARN("Terrain decal service not available — decal painting disabled");
+        }
+
+        // Ground paint keeps its objects even without the paint service, so a city saved with
+        // them does not lose them; they are just not drawn.
+        groundDocument_ = std::make_unique<Ground::GroundPaintDocument>(Ground::kWhiteTextureInstance);
+        if (terrainDecalService_ &&
+            terrainDecalService_->QueryInterface(GZIID_cIGZTerrainPaintService,
+                                                 reinterpret_cast<void**>(&terrainPaintService_))) {
+            groundDocument_->SetPaintService(terrainPaintService_);
+            LOG_INFO("Acquired terrain paint service");
+        }
+        else {
+            LOG_WARN("Terrain paint not available (SC4RenderServices too old?) — ground painting disabled");
         }
 
         lotRepository_->Load();
@@ -271,7 +292,6 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
 
         if (imguiService_->RegisterPanel(desc)) {
             panelRegistered_ = true;
-            panelVisible_ = false;
             panel_->SetOpen(false);
             LOG_INFO("Registered ImGui panel");
         }
@@ -346,6 +366,8 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
         pMS2_->RemoveNotification(this, kSC4MessagePostCityInit);
         pMS2_->RemoveNotification(this, kSC4MessagePreCityShutdown);
         pMS2_->RemoveNotification(this, kSC4MessagePostRegionInit);
+        pMS2_->RemoveNotification(this, kSC4MessageLoad);
+        pMS2_->RemoveNotification(this, kSC4MessageSave);
         pMS2_.Reset();
     }
 
@@ -377,6 +399,14 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
         decalPainterControl_->SetCity(nullptr);
         decalPainterControl_->Shutdown();
         decalPainterControl_.Reset();
+    }
+
+    if (groundPainterControl_) {
+        StopGroundPainting();
+        groundPainterControl_->SetCity(nullptr);
+        groundPainterControl_->SetDocument(nullptr);
+        groundPainterControl_->Shutdown();
+        groundPainterControl_.Reset();
     }
 
     if (propStripperControl_) {
@@ -440,6 +470,7 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     propRepository_.reset();
     lotRepository_.reset();
     decalRepository_.reset();
+    packCatalog_.reset();
 
     if (toolTickServiceRegistered_ && mpFrameWork) {
         mpFrameWork->RemoveFromTick(&toolTickService_);
@@ -456,6 +487,15 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     if (worldDrawService_) {
         worldDrawService_->Release();
         worldDrawService_ = nullptr;
+    }
+
+    if (groundDocument_) {
+        groundDocument_->SetPaintService(nullptr);
+        groundDocument_.reset();
+    }
+    if (terrainPaintService_) {
+        terrainPaintService_->Release();
+        terrainPaintService_ = nullptr;
     }
 
     if (terrainDecalService_) {
@@ -482,6 +522,10 @@ bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     case kSC4MessagePreCityShutdown: PreCityShutdown_(pStandardMsg);
         break;
     case kSC4MessagePostRegionInit: UpdateCheck::ShowNotice();
+        break;
+    case kSC4MessageLoad: LoadCity_(pStandardMsg);
+        break;
+    case kSC4MessageSave: SaveCity_(pStandardMsg);
         break;
     case kToggleLotPlopWindowShortcutID: ToggleLotPlopPanel_();
         break;
@@ -566,7 +610,7 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
 
     const bool reusingActivePropControl =
         propPainting_ && propPainterControl_ &&
-        pView3D_ && pView3D_->GetCurrentViewInputControl() == propPainterControl_;
+        pView3D_ && RaiseToTop_(propPainterControl_, propPainterControl_->IsActive());
 
     if (reusingActivePropControl) {
         if (propPainterControl_->HasPendingSketch()) {
@@ -595,9 +639,10 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
 
     propPainterControl_->SetPropToPaint(propId, normalizedSettings, name);
     if (!reusingActivePropControl) {
-        if (!pView3D_->SetCurrentViewInputControl(
-            propPainterControl_,
-            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        if (!RaiseToTop_(propPainterControl_, propPainterControl_->IsActive()) &&
+            !pView3D_->SetCurrentViewInputControl(
+                propPainterControl_,
+                cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
             LOG_WARN("Failed to set prop painter as current view input control");
             UpdatePaintPanels_();
             return false;
@@ -634,7 +679,7 @@ void SC4PlopAndPaintDirector::StopPropPainting() {
     }
 
     if (pView3D_ && propPainterControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == propPainterControl_) {
+        if (RaiseToTop_(propPainterControl_, propPainterControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -677,7 +722,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
 
     const bool reusingActiveFloraControl =
         floraPainting_ && floraPlacerControl_ &&
-        pView3D_ && pView3D_->GetCurrentViewInputControl() == floraPlacerControl_;
+        pView3D_ && RaiseToTop_(floraPlacerControl_, floraPlacerControl_->IsActive());
 
     if (reusingActiveFloraControl) {
         if (floraPlacerControl_->HasPendingSketch()) {
@@ -706,9 +751,10 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
 
     floraPlacerControl_->SetFloraToPaint(floraTypeId, normalizedSettings, name);
     if (!reusingActiveFloraControl) {
-        if (!pView3D_->SetCurrentViewInputControl(
-            floraPlacerControl_,
-            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        if (!RaiseToTop_(floraPlacerControl_, floraPlacerControl_->IsActive()) &&
+            !pView3D_->SetCurrentViewInputControl(
+                floraPlacerControl_,
+                cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
             LOG_WARN("Failed to set flora placer as current view input control");
             UpdatePaintPanels_();
             return false;
@@ -731,7 +777,7 @@ void SC4PlopAndPaintDirector::StopFloraPainting() {
     }
 
     if (pView3D_ && floraPlacerControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == floraPlacerControl_) {
+        if (RaiseToTop_(floraPlacerControl_, floraPlacerControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -779,9 +825,10 @@ bool SC4PlopAndPaintDirector::StartFloraStripping() {
         LOG_INFO("Stopped flora stripping");
     });
 
-    if (!pView3D_->SetCurrentViewInputControl(
-        floraStripperControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!RaiseToTop_(floraStripperControl_, floraStripperControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            floraStripperControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set flora stripper as current view input control");
         UpdatePaintPanels_();
         return false;
@@ -794,7 +841,7 @@ bool SC4PlopAndPaintDirector::StartFloraStripping() {
 
 void SC4PlopAndPaintDirector::StopFloraStripping() {
     if (pView3D_ && floraStripperControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == floraStripperControl_) {
+        if (RaiseToTop_(floraStripperControl_, floraStripperControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -841,7 +888,7 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
 
     const bool reusingActiveDecalControl =
         decalPainting_ && decalPainterControl_ &&
-        pView3D_ && pView3D_->GetCurrentViewInputControl() == decalPainterControl_;
+        pView3D_ && RaiseToTop_(decalPainterControl_, decalPainterControl_->IsActive());
 
     if (reusingActiveDecalControl) {
         if (decalPainterControl_->HasPendingSketch()) {
@@ -869,9 +916,10 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
     decalPainterControl_->SetDecalToPaint(instanceId, effectiveSettings, name);
 
     if (!reusingActiveDecalControl) {
-        if (!pView3D_->SetCurrentViewInputControl(
-            decalPainterControl_,
-            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        if (!RaiseToTop_(decalPainterControl_, decalPainterControl_->IsActive()) &&
+            !pView3D_->SetCurrentViewInputControl(
+                decalPainterControl_,
+                cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
             LOG_WARN("Failed to set decal painter as current view input control");
             UpdatePaintPanels_();
             return false;
@@ -892,7 +940,7 @@ void SC4PlopAndPaintDirector::StopDecalPainting() {
     }
 
     if (pView3D_ && decalPainterControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == decalPainterControl_) {
+        if (RaiseToTop_(decalPainterControl_, decalPainterControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -946,9 +994,10 @@ bool SC4PlopAndPaintDirector::StartDecalStripping() {
         LOG_INFO("Stopped decal stripping");
     });
 
-    if (!pView3D_->SetCurrentViewInputControl(
-        decalStripperControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!RaiseToTop_(decalStripperControl_, decalStripperControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            decalStripperControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set decal stripper as current view input control");
         UpdatePaintPanels_();
         return false;
@@ -961,7 +1010,7 @@ bool SC4PlopAndPaintDirector::StartDecalStripping() {
 
 void SC4PlopAndPaintDirector::StopDecalStripping() {
     if (pView3D_ && decalStripperControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == decalStripperControl_) {
+        if (RaiseToTop_(decalStripperControl_, decalStripperControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -992,7 +1041,7 @@ bool SC4PlopAndPaintDirector::StartDecalPicking(std::function<void(uint32_t)> on
 
 void SC4PlopAndPaintDirector::StopDecalPicking() {
     if (pView3D_ && scenePickerControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == scenePickerControl_) {
+        if (RaiseToTop_(scenePickerControl_, scenePickerControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -1049,9 +1098,10 @@ bool SC4PlopAndPaintDirector::StartScenePicking_(std::unique_ptr<ScenePickStrate
         LOG_INFO("Stopped scene picking");
     });
 
-    if (!pView3D_->SetCurrentViewInputControl(
-        scenePickerControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!RaiseToTop_(scenePickerControl_, scenePickerControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            scenePickerControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set scene picker as current view input control");
         return false;
     }
@@ -1079,7 +1129,7 @@ bool SC4PlopAndPaintDirector::StartPropPicking(std::function<void(const PickedPr
 
 void SC4PlopAndPaintDirector::StopPropPicking() {
     if (pView3D_ && scenePickerControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == scenePickerControl_) {
+        if (RaiseToTop_(scenePickerControl_, scenePickerControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -1169,9 +1219,10 @@ bool SC4PlopAndPaintDirector::StartPropStripping() {
         LOG_INFO("Stopped prop stripping");
     });
 
-    if (!pView3D_->SetCurrentViewInputControl(
-        propStripperControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!RaiseToTop_(propStripperControl_, propStripperControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            propStripperControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set prop stripper as current view input control");
         UpdatePaintPanels_();
         return false;
@@ -1184,7 +1235,7 @@ bool SC4PlopAndPaintDirector::StartPropStripping() {
 
 void SC4PlopAndPaintDirector::StopPropStripping() {
     if (pView3D_ && propStripperControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == propStripperControl_) {
+        if (RaiseToTop_(propStripperControl_, propStripperControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -1328,6 +1379,9 @@ void SC4PlopAndPaintDirector::ProcessPendingToolActions_() {
     if (decalPainterControl_) {
         decalPainterControl_->ProcessPendingActions();
     }
+    if (groundPainterControl_) {
+        groundPainterControl_->ProcessPendingActions();
+    }
 }
 
 cIGZWorldDrawService* SC4PlopAndPaintDirector::GetOverlayWorldDrawService_() const {
@@ -1339,7 +1393,6 @@ void SC4PlopAndPaintDirector::SetLotPlopPanelVisible(const bool visible) {
         return;
     }
 
-    panelVisible_ = visible;
     panel_->SetOpen(visible);
 }
 
@@ -1400,12 +1453,26 @@ bool SC4PlopAndPaintDirector::PrepareForPaintSwitch_(BasePainterInputControl* co
 
     ApplySwitchPolicy_(control);
 
-    if (pView3D_ && pView3D_->GetCurrentViewInputControl() == control) {
+    if (pView3D_ && RaiseToTop_(control, control->IsActive())) {
         pView3D_->RemoveCurrentViewInputControl(false);
     }
 
     isPaintingFlag = false;
     return true;
+}
+
+bool SC4PlopAndPaintDirector::RaiseToTop_(cISC4ViewInputControl* const control, const bool active) {
+    if (!pView3D_ || !control) {
+        return false;
+    }
+    if (active) {
+        while (cISC4ViewInputControl* const top = pView3D_->GetCurrentViewInputControl()) {
+            if (top == control || !pView3D_->RemoveCurrentViewInputControl(false)) {
+                break;
+            }
+        }
+    }
+    return pView3D_->GetCurrentViewInputControl() == control;
 }
 
 bool SC4PlopAndPaintDirector::PrepareForExclusiveActivation_(const bool keepPropPainting,
@@ -1417,6 +1484,11 @@ bool SC4PlopAndPaintDirector::PrepareForExclusiveActivation_(const bool keepProp
                                                              const bool keepScenePicking) {
     if (!keepPropPainting && !CanPrepareForPaintSwitch_(propPainterControl_, propPainting_)) {
         return false;
+    }
+
+    // Every other tool takes over from ground painting; it restarts itself when needed.
+    if (groundPainting_) {
+        StopGroundPainting();
     }
 
     if (!keepFloraPainting && !CanPrepareForPaintSwitch_(floraPlacerControl_, floraPainting_)) {
@@ -1558,6 +1630,11 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
             }
         }
     }
+
+    // The objects came in with the save; give those whose terrain paint is missing a new one.
+    if (groundDocument_) {
+        groundDocument_->Restore();
+    }
 }
 
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
@@ -1565,6 +1642,7 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     SetLotPlopPanelVisible(false);
     StopDecalStripping();
     StopDecalPainting();
+    StopGroundPainting();
     StopFloraStripping();
     StopPropStripping();
     StopPropPicking();
@@ -1598,6 +1676,12 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     if (decalRepository_) {
         decalRepository_->Clear();
     }
+    if (groundPainterControl_) {
+        groundPainterControl_->SetCity(nullptr);
+    }
+    if (groundDocument_) {
+        groundDocument_->Reset();
+    }
     pCity_ = nullptr;
     if (pView3D_) {
         pView3D_->Release();
@@ -1608,7 +1692,7 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
 }
 
 void SC4PlopAndPaintDirector::ToggleLotPlopPanel_() {
-    SetLotPlopPanelVisible(!panelVisible_);
+    SetLotPlopPanelVisible(!(panel_ && panel_->IsOpen()));
 }
 
 bool SC4PlopAndPaintDirector::RegisterLotPlopShortcut_() {
@@ -1679,4 +1763,129 @@ std::filesystem::path SC4PlopAndPaintDirector::GetUserPluginsPath_() {
     catch (const wil::ResultException&) {
         return {};
     }
+}
+
+bool SC4PlopAndPaintDirector::IsGroundPaintAvailable() const {
+    return terrainPaintService_ != nullptr && groundDocument_ != nullptr;
+}
+
+bool SC4PlopAndPaintDirector::StartGroundPainting(const Ground::ToolSettings& settings) {
+    if (!pCity_ || !pView3D_ || !IsGroundPaintAvailable()) {
+        LOG_WARN("Cannot start ground painting: city, view or terrain paint service not available");
+        return false;
+    }
+    if (groundPainting_) {
+        UpdateGroundPainting(settings);
+        return true;
+    }
+    if (!PrepareForExclusiveActivation_(false, false, false, false, false, false, false)) {
+        LOG_INFO("Blocked ground painting while another tool still has a sketch in progress");
+        return false;
+    }
+
+    if (!groundPainterControl_) {
+        groundPainterControl_ = new GroundPainterInputControl();
+        if (!groundPainterControl_->Init()) {
+            LOG_ERROR("Failed to initialize GroundPainterInputControl");
+            groundPainterControl_.Reset();
+            return false;
+        }
+    }
+
+    groundPainterControl_->SetCity(pCity_);
+    groundPainterControl_->SetWindow(pView3D_->AsIGZWin());
+    groundPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
+    groundPainterControl_->SetDocument(groundDocument_.get());
+    groundPainterControl_->SetSettings(settings);
+    groundPainterControl_->SetOnCancel([this]() { StopGroundPainting(); });
+
+    if (!RaiseToTop_(groundPainterControl_, groundPainterControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            groundPainterControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        LOG_WARN("Failed to set the ground painter as current view input control");
+        return false;
+    }
+
+    groundPainting_ = true;
+    LOG_INFO("Started ground painting");
+    return true;
+}
+
+void SC4PlopAndPaintDirector::UpdateGroundPainting(const Ground::ToolSettings& settings) {
+    if (groundPainterControl_) {
+        groundPainterControl_->SetSettings(settings);
+    }
+}
+
+void SC4PlopAndPaintDirector::StopGroundPainting() {
+    if (!groundPainting_) {
+        return;
+    }
+    groundPainting_ = false;
+    if (pView3D_ && groundPainterControl_ && RaiseToTop_(groundPainterControl_, groundPainterControl_->IsActive())) {
+        pView3D_->RemoveCurrentViewInputControl(false);
+    }
+    LOG_INFO("Stopped ground painting");
+}
+
+bool SC4PlopAndPaintDirector::IsGroundPainting() const {
+    return groundPainting_;
+}
+
+Ground::GroundPaintDocument* SC4PlopAndPaintDirector::GetGroundDocument() const {
+    return groundDocument_.get();
+}
+
+const GroundPainterInputControl* SC4PlopAndPaintDirector::GetGroundPainter() const {
+    return groundPainting_ ? static_cast<const GroundPainterInputControl*>(groundPainterControl_) : nullptr;
+}
+
+GroundPainterInputControl* SC4PlopAndPaintDirector::GetGroundPainter() {
+    return const_cast<GroundPainterInputControl*>(std::as_const(*this).GetGroundPainter());
+}
+
+namespace {
+    // The city save segment a load or save message carries, AddRef'd.
+    cISC4DBSegment* SaveSegment(const cIGZMessage2Standard* const message) {
+        auto* const unknown = message ? static_cast<cIGZUnknown*>(message->GetVoid1()) : nullptr;
+        cISC4DBSegment* segment = nullptr;
+        if (!unknown || !unknown->QueryInterface(GZIID_cISC4DBSegment, reinterpret_cast<void**>(&segment))) {
+            return nullptr;
+        }
+        return segment;
+    }
+}
+
+void SC4PlopAndPaintDirector::LoadCity_(const cIGZMessage2Standard* const pStandardMsg) {
+    if (!groundDocument_) {
+        return;
+    }
+    groundDocument_->Reset();
+    cISC4DBSegment* const segment = SaveSegment(pStandardMsg);
+    if (!segment) {
+        return;
+    }
+    if (const auto payload = Ground::SaveRecord::Read(*segment)) {
+        if (groundDocument_->Load(*payload)) {
+            LOG_INFO("Loaded {} ground paint objects", groundDocument_->Objects().size());
+        }
+        else {
+            LOG_WARN("Ground paint: could not read the objects in the save");
+        }
+    }
+    segment->Release();
+}
+
+void SC4PlopAndPaintDirector::SaveCity_(const cIGZMessage2Standard* const pStandardMsg) const {
+    if (!groundDocument_) {
+        return;
+    }
+    cISC4DBSegment* const segment = SaveSegment(pStandardMsg);
+    if (!segment) {
+        return;
+    }
+    const std::vector<char> payload = groundDocument_->Objects().empty() ? std::vector<char>{} : groundDocument_->Save();
+    Ground::SaveRecord::Write(*segment, payload);
+    segment->Release();
 }

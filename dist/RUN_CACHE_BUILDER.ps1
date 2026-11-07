@@ -31,13 +31,13 @@ try {
   $defaultGameRoot = "$env:PROGRAMFILES(x86)\SimCity 4 Deluxe Edition"
   $defaultPlugins = "$env:USERPROFILE\Documents\SimCity 4\Plugins"
   $defaultLocale = "English"
-  $defaultThumbnailSize = "44"
+  $defaultThumbnailSize = "132"
 
   $gameRoot = Read-Host "Game root directory (default: $defaultGameRoot)"
   $pluginsDir = Read-Host "User Plugins directory (default: $defaultPlugins)"
   $localeDir = Read-Host "Locale under game root (default: $defaultLocale)"
   $renderThumbs = Read-Host "Render 3D thumbnails? (y/N)"
-  $thumbnailSize = Read-Host "Thumbnail size in pixels (22-176, default: $defaultThumbnailSize)"
+  $thumbnailSize = Read-Host "Thumbnail size in pixels (22-220, default: $defaultThumbnailSize)"
 
   $cmd = @($exe, '--scan')
   if ($gameRoot) { $cmd += @('--game', $gameRoot) }

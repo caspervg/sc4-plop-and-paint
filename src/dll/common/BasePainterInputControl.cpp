@@ -52,7 +52,7 @@ namespace {
 }
 
 BasePainterInputControl::BasePainterInputControl(const uint32_t controlID)
-    : cSC4BaseViewInputControl(controlID) {}
+    : cSC4BaseViewInputControlEx(controlID) {}
 
 BasePainterInputControl::~BasePainterInputControl() = default;
 
@@ -61,7 +61,7 @@ bool BasePainterInputControl::Init() {
         return true;
     }
 
-    if (!cSC4BaseViewInputControl::Init()) {
+    if (!cSC4BaseViewInputControlEx::Init()) {
         return false;
     }
 
@@ -76,8 +76,10 @@ bool BasePainterInputControl::Shutdown() {
     }
 
     CancelAllPlacements();
+    ClearDirectAbsoluteHeight_();
+    DestroyPreviewOccupant_();
     TransitionTo_(ControlState::Uninitialized, "Shutdown");
-    cSC4BaseViewInputControl::Shutdown();
+    cSC4BaseViewInputControlEx::Shutdown();
     return true;
 }
 
@@ -86,15 +88,6 @@ bool BasePainterInputControl::OnMouseDownL(const int32_t x, const int32_t z, con
         return false;
     }
     return HandleActiveMouseDownL_(x, z, modifiers);
-}
-
-bool BasePainterInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
-    if (!IsActiveState_(state_) || !IsOnTop()) {
-        return false;
-    }
-    CancelAllPlacements();
-    cancelPending_ = true;
-    return true;
 }
 
 bool BasePainterInputControl::OnMouseMove(const int32_t x, const int32_t z, const uint32_t modifiers) {
@@ -111,24 +104,44 @@ bool BasePainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t mod
     return HandleActiveKeyDown_(vkCode, modifiers);
 }
 
+bool BasePainterInputControl::OnMouseDownM(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
+    if (!IsTargetActiveState_(state_)) {
+        return false;
+    }
+    Turn_();  // R
+    return true;
+}
+
+bool BasePainterInputControl::OnMouseDownX(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/,
+                                           const uint32_t button) {
+    if (button != XBUTTON1 || !IsActiveState_(state_)) {
+        return false;
+    }
+    UndoLastPlacement();  // Ctrl+Z
+    return true;
+}
+
+void BasePainterInputControl::Turn_() {
+    settings_.rotation = (settings_.rotation + 1) & 3;
+    if (state_ == ControlState::ActivePolygon) {
+        polygonPreviewDirty_ = true;
+    }
+    SyncPreviewForState_();
+}
+
 void BasePainterInputControl::Activate() {
-    cSC4BaseViewInputControl::Activate();
+    cSC4BaseViewInputControlEx::Activate();
     if (!Init()) {
         return;
     }
     TransitionTo_(typeToPaint_ != 0 ? ActiveStateForMode_(settings_.mode) : ControlState::ActiveNoTarget, "Activate");
 }
 
+// The game also deactivates a control it covers, e.g. with its right-drag camera pan, and does
+// not activate it again when that ends. So this only pauses: the sketch stays, Shutdown ends it.
 void BasePainterInputControl::Deactivate() {
-    ClearCollectedPoints_();
-    ClearDirectAbsoluteHeight_();
     DestroyPreviewOccupant_();
-
-    if (state_ != ControlState::Uninitialized) {
-        TransitionTo_(typeToPaint_ != 0 ? ControlState::ReadyWithTarget : ControlState::ReadyNoTarget, "Deactivate");
-    }
-
-    cSC4BaseViewInputControl::Deactivate();
+    cSC4BaseViewInputControlEx::Deactivate();
 }
 
 void BasePainterInputControl::SetTypeToPaint(const uint32_t typeID, const PropPaintSettings& settings,
@@ -461,6 +474,10 @@ bool BasePainterInputControl::HandleActiveMouseMove_(const int32_t x, const int3
 
 bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const uint32_t modifiers) {
     if (vkCode == VK_ESCAPE) {
+        if (HasPendingSketch()) {
+            ClearCollectedPoints_();
+            return true;
+        }
         CancelAllPlacements();
         cancelPending_ = true;
         return true;
@@ -477,11 +494,7 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
     }
 
     if (vkCode == 'R') {
-        settings_.rotation = (settings_.rotation + 1) & 3;
-        if (state_ == ControlState::ActivePolygon) {
-            polygonPreviewDirty_ = true;
-        }
-        SyncPreviewForState_();
+        Turn_();
         return true;
     }
 

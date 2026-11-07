@@ -16,7 +16,7 @@ Installation instructions:
 - Playing on Linux with Wine or Steam Proton? A native Linux cache builder is available as SC4PlopAndPaintCacheBuilder-<version>-linux-x64.tar.gz on the releases page.
 - Run the included SC4 Plop and Paint installer.
 - The installer will ask for your SimCity 4 game root and Plugins folder, verify the SC4RenderServices dependency, and install the plugin files. If SC4RenderServices is missing, the installer will stop and tell you where to download it.
-- The installer also lets you choose the thumbnail size used for cache generation and sets the same size in SC4PlopAndPaint.ini for the in-game UI.
+- The installer also lets you choose the thumbnail detail stored in the cache (default 132 pixels) and the thumbnail size shown in the panels (default 44 pixels, saved as ThumbnailDisplaySize in SC4PlopAndPaint.ini). The plugin scales the stored thumbnails down to the panel size.
 - The installer can also run the cache builder for you. If you skip that step, run Rebuild-Cache.cmd later from Documents\SimCity 4\SC4PlopAndPaint\.
 - The cache builder scans your game and Plugins folders and writes lots.cbor, props.cbor and flora.cbor into your Plugins folder.
 - If thumbnail rendering is enabled, it also writes lot_thumbnails.bin, prop_thumbnails.bin and flora_thumbnails.bin into your Plugins folder.

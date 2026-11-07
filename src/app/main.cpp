@@ -24,6 +24,7 @@
 #include "../shared/entities.hpp"
 #include "../shared/index.hpp"
 #include "../shared/SeasonalSetDetector.hpp"
+#include "PackCatalogBuilder.hpp"
 #include "DBPFReader.h"
 #include "DbpfIndexService.hpp"
 #include "ExemplarParser.hpp"
@@ -47,8 +48,8 @@ namespace fs = std::filesystem;
 namespace {
     constexpr uint32_t kTypeIdExemplar = 0x6534284Au;
     constexpr uint32_t kTypeIdCohort = 0x05342861u;
-    constexpr uint32_t kMinThumbnailSize = kDefaultThumbnailSize / 2;
-    constexpr uint32_t kMaxThumbnailSize = kDefaultThumbnailSize * 4;
+    constexpr uint32_t kMinThumbnailSize = 22;
+    constexpr uint32_t kMaxThumbnailSize = 220;
 #ifdef _WIN32
     constexpr std::string_view kPathFlagsHint = "";
 #else
@@ -242,6 +243,68 @@ namespace {
         }
 
         return begin == fs::directory_iterator();
+    }
+
+    // Writes next to the file and moves it into place, so a reader never sees half of it.
+    template <typename T>
+    bool WriteCborAtomic(spdlog::logger& logger, const fs::path& cborPath, const T& data) {
+        auto tempPath = cborPath;
+        tempPath += ".tmp";
+        try {
+            {
+                std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+                if (!file) {
+                    logger.error("Failed to open file for writing: {}", tempPath.string());
+                    return false;
+                }
+                rfl::cbor::write(data, file);
+                file.flush();
+                if (!file.good()) {
+                    logger.error("Failed to write cache data to {}", tempPath.string());
+                    file.close();
+                    std::error_code removeEc;
+                    fs::remove(tempPath, removeEc);
+                    return false;
+                }
+            }
+            std::error_code renameEc;
+            fs::rename(tempPath, cborPath, renameEc);
+            if (renameEc) {
+                logger.error("Failed to move {} into place: {}", tempPath.string(), renameEc.message());
+                std::error_code removeEc;
+                fs::remove(tempPath, removeEc);
+                return false;
+            }
+            return true;
+        }
+        catch (const std::exception& error) {
+            logger.error("Error writing {}: {}", cborPath.string(), error.what());
+            std::error_code removeEc;
+            fs::remove(tempPath, removeEc);
+            return false;
+        }
+    }
+
+    // Fetches the latest pack catalog into packs.cbor. On failure the one there stays.
+    bool UpdatePackCatalog(spdlog::logger& logger, const fs::path& pluginsRoot) {
+        const auto path = pluginsRoot / "packs.cbor";
+        std::optional<PackCatalog> current;
+        std::error_code existsEc;
+        if (fs::exists(path, existsEc)) {
+            if (auto loaded = rfl::cbor::load<PackCatalog, rfl::DefaultIfMissing>(path.string())) {
+                current = std::move(*loaded);
+            }
+        }
+        const auto catalog = PackCatalogBuilder::FetchLatest(pluginsRoot, current ? &*current : nullptr, logger);
+        if (!catalog) {
+            logger.warn("Keeping the pack catalog that is there, if any");
+            return false;
+        }
+        if (!WriteCborAtomic(logger, path, *catalog)) {
+            return false;
+        }
+        logger.info("Wrote {}", path.string());
+        return true;
     }
 
     bool ScanAndAnalyzeExemplars(const PluginConfiguration& config,
@@ -668,42 +731,8 @@ namespace {
                 }
             };
 
-            const auto writeCborAtomic = [&logger](const fs::path& cborPath, const auto& data) -> bool {
-                auto tempPath = cborPath;
-                tempPath += ".tmp";
-                try {
-                    {
-                        std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
-                        if (!file) {
-                            logger.error("Failed to open file for writing: {}", tempPath.string());
-                            return false;
-                        }
-                        rfl::cbor::write(data, file);
-                        file.flush();
-                        if (!file.good()) {
-                            logger.error("Failed to write cache data to {}", tempPath.string());
-                            file.close();
-                            std::error_code removeEc;
-                            fs::remove(tempPath, removeEc);
-                            return false;
-                        }
-                    }
-                    std::error_code renameEc;
-                    fs::rename(tempPath, cborPath, renameEc);
-                    if (renameEc) {
-                        logger.error("Failed to move {} into place: {}", tempPath.string(), renameEc.message());
-                        std::error_code removeEc;
-                        fs::remove(tempPath, removeEc);
-                        return false;
-                    }
-                    return true;
-                }
-                catch (const std::exception& error) {
-                    logger.error("Error writing {}: {}", cborPath.string(), error.what());
-                    std::error_code removeEc;
-                    fs::remove(tempPath, removeEc);
-                    return false;
-                }
+            const auto writeCborAtomic = [&logger](const fs::path& cborPath, const auto& data) {
+                return WriteCborAtomic(logger, cborPath, data);
             };
 
             // Extract building thumbnails into a sidecar binary file, then strip them
@@ -845,7 +874,10 @@ int main(int argc, char* argv[]) {
                                     "Inspect and extract Lot and Building exemplars from SimCity 4 plugins.");
         args::HelpFlag helpFlag(parser, "help", "Show this help message", {'h', "help"});
         args::Flag versionFlag(parser, "version", "Print version", {"version"});
-        args::Flag scanFlag(parser, "scan", "Scan plugins and extract exemplars", {"scan"});
+        args::Flag scanFlag(parser, "scan",
+                            "Scan plugins and extract exemplars, then fetch the SC4 Prop Texture Catalog into "
+                            "packs.cbor (see --no-packs)",
+                            {"scan"});
         args::ValueFlag<std::string> gameFlag(
             parser, "path",
             "Game root directory containing Apps, auto-detected when omitted (plugins will be in {path}/Plugins)",
@@ -861,12 +893,17 @@ int main(int argc, char* argv[]) {
             "(default: $WINEPREFIX, else ~/.wine or a Steam Proton prefix)",
             {"wine-prefix"});
 #endif
+        args::Flag updatePacksFlag(parser, "update-packs",
+                                   "Only fetch the latest SC4 Prop Texture Catalog into packs.cbor", {"update-packs"});
+        args::Flag noPacksFlag(parser, "no-packs",
+                               "With --scan, do not fetch the SC4 Prop Texture Catalog: no network access",
+                               {"no-packs"});
         args::Flag renderThumbnailsFlag(parser, "render-thumbnails", "Render 3D thumbnails for buildings without icons",
                                         {"render-thumbnails"});
         args::ValueFlag<uint32_t> thumbnailSizeFlag(
             parser,
             "px",
-            "Square thumbnail size in pixels for cached thumbnails (22-176, default 44)",
+            "Square thumbnail size in pixels stored in the cache (22-220, default 132). The plugin scales them down to its ThumbnailDisplaySize",
             {"thumbnail-size"});
 
         try {
@@ -937,9 +974,22 @@ int main(int argc, char* argv[]) {
                 logger->info("3D thumbnail rendering enabled");
             }
             const auto executableDir = GetExecutableDirectory(argc > 0 ? argv[0] : nullptr);
-            return ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailSize, executableDir)
-                       ? 0
-                       : 1;
+            if (!ScanAndAnalyzeExemplars(config, *logger, renderThumbnailsFlag, thumbnailSize, executableDir)) {
+                return 1;
+            }
+            // Pack names are a nicety: the scan succeeded even when the catalog cannot be fetched.
+            if (!noPacksFlag) {
+                UpdatePackCatalog(*logger, config.userPluginsRoot);
+            }
+            return 0;
+        }
+
+        if (updatePacksFlag) {
+            if (config.userPluginsRoot.empty()) {
+                logger->error("User Plugins directory not found. Pass --plugins <dir>{}.", kPathFlagsHint);
+                return 1;
+            }
+            return UpdatePackCatalog(*logger, config.userPluginsRoot) ? 0 : 1;
         }
 
         // Default behavior - show plugin paths

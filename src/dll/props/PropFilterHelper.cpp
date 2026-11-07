@@ -17,7 +17,8 @@ namespace {
 }
 
 bool PropFilterHelper::PassesFilters(const PropView& view) const {
-    return PassesTextFilter_(view) &&
+    return (!packFilter || packFilter->Passes(view.packs)) &&
+           PassesTextFilter_(view) &&
            PassesSizeFilter_(view) &&
            PassesCategoryFilter_(view);
 }
@@ -105,7 +106,8 @@ void PropFilterHelper::ResetFilters() {
 
 bool PropFilterHelper::PassesTextFilter_(const PropView& view) const {
     return ContainsCaseInsensitive(view.prop->visibleName, searchBuffer) ||
-        ContainsCaseInsensitive(view.prop->exemplarName, searchBuffer);
+        ContainsCaseInsensitive(view.prop->exemplarName, searchBuffer) ||
+        (packFilter && packFilter->PackNameContains(view.packs, searchBuffer));
 }
 
 bool PropFilterHelper::PassesSizeFilter_(const PropView& view) const {

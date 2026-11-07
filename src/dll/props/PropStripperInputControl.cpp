@@ -49,6 +49,7 @@ bool PropStripperInputControl::Init() {
 }
 
 bool PropStripperInputControl::Shutdown() {
+    active_ = false;
     overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
@@ -84,16 +85,6 @@ bool PropStripperInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t /
 bool PropStripperInputControl::OnMouseUpL(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
     leftMouseDown_ = false;
     return active_ && IsOnTop();
-}
-
-bool PropStripperInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
-    if (!active_ || !IsOnTop()) {
-        return false;
-    }
-    ClearHoveredProp_();
-    LOG_INFO("PropStripperInputControl: RMB pressed, exiting strip mode");
-    cancelPending_ = true;
-    return true;
 }
 
 bool PropStripperInputControl::OnMouseMove(const int32_t x, const int32_t z, const uint32_t /*modifiers*/) {
@@ -160,7 +151,8 @@ void PropStripperInputControl::Activate() {
 }
 
 void PropStripperInputControl::Deactivate() {
-    active_ = false;
+    // The game also deactivates a control it covers, e.g. with its right-drag camera pan, and
+    // does not activate it again when that ends, so active_ stays set until Shutdown.
     leftMouseDown_ = false;
     ProcessPendingActions();
     ClearHoveredProp_();

@@ -59,6 +59,7 @@ void FloraPanelTab::OnRender() {
         return;
     }
 
+    IndexPacks_();
     RenderFilterUI_();
     ImGui::Separator();
 
@@ -66,6 +67,9 @@ void FloraPanelTab::OnRender() {
     BuildFilteredFloraIndices_(filteredFloraIndices);
 
     ImGui::Text("Showing %zu of %zu flora items", filteredFloraIndices.size(), flora_->GetFloraItems().size());
+    if (RenderViewControls_()) {
+        thumbnailCache_.Clear();
+    }
     if (director_->IsFloraPainting()) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Stop painting")) {
@@ -92,7 +96,12 @@ void FloraPanelTab::OnRender() {
         }
     }
 
-    if (ImGui::BeginChild("FloraTableRegion", ImVec2(0, 0), false)) {
+    if (gridView_) {
+        if (ImGui::BeginChild("FloraGridRegion", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+            RenderGrid_(filteredFloraIndices);
+        }
+    }
+    else if (ImGui::BeginChild("FloraTableRegion", ImVec2(0, 0), false)) {
         RenderIndividualFloraTable_(filteredFloraIndices);
         if (filteredFloraIndices.empty()) {
             ImGui::TextDisabled("No flora items match the current filters.");
@@ -109,6 +118,7 @@ void FloraPanelTab::OnRender() {
 void FloraPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
     if (deviceGeneration != lastDeviceGeneration_) {
         thumbnailCache_.OnDeviceReset();
+        previewCache_.OnDeviceReset();
         lastDeviceGeneration_ = deviceGeneration;
     }
 }
@@ -118,7 +128,7 @@ ImGuiTexture FloraPanelTab::LoadFloraTexture_(const uint64_t key) const {
     if (!imguiService_) {
         return texture;
     }
-    const auto data = flora_->GetFloraThumbnailStore().LoadThumbnail(key);
+    const auto data = flora_->GetFloraThumbnailStore().LoadThumbnail(key, static_cast<uint32_t>(ShownThumbnailSize_()));
     if (!data.has_value()) {
         return texture;
     }
@@ -126,16 +136,36 @@ ImGuiTexture FloraPanelTab::LoadFloraTexture_(const uint64_t key) const {
     return texture;
 }
 
+void FloraPanelTab::IndexPacks_() {
+    const auto& items = flora_->GetFloraItems();
+    if (items.size() == indexedFloraCount_) {
+        return;
+    }
+    indexedFloraCount_ = items.size();
+    const PackCatalogRepository* catalog = director_->GetPackCatalog();
+    packFilter_.Begin(catalog);
+    floraPacks_.clear();
+    floraPacks_.reserve(items.size());
+    for (const auto& flora : items) {
+        const auto rows = catalog ? catalog->ExemplarRows(flora.groupId.value(), flora.instanceId.value())
+                                  : std::span<const PackCatalogRepository::ExemplarRow>{};
+        packFilter_.Count(rows);
+        floraPacks_.push_back(rows);
+    }
+}
+
 void FloraPanelTab::RenderFilterUI_() {
     ImGui::SetNextItemWidth(-1);
     if (ImGui::InputTextWithHint("##SearchFlora", "Search flora...", searchBuf_, sizeof(searchBuf_))) {
         // searchBuf_ is updated in-place
     }
+    packFilter_.Render("##FloraPack", "flora");
     ImGui::Checkbox("Favorites only", &favoritesOnly_);
     ImGui::SameLine();
     if (ImGui::Button("Clear filters")) {
         searchBuf_[0] = '\0';
         favoritesOnly_ = false;
+        packFilter_.Clear();
     }
 }
 
@@ -152,13 +182,18 @@ void FloraPanelTab::BuildFilteredFloraIndices_(std::vector<size_t>& filteredIndi
             !favoriteFloraIds.contains(MakeGIKey(flora.groupId.value(), flora.instanceId.value()))) {
             continue;
         }
+        const auto packs = i < floraPacks_.size() ? floraPacks_[i] : std::span<const PackCatalogRepository::ExemplarRow>{};
+        if (!packFilter_.Passes(packs)) {
+            continue;
+        }
 
         if (!searchStr.empty()) {
             const bool nameMatch =
                 ContainsCaseInsensitive(flora.visibleName, searchStr) ||
                 ContainsCaseInsensitive(flora.exemplarName, searchStr) ||
                 ContainsCaseInsensitive(FormatHexId(flora.instanceId.value()), searchStr) ||
-                ContainsCaseInsensitive(FormatHexId(flora.groupId.value()), searchStr);
+                ContainsCaseInsensitive(FormatHexId(flora.groupId.value()), searchStr) ||
+                packFilter_.PackNameContains(packs, searchStr);
             if (!nameMatch) {
                 continue;
             }
@@ -273,7 +308,7 @@ void FloraPanelTab::RenderIndividualFloraTable_(const std::vector<size_t>& filte
                               ImVec2(0, rowHeight));
             ImGui::SameLine();
             auto thumbId = thumbnailCache_.Get(key);
-            RenderThumbnail_(thumbId);
+            RenderThumbnailWithPreview_(thumbId, flora_->GetFloraThumbnailStore(), key);
 
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(FloraDisplayName(f).c_str());
@@ -283,6 +318,13 @@ void FloraPanelTab::RenderIndividualFloraTable_(const std::vector<size_t>& filte
                     ImGui::SameLine(0.0f, 4.0f);
                 }
                 ImGui::TextDisabled("%s", f.exemplarName.c_str());
+            }
+            // The pack it first shipped in, when the catalog knows it.
+            const PackCatalogRepository* catalog = director_->GetPackCatalog();
+            const auto packs = catalog ? catalog->ExemplarRows(f.groupId.value(), f.instanceId.value())
+                                       : std::span<const PackCatalogRepository::ExemplarRow>{};
+            if (const TexturePack* pack = packs.empty() ? nullptr : catalog->Pack(static_cast<int32_t>(packs.front()[3]))) {
+                ImGui::TextDisabled("%s%s", pack->name.c_str(), packs.size() > 1 ? " and more" : "");
             }
 
             ImGui::TableNextColumn();
@@ -333,6 +375,87 @@ bool FloraPanelTab::RenderFloraPills_(const Flora& flora, const bool startOnNewL
     }
 
     return renderedAny;
+}
+
+void FloraPanelTab::RenderGrid_(const std::vector<size_t>& filteredIndices) {
+    if (filteredIndices.empty()) {
+        ImGui::TextDisabled("No flora items match the current filters.");
+        return;
+    }
+
+    // The table sorts by its column headers; the grid has none, so it goes by name.
+    const auto& items = flora_->GetFloraItems();
+    if (filteredIndices != gridSortInput_ || items.data() != gridSortItems_) {
+        gridSortInput_ = filteredIndices;
+        gridSortItems_ = items.data();
+        gridSorted_ = filteredIndices;
+        std::ranges::sort(gridSorted_, [&](const size_t lhs, const size_t rhs) {
+            return FloraDisplayName(items[lhs]) < FloraDisplayName(items[rhs]);
+        });
+    }
+    const std::vector<size_t>& sortedIndices = gridSorted_;
+
+    ThumbnailStore& store = flora_->GetFloraThumbnailStore();
+    const size_t visible = ThumbnailGrid::Render(sortedIndices.size(), gridTileSize_,
+        [&](const size_t index) {
+            const Flora& f = items[sortedIndices[index]];
+            return MakeGIKey(f.groupId.value(), f.instanceId.value());
+        },
+        [&](const size_t index) {
+        const Flora& f = items[sortedIndices[index]];
+        const uint64_t key = MakeGIKey(f.groupId.value(), f.instanceId.value());
+        const bool hasThumbnail = store.HasThumbnail(key);
+        const bool isFavorite = favorites_->IsFloraFavorite(f.groupId.value(), f.instanceId.value());
+
+        const auto texture = thumbnailCache_.Get(key);
+        if (!texture && hasThumbnail) {
+            thumbnailCache_.Request(key);
+        }
+        RenderGridTile_(texture);
+        if (!hasThumbnail) {
+            ThumbnailGrid::LabelLastTile(FloraDisplayName(f).c_str());
+        }
+        ThumbnailGrid::DecorateLastTile(key == selectedFloraKey_, isFavorite);
+
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(FloraDisplayName(f).c_str());
+            if (!f.visibleName.empty() && !f.exemplarName.empty()) {
+                ImGui::TextDisabled("%s", f.exemplarName.c_str());
+            }
+            if (f.width >= 0.0f && f.height >= 0.0f && f.depth >= 0.0f) {
+                ImGui::Text("%.1f x %.1f x %.1f m", f.width, f.height, f.depth);
+            }
+            const PackCatalogRepository* catalog = director_->GetPackCatalog();
+            const auto packs = catalog ? catalog->ExemplarRows(f.groupId.value(), f.instanceId.value())
+                                       : std::span<const PackCatalogRepository::ExemplarRow>{};
+            if (const TexturePack* pack = packs.empty() ? nullptr : catalog->Pack(static_cast<int32_t>(packs.front()[3]))) {
+                ImGui::TextDisabled("%s%s", pack->name.c_str(), packs.size() > 1 ? " and more" : "");
+            }
+            RenderLargePreview_(store, key);
+            ImGui::EndTooltip();
+        }
+
+        // Click selects, double-click paints.
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+            selectedFloraKey_ = key;
+            if (ImGui::GetMouseClickedCount(ImGuiMouseButton_Left) >= 2) {
+                QueuePaintForFlora_(f);
+            }
+        }
+
+        if (ImGui::BeginPopupContextItem("##FloraTileMenu")) {
+            selectedFloraKey_ = key;
+            if (ImGui::Selectable("Paint")) {
+                QueuePaintForFlora_(f);
+            }
+            if (ImGui::Selectable(isFavorite ? "Remove from favorites" : "Add to favorites")) {
+                favorites_->ToggleFloraFavorite(f.groupId.value(), f.instanceId.value());
+            }
+            ImGui::EndPopup();
+        }
+    });
+    thumbnailCache_.FitVisible(visible + Cache::kMaxLoadPerFrame);
 }
 
 void FloraPanelTab::QueuePaintForFlora_(const Flora& flora) {

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "PaintPlacement.hpp"
+#include "../ground/GroundGeometry.hpp"
 #include "cS3DVector3.h"
 #include "public/SC4WorldMeshBuilder.h"
 #include "public/cIGZWorldDrawService.h"
@@ -36,6 +37,13 @@ public:
         float maxY = 0.0f;
         float minZ = 0.0f;
         float maxZ = 0.0f;
+    };
+
+    // A path for the ground paint tool, in ground coordinates; it is laid over the terrain.
+    struct GroundGuide {
+        std::vector<Ground::Vec2> points;
+        bool closed = false;
+        uint32_t color = 0;
     };
 
     PaintOverlay() = default;
@@ -85,6 +93,19 @@ public:
                              const PropPaintSettings& settings,
                              const std::vector<PreviewPlacement>& plannedPlacements);
 
+    // The ground paint tool: guide paths, anchor markers, and a ring of ringRadius around the
+    // cursor (0 for none).
+    void BuildGroundPreview(const std::vector<GroundGuide>& guides,
+                            const std::vector<Ground::Vec2>& markers,
+                            uint32_t markerColor,
+                            bool cursorValid,
+                            Ground::Vec2 cursor,
+                            float ringRadius,
+                            uint32_t ringColor,
+                            bool showGrid,
+                            float gridStepMeters,
+                            cISTETerrain* terrain);
+
 private:
     // A line that keeps its width on screen at every zoom level.
     struct ScreenLine {
@@ -112,7 +133,7 @@ private:
     void EmitMarker_(const cS3DVector3& center, float size, uint32_t color, uint32_t layer);
     void EmitPreviewPlacement_(const PreviewPlacement& placement, cISTETerrain* terrain, uint32_t layer);
     void EmitFilledPolygon_(const std::vector<cS3DVector3>& vertices, uint32_t color, uint32_t layer);
-    void EmitGrid_(const cS3DVector3& center, cISTETerrain* terrain, const PropPaintSettings& settings);
+    void EmitGrid_(const cS3DVector3& center, cISTETerrain* terrain, bool showGrid, float gridStepMeters);
 
 private:
     static constexpr uint32_t kGridMajorColor = 0x60FFFFFF;

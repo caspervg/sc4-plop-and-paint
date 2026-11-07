@@ -1,23 +1,29 @@
 #pragma once
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
 #include <ranges>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
+
+#include <webp/encode.h>
 
 #include "../shared/entities.hpp"
 #include "rfl/visit.hpp"
 
-// Writes a compact indexed binary file of RGBA thumbnails.
+// Writes a compact indexed binary file of WebP-compressed thumbnails.
 //
 // Format:
 //   Header (16 bytes):
 //     [0-3]   char[4]  magic = "SPTH"
-//     [4-5]   uint16_t version = 2 (version 1 stored BGRA instead of RGBA)
+//     [4-5]   uint16_t version = 3 (versions 1 and 2 stored raw BGRA / RGBA pixels)
 //     [6-7]   uint16_t reserved = 0
 //     [8-11]  uint32_t entry_count N
 //     [12-13] uint16_t width   (all thumbnails share the same dimensions)
@@ -26,11 +32,37 @@
 //   Index (N x 8 bytes, sorted ascending by gi_key):
 //     [0-7]   uint64_t gi_key   (groupId << 32 | instanceId)
 //
-//   Data (N blobs in the same order as the index):
-//     blob[rank] = width * height * 4 raw RGBA bytes
-//     byte_offset(rank) = 16 + N*8 + rank * (width * height * 4)
+//   Blob table (N x 8 bytes, in the same order as the index):
+//     [0-3]   uint32_t offset   (from the start of the data section)
+//     [4-7]   uint32_t size
+//
+//   Data: WebP blobs (lossy, RGBA). Entries with identical pixels share one blob.
 
 namespace ThumbnailBin {
+    constexpr float kWebpQuality = 80.0f;
+
+    inline std::string EncodeWebp_(const Thumbnail& thumbnail) {
+        std::string blob;
+        rfl::visit(
+            [&](const auto& variant) {
+                uint8_t* out = nullptr;
+                const size_t size = WebPEncodeRGBA(reinterpret_cast<const uint8_t*>(variant.data.data()),
+                                                   static_cast<int>(variant.width),
+                                                   static_cast<int>(variant.height),
+                                                   static_cast<int>(variant.width * 4),
+                                                   kWebpQuality,
+                                                   &out);
+                if (size != 0) {
+                    blob.assign(reinterpret_cast<const char*>(out), size);
+                }
+                WebPFree(out);
+            },
+            thumbnail);
+        if (blob.empty()) {
+            throw std::runtime_error("ThumbnailBin::Write failed to WebP-encode a thumbnail");
+        }
+        return blob;
+    }
 
     // Writes atomically via a sibling .tmp file. Returns false if the file could not be
     // written or moved into place; throws on malformed thumbnail data.
@@ -66,6 +98,52 @@ namespace ThumbnailBin {
         // Sort by gi_key so the reader can easily binary-search.
         std::ranges::sort(entries, [](const auto& a, const auto& b) { return a.first < b.first; });
 
+        // Encode on all cores. The encoder is deterministic, so identical pixels give identical blobs.
+        std::vector<std::string> blobs(entries.size());
+        {
+            std::atomic<size_t> next{0};
+            std::atomic<bool> failed{false};
+            const auto worker = [&] {
+                try {
+                    for (size_t i = next++; i < entries.size() && !failed; i = next++) {
+                        blobs[i] = EncodeWebp_(entries[i].second);
+                    }
+                }
+                catch (...) {
+                    failed = true;
+                }
+            };
+            std::vector<std::thread> threads(std::max(1u, std::thread::hardware_concurrency()));
+            for (auto& thread : threads) {
+                thread = std::thread(worker);
+            }
+            for (auto& thread : threads) {
+                thread.join();
+            }
+            if (failed) {
+                throw std::runtime_error("ThumbnailBin::Write failed to WebP-encode a thumbnail");
+            }
+        }
+
+        // Blob table, storing each distinct blob once.
+        std::vector<std::pair<uint32_t, uint32_t>> table(entries.size());
+        std::vector<size_t> uniqueBlobs;
+        {
+            std::unordered_map<std::string_view, uint32_t> offsetByBlob;
+            uint64_t dataSize = 0;
+            for (size_t i = 0; i < blobs.size(); ++i) {
+                auto [it, inserted] = offsetByBlob.try_emplace(blobs[i], static_cast<uint32_t>(dataSize));
+                if (inserted) {
+                    uniqueBlobs.push_back(i);
+                    dataSize += blobs[i].size();
+                    if (dataSize > UINT32_MAX) {
+                        throw std::runtime_error("ThumbnailBin::Write data section exceeds 4 GB");
+                    }
+                }
+                table[i] = {it->second, static_cast<uint32_t>(blobs[i].size())};
+            }
+        }
+
         auto tempPath = path;
         tempPath += ".tmp";
 
@@ -77,7 +155,7 @@ namespace ThumbnailBin {
 
             // Header
             constexpr char magic[4] = {'S', 'P', 'T', 'H'};
-            constexpr uint16_t version = 2;
+            constexpr uint16_t version = 3;
             constexpr uint16_t reserved = 0;
             const uint32_t count = static_cast<uint32_t>(entries.size());
 
@@ -93,14 +171,15 @@ namespace ThumbnailBin {
                 file.write(reinterpret_cast<const char*>(&key), 8);
             }
 
+            // Blob table
+            for (const auto& [offset, size] : table) {
+                file.write(reinterpret_cast<const char*>(&offset), 4);
+                file.write(reinterpret_cast<const char*>(&size), 4);
+            }
+
             // Data
-            for (const auto& thumbnail : entries | std::views::values) {
-                rfl::visit(
-                    [&](const auto& variant) {
-                        file.write(reinterpret_cast<const char*>(variant.data.data()),
-                                   static_cast<std::streamsize>(variant.data.size()));
-                    },
-                    thumbnail);
+            for (const size_t i : uniqueBlobs) {
+                file.write(blobs[i].data(), static_cast<std::streamsize>(blobs[i].size()));
             }
 
             file.flush();

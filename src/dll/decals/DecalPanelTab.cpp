@@ -347,7 +347,7 @@ void DecalPanelTab::OnRender() {
             });
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click a placed decal or a lot base/overlay texture\nto select it in the list.\nAlt+scroll to cycle overlapping textures.\nESC or RMB to cancel.");
+            ImGui::SetTooltip("Click a placed decal or a lot base/overlay texture\nto select it in the list.\nAlt+scroll to cycle overlapping textures.\nESC to cancel.");
         }
     }
 
@@ -491,10 +491,6 @@ void DecalPanelTab::BuildFilteredIndices_(std::vector<size_t>& out) const {
 
 void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
     const auto& ids = decals_->GetInstanceIds();
-    const ImGuiStyle& style = ImGui::GetStyle();
-    const ImVec2 btnSize{kIconSize, kIconSize};
-    const float tileWidth = btnSize.x + style.FramePadding.x * 2.0f;
-    const float rowStride = tileWidth + style.ItemSpacing.x;
 
     if (!ImGui::BeginChild("DecalGrid", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
         ImGui::EndChild();
@@ -507,123 +503,69 @@ void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
         return;
     }
 
-    const float availWidth = ImGui::GetContentRegionAvail().x;
-    const auto columns = std::max(1, static_cast<int>((availWidth + style.ItemSpacing.x) / rowStride));
-
     if (scrollToInstanceId_ != 0) {
         for (size_t i = 0; i < indices.size(); ++i) {
             if (ids[indices[i]] == scrollToInstanceId_) {
-                const int targetRow = static_cast<int>(i) / columns;
-                const float rowHeight = btnSize.y + style.FramePadding.y * 2.0f + style.ItemSpacing.y;
-                ImGui::SetScrollY(static_cast<float>(targetRow) * rowHeight);
+                ImGui::SetScrollY(ThumbnailGrid::ScrollYFor(i, kIconSize));
                 break;
             }
         }
         scrollToInstanceId_ = 0;
     }
 
-    ImGuiListClipper clipper;
-    const auto rowCount = static_cast<int>((indices.size() + columns - 1) / columns);
-    clipper.Begin(rowCount, btnSize.y + style.FramePadding.y * 2.0f + style.ItemSpacing.y);
+    const size_t visible = ThumbnailGrid::Render(indices.size(), kIconSize,
+        [&](const size_t index) { return ids[indices[index]]; },
+        [&](const size_t index) {
+        const uint32_t instanceId = ids[indices[index]];
+        const bool isFavorite = favorites_ && favorites_->IsDecalFavorite(instanceId);
+        const bool hasSavedPresets =
+            favorites_ && favorites_->GetDecalFavoritePresets(instanceId) &&
+            !favorites_->GetDecalFavoritePresets(instanceId)->empty();
 
-    while (clipper.Step()) {
-        for (auto row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-            for (auto col = 0; col < columns; ++col) {
-                const int idx = row * columns + col;
-                if (static_cast<size_t>(idx) >= indices.size()) {
-                    break;
-                }
+        const auto texture = thumbnailCache_.Get(instanceId);
+        if (!texture) {
+            thumbnailCache_.Request(instanceId);
+        }
+        RenderGridTile_(texture);
+        ThumbnailGrid::DecorateLastTile(instanceId == selectedInstanceId_, isFavorite, hasSavedPresets);
 
-                const uint32_t instanceId = ids[indices[static_cast<size_t>(idx)]];
-                const bool isFavorite = favorites_ && favorites_->IsDecalFavorite(instanceId);
-                const bool hasSavedPresets =
-                    favorites_ && favorites_->GetDecalFavoritePresets(instanceId) &&
-                    !favorites_->GetDecalFavoritePresets(instanceId)->empty();
+        const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+        const bool dblClicked = clicked && ImGui::GetMouseClickedCount(ImGuiMouseButton_Left) >= 2;
 
-                if (col > 0) {
-                    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x);
-                }
-
-                const bool selected = (instanceId == selectedInstanceId_);
-
-                // Try to get cached thumbnail
-                const auto texOpt = thumbnailCache_.Get(instanceId);
-
-                ImGui::PushID(static_cast<int>(instanceId));
-                bool clicked = false;
-                bool dblClicked = false;
-
-                if (texOpt.has_value() && *texOpt != nullptr) {
-                    ImGui::ImageButton("##decal",
-                        reinterpret_cast<ImTextureID>(*texOpt), btnSize);
-                }
-                else {
-                    char label[12];
-                    std::snprintf(label, sizeof(label), "##d%08X", instanceId);
-                    ImGui::Button(label, btnSize);
-                    thumbnailCache_.Request(instanceId);
-                }
-                clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
-                dblClicked = clicked && ImGui::GetMouseClickedCount(ImGuiMouseButton_Left) >= 2;
-
-                if (selected) {
-                    const ImVec2 rectMin = ImGui::GetItemRectMin();
-                    const ImVec2 rectMax = ImGui::GetItemRectMax();
-                    ImGui::GetWindowDrawList()->AddRect(
-                        ImVec2(rectMin.x - 2.0f, rectMin.y - 2.0f),
-                        ImVec2(rectMax.x + 2.0f, rectMax.y + 2.0f),
-                        IM_COL32(255, 200, 0, 255), 2.0f);
-                }
-
-                if (isFavorite) {
-                    const ImVec2 rectMin = ImGui::GetItemRectMin();
-                    const ImVec2 badgeMin(rectMin.x + 3.0f, rectMin.y + 3.0f);
-                    const ImVec2 badgeMax(rectMin.x + 18.0f, rectMin.y + 17.0f);
-                    ImGui::GetWindowDrawList()->AddRectFilled(badgeMin, badgeMax, IM_COL32(32, 32, 32, 220), 3.0f);
-                    ImGui::GetWindowDrawList()->AddText(
-                        ImVec2(badgeMin.x + 4.0f, badgeMin.y + 1.0f),
-                        hasSavedPresets ? IM_COL32(255, 210, 64, 255) : IM_COL32(220, 220, 220, 255),
-                        "*");
-                }
-
-                if (ImGui::IsItemHovered()) {
-                    const bool isPainting = director_->IsDecalPainting();
-                    const char* clickHint = isPainting
-                        ? "Click to switch to this decal."
-                        : "Click to select.";
-                    if (isFavorite && hasSavedPresets) {
-                        ImGui::SetTooltip(
-                            "0x%08X\nFavorite with saved presets.\n%s\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
-                            instanceId, clickHint);
-                    }
-                    else if (isFavorite) {
-                        ImGui::SetTooltip(
-                            "0x%08X\nFavorite.\n%s\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
-                            instanceId, clickHint);
-                    }
-                    else {
-                        ImGui::SetTooltip(
-                            "0x%08X\n%s\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
-                            instanceId, clickHint);
-                    }
-                }
-
-                if (dblClicked) {
-                    selectedInstanceId_ = instanceId;
-                    QueuePaintForDecal_(instanceId);
-                }
-                else if (clicked) {
-                    selectedInstanceId_ = instanceId;
-                    if (director_->IsDecalPainting()) {
-                        StartPaintingDecal_(instanceId);
-                    }
-                }
-
-                ImGui::PopID();
+        if (ImGui::IsItemHovered()) {
+            const bool isPainting = director_->IsDecalPainting();
+            const char* clickHint = isPainting
+                ? "Click to switch to this decal."
+                : "Click to select.";
+            if (isFavorite && hasSavedPresets) {
+                ImGui::SetTooltip(
+                    "0x%08X\nFavorite with saved presets.\n%s\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                    instanceId, clickHint);
+            }
+            else if (isFavorite) {
+                ImGui::SetTooltip(
+                    "0x%08X\nFavorite.\n%s\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                    instanceId, clickHint);
+            }
+            else {
+                ImGui::SetTooltip(
+                    "0x%08X\n%s\nDouble-click or press Enter to open paint settings.\nUse Paint now to skip the popup.",
+                    instanceId, clickHint);
             }
         }
-    }
-    clipper.End();
+
+        if (dblClicked) {
+            selectedInstanceId_ = instanceId;
+            QueuePaintForDecal_(instanceId);
+        }
+        else if (clicked) {
+            selectedInstanceId_ = instanceId;
+            if (director_->IsDecalPainting()) {
+                StartPaintingDecal_(instanceId);
+            }
+        }
+    });
+    thumbnailCache_.FitVisible(visible + Cache::kMaxLoadPerFrame);
 
     thumbnailCache_.ProcessLoadQueue([this](const uint32_t instanceId) {
         return LoadDecalThumbnail_(instanceId);

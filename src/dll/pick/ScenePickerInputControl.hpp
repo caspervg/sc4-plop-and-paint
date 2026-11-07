@@ -23,7 +23,6 @@ public:
     bool Shutdown() override;
 
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
-    bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseWheel(int32_t x, int32_t z, uint32_t modifiers, int32_t wheelDelta) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;

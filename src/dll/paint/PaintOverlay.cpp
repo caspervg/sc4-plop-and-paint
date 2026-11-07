@@ -240,7 +240,7 @@ void PaintOverlay::BuildDirectPreview(const bool cursorValid,
                                           const bool drawPlacement) {
     ClearLayers_();
     if (cursorValid) {
-        EmitGrid_(cursorPos, terrain, settings);
+        EmitGrid_(cursorPos, terrain, settings.showGrid, settings.gridStepMeters);
         if (drawPlacement) {
             EmitPreviewPlacement_(plannedPlacement, terrain, kLayerMarkers);
         }
@@ -259,7 +259,7 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
     ClearLayers_();
 
     if (cursorValid) {
-        EmitGrid_(cursorPos, terrain, settings);
+        EmitGrid_(cursorPos, terrain, settings.showGrid, settings.gridStepMeters);
     }
 
     EmitScreenLine_(points, kPathWidthPx, kLineColor, false, kLayerShape);
@@ -289,7 +289,7 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
     ClearLayers_();
 
     if (cursorValid) {
-        EmitGrid_(cursorPos, terrain, settings);
+        EmitGrid_(cursorPos, terrain, settings.showGrid, settings.gridStepMeters);
     }
 
     EmitScreenLine_(vertices, kPathWidthPx, kLineColor, false, kLayerShape);
@@ -317,12 +317,70 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
     Upload_();
 }
 
-void PaintOverlay::EmitGrid_(const cS3DVector3& center, cISTETerrain* terrain, const PropPaintSettings& settings) {
-    if (!settings.showGrid) {
+void PaintOverlay::BuildGroundPreview(const std::vector<GroundGuide>& guides,
+                                      const std::vector<Ground::Vec2>& markers,
+                                      const uint32_t markerColor,
+                                      const bool cursorValid,
+                                      const Ground::Vec2 cursor,
+                                      const float ringRadius,
+                                      const uint32_t ringColor,
+                                      const bool showGrid,
+                                      const float gridStepMeters,
+                                      cISTETerrain* terrain) {
+    constexpr float kMaxSegmentLength = 2.0f;
+    const auto onGround = [terrain](const float x, const float z) {
+        return cS3DVector3(x, terrain ? terrain->GetAltitude(x, z) : 0.0f, z);
+    };
+    // Cut into short pieces so the line follows the terrain between the points.
+    const auto drape = [&](const std::vector<Ground::Vec2>& points, const bool closed) {
+        std::vector<cS3DVector3> draped;
+        const size_t edges = closed ? points.size() : points.size() - 1;
+        for (size_t i = 0; i < edges; ++i) {
+            const Ground::Vec2 a = points[i];
+            const Ground::Vec2 b = points[(i + 1) % points.size()];
+            const int pieces = std::max(1, static_cast<int>(std::ceil(std::hypot(b.x - a.x, b.z - a.z) / kMaxSegmentLength)));
+            for (int k = 0; k < pieces; ++k) {
+                const float t = static_cast<float>(k) / static_cast<float>(pieces);
+                draped.push_back(onGround(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t));
+            }
+        }
+        if (!closed) {
+            draped.push_back(onGround(points.back().x, points.back().z));
+        }
+        return draped;
+    };
+
+    ClearLayers_();
+    if (cursorValid) {
+        EmitGrid_(onGround(cursor.x, cursor.z), terrain, showGrid, gridStepMeters);
+    }
+    for (const GroundGuide& guide : guides) {
+        if (guide.points.size() >= 2) {
+            EmitScreenLine_(drape(guide.points, guide.closed), kPathWidthPx, guide.color, guide.closed, kLayerShape);
+        }
+    }
+    for (const Ground::Vec2& marker : markers) {
+        EmitMarker_(onGround(marker.x, marker.z), kMarkerSize, markerColor, kLayerMarkers);
+    }
+    if (cursorValid && ringRadius > 0.0f) {
+        constexpr int kRingPoints = 48;
+        std::vector<Ground::Vec2> circle;
+        for (int i = 0; i < kRingPoints; ++i) {
+            const float angle = 6.2831853f * static_cast<float>(i) / kRingPoints;
+            circle.push_back({cursor.x + ringRadius * std::cos(angle), cursor.z + ringRadius * std::sin(angle)});
+        }
+        EmitScreenLine_(drape(circle, true), kCursorCloseWidthPx, ringColor, true, kLayerMarkers);
+    }
+    Upload_();
+}
+
+void PaintOverlay::EmitGrid_(const cS3DVector3& center, cISTETerrain* terrain, const bool showGrid,
+                             const float gridStepMeters) {
+    if (!showGrid) {
         return;
     }
 
-    const float gridStep = std::max(settings.gridStepMeters, 1.0f);
+    const float gridStep = std::max(gridStepMeters, 1.0f);
     constexpr float majorStep = 16.0f;
     const float halfSpan = std::max(32.0f, gridStep * 8.0f);
     const float xStart = std::floor((center.fX - halfSpan) / gridStep) * gridStep;

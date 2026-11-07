@@ -3,7 +3,7 @@
 
 namespace UI {
     constexpr float kMinIconSize = 22.0f;
-    constexpr float kMaxIconSize = 176.0f;
+    constexpr float kMaxIconSize = 220.0f;
 
     // Shared
     inline float wideInputWidth() { return 7.7f * ImGui::GetFontSize(); }

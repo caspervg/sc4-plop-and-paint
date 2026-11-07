@@ -20,7 +20,10 @@ public:
 
     [[nodiscard]] const char* GetTabName() const override;
     void OnRender() override;
-    void OnShutdown() override { thumbnailCache_.Clear(); }
+    void OnShutdown() override {
+        thumbnailCache_.Clear();
+        previewCache_.Clear();
+    }
     void OnDeviceReset(uint32_t deviceGeneration) override;
 
 private:

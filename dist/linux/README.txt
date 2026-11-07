@@ -35,7 +35,7 @@ Command-line options:
   --plugins <dir>          Your Documents/SimCity 4/Plugins folder, where the cache is written
   --wine-prefix <dir>      Wine prefix to detect --game and --plugins from
   --locale <name>          Locale folder under the game folder (default: English)
-  --thumbnail-size <px>    Thumbnail size, 22-176 (default: 44); match ThumbnailDisplaySize in SC4PlopAndPaint.ini
+  --thumbnail-size <px>    Thumbnail size stored in the cache, 22-220 (default: 132); the plugin scales it down to ThumbnailDisplaySize
   --render-thumbnails      Render 3D thumbnails for items without an icon (slower)
 
 Examples:

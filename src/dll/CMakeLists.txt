@@ -48,11 +48,17 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/vendor/DBPFKit/src
 )
 
+find_package(Clipper2 CONFIG REQUIRED)
+find_package(tinysplinecxx CONFIG REQUIRED)
+
 # Link against gzcom2 and spdlog
 set(SC4_DLL_LINK_LIBS
     spdlog::spdlog
     reflectcpp::reflectcpp
     gzcom2
+    Clipper2::Clipper2
+    tinysplinecxx::tinysplinecxx
+    WebP::webpdecoder
 )
 list(APPEND SC4_DLL_LINK_LIBS SC4PlopAndPaintCore)
 list(APPEND SC4_DLL_LINK_LIBS DBPFKitLib)
@@ -125,6 +131,50 @@ if(WIN32)
         message(WARNING "SC4 installation not found. Manual deployment required.")
     endif()
 endif()
+
+# Offline checks for the ground paint geometry (no game needed).
+add_executable(GroundGeometryTests
+    ${CMAKE_SOURCE_DIR}/tests/GroundGeometryTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundGeometry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundMarkings.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/HersheyFont.cpp
+)
+target_include_directories(GroundGeometryTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(GroundGeometryTests PRIVATE Clipper2::Clipper2 tinysplinecxx::tinysplinecxx)
+add_test(NAME GroundGeometryTests COMMAND GroundGeometryTests)
+
+add_executable(GroundMarkingsTests
+    ${CMAKE_SOURCE_DIR}/tests/GroundMarkingsTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundGeometry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundMarkings.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/HersheyFont.cpp
+)
+target_include_directories(GroundMarkingsTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(GroundMarkingsTests PRIVATE Clipper2::Clipper2 tinysplinecxx::tinysplinecxx)
+add_test(NAME GroundMarkingsTests COMMAND GroundMarkingsTests)
+
+add_executable(GroundPaintDocumentTests
+    ${CMAKE_SOURCE_DIR}/tests/GroundPaintDocumentTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundGeometry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundMarkings.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/HersheyFont.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundPaintModel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundPaintDocument.cpp
+)
+target_include_directories(GroundPaintDocumentTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SC4RS_ROOT}/src)
+target_link_libraries(GroundPaintDocumentTests PRIVATE
+    Clipper2::Clipper2 tinysplinecxx::tinysplinecxx reflectcpp::reflectcpp gzcom2)
+add_test(NAME GroundPaintDocumentTests COMMAND GroundPaintDocumentTests)
+
+# Thumbnail cache round trip: the cache builder's writer against the plugin's reader.
+add_executable(ThumbnailBinTests
+    ${CMAKE_SOURCE_DIR}/tests/ThumbnailBinTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/thumbnail/ThumbnailStore.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/Logger.cpp
+)
+target_include_directories(ThumbnailBinTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(ThumbnailBinTests PRIVATE spdlog::spdlog reflectcpp::reflectcpp WebP::webp WebP::webpdecoder)
+add_test(NAME ThumbnailBinTests COMMAND ThumbnailBinTests)
 
 install(TARGETS ${PROJECT_NAME}
     RUNTIME DESTINATION bin
