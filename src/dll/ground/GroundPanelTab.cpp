@@ -1248,7 +1248,76 @@ void GroundPanelTab::RenderSelectionActions_(Document& document) {
     ImGui::SameLine();
     if (ImGui::SmallButton("Delete")) {
         document.Remove(selection);
+        return;
     }
+    RenderShapeTools_(document, selection);
+}
+
+void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uint32_t>& selection) {
+    const Bounds bounds = document.SelectionBounds();
+    const Vec2 size{bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z};
+    const Vec2 middle{(bounds.min.x + bounds.max.x) * 0.5f, (bounds.min.z + bounds.max.z) * 0.5f};
+    if (selection.front() != toolsFor_) {
+        // A new selection: repeats start just clear of it.
+        toolsFor_ = selection.front();
+        repeatStep_ = {std::ceil(size.x + 1.0f), std::ceil(size.z + 1.0f)};
+    }
+    if (!ImGui::CollapsingHeader("Border, repeat, mirror")) {
+        return;
+    }
+    ImGui::PushID("shapeTools");
+
+    ImGui::SetNextItemWidth(110.0f);
+    ImGui::DragFloat("##borderWidth", &borderWidth_, 0.02f, 0.05f, 50.0f, "%.2f m wide");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(110.0f);
+    int side = static_cast<int>(borderSide_);
+    if (ImGui::Combo("##borderSide", &side, "outside\0inside\0on the edge\0")) {
+        borderSide_ = static_cast<BorderSide>(side);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Add border")) {
+        document.AddBorder(selection, borderWidth_, borderSide_);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("A new shape along the edge, such as a kerb, a gravel edge or a beach.\n"
+                          "It starts painted the same way; pick its own look next.");
+    }
+
+    ImGui::SetNextItemWidth(110.0f);
+    ImGui::DragInt("##columns", &repeatColumns_, 0.05f, 1, 50, "%d across");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(110.0f);
+    ImGui::DragInt("##rows", &repeatRows_, 0.05f, 1, 50, "%d down");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(repeatColumns_ * repeatRows_ < 2);
+    if (ImGui::SmallButton("Repeat")) {
+        document.Repeat(selection, repeatColumns_, repeatRows_, {repeatStep_.x, 0.0f}, {0.0f, repeatStep_.z});
+    }
+    ImGui::EndDisabled();
+    ImGui::SetNextItemWidth(226.0f + ImGui::GetStyle().ItemSpacing.x);
+    ImGui::DragFloat2("Step##repeat", &repeatStep_.x, 0.05f, -500.0f, 500.0f, "%.2f m");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("How far each copy lies from the last: across (x) and down (z).\n"
+                          "At most %zu copies.", Document::kMaxRepeats);
+    }
+
+    constexpr float kQuarter = std::numbers::pi_v<float> * 0.5f;
+    // A copy is mirrored in the right or the bottom edge, so it lies alongside, touching.
+    if (ImGui::SmallButton("Flip left-right")) {
+        document.Mirror(selection, mirrorCopy_ ? Vec2{bounds.max.x, middle.z} : middle, kQuarter, mirrorCopy_);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Flip top-bottom")) {
+        document.Mirror(selection, mirrorCopy_ ? Vec2{middle.x, bounds.max.z} : middle, 0.0f, mirrorCopy_);
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("as a copy", &mirrorCopy_);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Keeps the original and adds the mirrored copy next to it,\n"
+                          "for symmetric layouts.");
+    }
+    ImGui::PopID();
 }
 
 void GroundPanelTab::RenderTransform_(Document& document) {

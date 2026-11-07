@@ -327,6 +327,50 @@ int main() {
         CHECK(mixed.Find(id)->patchPaintIds.empty() && service.paints.size() == paintsBefore + 1);
     }
 
+    // Borders, repeats and mirrors.
+    {
+        GroundPaintDocument tools(kWhite);
+        tools.SetPaintService(&service);
+        const uint32_t square = tools.Add(Square(0, 0, 10));
+        const uint32_t ids[] = {square};
+        const uint32_t border = tools.AddBorder(ids, 1.0f, BorderSide::Outside);
+        CHECK(border != 0 && tools.Selection() == std::vector<uint32_t>{border});
+        CHECK(std::abs(AreaOf(tools.AreaOf(border)) - 44.0) < 0.05);
+        CHECK(tools.HitTest({-0.5f, 5}) == border && tools.HitTest({5, 5}) == square);
+        CHECK(tools.Undo() && !tools.Find(border));
+
+        tools.Repeat(ids, 3, 2, {20, 0}, {0, 20});
+        CHECK(tools.Objects().size() == 6 && tools.Selection().size() == 6);
+        CHECK(tools.HitTest({45, 25}) && tools.HitTest({45, 25}) != square);
+        CHECK(tools.Undo() && tools.Objects().size() == 1);
+
+        PaintObject l;
+        l.shape.kind = ShapeKind::Area;
+        l.shape.points = {{0, 0}, {4, 0}, {4, 1}, {1, 1}, {1, 3}, {0, 3}};
+        const uint32_t shapeL = tools.Add(l);
+        const uint32_t justL[] = {shapeL};
+        tools.Mirror(justL, {10, 0}, 1.5707964f, true);  // in the line x = 10, as a copy
+        CHECK(tools.Objects().size() == 3 && tools.Selection().size() == 1);
+        const uint32_t copyL = tools.Selection().front();
+        CHECK(tools.HitTest({19.5f, 2.5f}) == copyL && tools.HitTest({16.5f, 0.5f}) == copyL);
+        CHECK(std::abs(AreaOf(tools.AreaOf(copyL)) - 6.0) < 0.01);
+        tools.Mirror(justL, {10, 0}, 1.5707964f, false);  // in place
+        CHECK(tools.HitTest({19.5f, 2.5f}) == shapeL || tools.HitTest({19.5f, 2.5f}) == copyL);
+        CHECK(tools.BoundsOf(shapeL).min.x > 15.9f);
+
+        // A mirrored parking row keeps its bays on the mirrored side.
+        PaintObject row;
+        row.shape.kind = ShapeKind::Marking;
+        row.shape.marking.kind = MarkingKind::ParkingRow;
+        row.shape.points = {{0, 50}, {20, 50}};
+        const uint32_t parking = tools.Add(row);
+        const Bounds before = tools.BoundsOf(parking);
+        const uint32_t justRow[] = {parking};
+        tools.Mirror(justRow, {0, 50}, 0.0f, false);  // in the line z = 50
+        const Bounds after = tools.BoundsOf(parking);
+        CHECK(std::abs((before.min.z - 50) + (after.max.z - 50)) < 0.05);
+    }
+
     std::puts("ok");
     return 0;
 }

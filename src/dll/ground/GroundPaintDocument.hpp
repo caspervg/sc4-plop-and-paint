@@ -57,6 +57,17 @@ namespace Ground {
         void Ungroup(std::span<const uint32_t> ids);
         // Moves, turns and scales the unlocked ones.
         void Transform(std::span<const uint32_t> ids, const Placement& placement);
+        // A new object along the edge of these, painted like the topmost of them, on top and
+        // selected; 0 when there is no edge.
+        uint32_t AddBorder(std::span<const uint32_t> ids, float width, BorderSide side);
+        // Copies in a grid, columns by rows with the originals in the first place, each column
+        // and row moved one step further. All of them become the selection. At most kMaxRepeats
+        // copies.
+        static constexpr size_t kMaxRepeats = 400;
+        void Repeat(std::span<const uint32_t> ids, int columns, int rows, Vec2 columnStep, Vec2 rowStep);
+        // Mirrors the unlocked ones in the line through pivot at axis radians, or copies them
+        // mirrored (the copies become the selection).
+        void Mirror(std::span<const uint32_t> ids, Vec2 pivot, float axisRadians, bool copy);
 
         bool Undo();
         bool Redo();

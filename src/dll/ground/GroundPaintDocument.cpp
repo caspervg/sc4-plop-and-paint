@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <string>
 
 #include "public/cIGZTerrainPaintService.h"
 #include "rfl/cbor/read.hpp"
@@ -333,6 +334,127 @@ namespace Ground {
             }
         }
         Update(std::move(changed));
+    }
+
+    uint32_t GroundPaintDocument::AddBorder(const std::span<const uint32_t> ids, const float width,
+                                            const BorderSide side) {
+        Area all;
+        const PaintObject* top = nullptr;
+        for (const PaintObject& object : objects_) {
+            if (std::ranges::find(ids, object.id) == ids.end()) {
+                continue;
+            }
+            all = all.empty() ? AreaOf(object.id) : Unite(all, AreaOf(object.id));
+            top = &object;
+        }
+        if (!top) {
+            return 0;
+        }
+        Area border = BorderOf(all, width, side);
+        if (IsEmpty(border)) {
+            return 0;
+        }
+        PaintObject object;
+        object.name = "Border of " + (top->name.empty() ? std::string(ShapeKindName(top->shape.kind)) + " " +
+                                                               std::to_string(top->id)
+                                                         : top->name);
+        object.shape = ShapeSpec{.kind = ShapeKind::Merged, .outline = std::move(border)};
+        object.look = top->look;
+        const uint32_t id = Add(std::move(object));
+        if (id != 0) {
+            selection_ = {id};
+        }
+        return id;
+    }
+
+    void GroundPaintDocument::Repeat(const std::span<const uint32_t> ids, const int columns, const int rows,
+                                     const Vec2 columnStep, const Vec2 rowStep) {
+        std::vector<const PaintObject*> originals;
+        for (const PaintObject& object : objects_) {
+            if (std::ranges::find(ids, object.id) != ids.end()) {
+                originals.push_back(&object);
+            }
+        }
+        if (originals.empty()) {
+            return;
+        }
+        // Groups are copied as groups: each copy of a group gets a group of its own.
+        uint32_t nextGroup = 0;
+        for (const PaintObject& object : objects_) {
+            nextGroup = std::max(nextGroup, object.group);
+        }
+        std::vector<PaintObject> copies;
+        std::vector<uint32_t> selected(ids.begin(), ids.end());
+        int32_t order = TopOrder_();
+        for (int row = 0; row < std::max(1, rows); ++row) {
+            for (int column = 0; column < std::max(1, columns); ++column) {
+                if (row == 0 && column == 0) {
+                    continue;
+                }
+                if (copies.size() + originals.size() > kMaxRepeats) {
+                    break;
+                }
+                const Vec2 offset{columnStep.x * static_cast<float>(column) + rowStep.x * static_cast<float>(row),
+                                  columnStep.z * static_cast<float>(column) + rowStep.z * static_cast<float>(row)};
+                std::unordered_map<uint32_t, uint32_t> groups;
+                for (const PaintObject* original : originals) {
+                    PaintObject copy = *original;
+                    copy.id = nextId_++;
+                    copy.drawOrder = ++order;
+                    copy.paintId = 0;
+                    copy.patchPaintIds.clear();
+                    copy.locked = false;
+                    if (copy.group != 0) {
+                        const auto [it, added] = groups.try_emplace(copy.group, nextGroup + 1);
+                        nextGroup += added ? 1 : 0;
+                        copy.group = it->second;
+                    }
+                    TransformObject(copy, {.offset = offset});
+                    selected.push_back(copy.id);
+                    copies.push_back(std::move(copy));
+                }
+            }
+        }
+        if (copies.empty()) {
+            return;
+        }
+        Commit_({}, std::move(copies));
+        selection_ = std::move(selected);
+    }
+
+    void GroundPaintDocument::Mirror(const std::span<const uint32_t> ids, const Vec2 pivot, const float axisRadians,
+                                     const bool copy) {
+        std::vector<PaintObject> mirrored;
+        int32_t order = TopOrder_();
+        for (const PaintObject& object : objects_) {
+            if (std::ranges::find(ids, object.id) == ids.end() || (!copy && object.locked)) {
+                continue;
+            }
+            PaintObject changed = object;
+            MirrorObject(changed, pivot, axisRadians);
+            if (copy) {
+                changed.id = nextId_++;
+                changed.drawOrder = ++order;
+                changed.paintId = 0;
+                changed.patchPaintIds.clear();
+                changed.locked = false;
+                changed.group = 0;
+            }
+            mirrored.push_back(std::move(changed));
+        }
+        if (mirrored.empty()) {
+            return;
+        }
+        if (!copy) {
+            Update(std::move(mirrored));
+            return;
+        }
+        std::vector<uint32_t> selected;
+        for (const PaintObject& object : mirrored) {
+            selected.push_back(object.id);
+        }
+        Commit_({}, std::move(mirrored));
+        selection_ = std::move(selected);
     }
 
     bool GroundPaintDocument::Undo() {

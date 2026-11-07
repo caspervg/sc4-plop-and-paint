@@ -62,6 +62,8 @@ private:
     void RenderShapeSettings_();
     void RenderSelection_(Ground::GroundPaintDocument& document);
     void RenderSelectionActions_(Ground::GroundPaintDocument& document);
+    // Border, repeat and mirror for the selection.
+    void RenderShapeTools_(Ground::GroundPaintDocument& document, const std::vector<uint32_t>& selection);
     void RenderTransform_(Ground::GroundPaintDocument& document);
     void RenderLayers_(Ground::GroundPaintDocument& document);
     // Marks the tool settings changed; FlushSettings_ hands them to the city's tool, at most every
@@ -88,6 +90,15 @@ private:
     // The selected object being edited, applied when a control is let go.
     uint32_t editingId_ = 0;
     Ground::PaintObject editing_{};
+
+    // Border, repeat and mirror settings; the repeat step is reset for each new selection.
+    float borderWidth_ = 1.0f;
+    Ground::BorderSide borderSide_ = Ground::BorderSide::Outside;
+    int repeatColumns_ = 3;
+    int repeatRows_ = 1;
+    Ground::Vec2 repeatStep_{};
+    uint32_t toolsFor_ = 0;
+    bool mirrorCopy_ = false;
 
     // Turning and scaling the selection: shown while a control is dragged, done when let go.
     float turnDegrees_ = 0.0f;
