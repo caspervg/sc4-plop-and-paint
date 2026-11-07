@@ -165,10 +165,9 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
-          # perl-IPC-Cmd + kernel/glibc headers are build prereqs for openssl (pulled in via curl).
+          # Full perl (all core modules, e.g. IPC::Cmd, Time::Piece) is needed by openssl's Configure (pulled in via curl).
           dnf install -y libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
-            mesa-libGL-devel mesa-libGLU-devel zip unzip \
-            perl-IPC-Cmd perl-Digest-SHA kernel-headers glibc-headers
+            mesa-libGL-devel mesa-libGLU-devel zip unzip perl
           pipx install ninja
           # The workspace is owned by the runner user, not the container's root user.
           git config --global --add safe.directory '*'
