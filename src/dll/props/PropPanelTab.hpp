@@ -31,6 +31,8 @@ private:
     ImGuiTexture LoadPropTexture_(uint64_t propKey);
 
     void RenderFilterUI_();
+    // The pack filter, when there is a pack catalog. Sets changed when the pack changes.
+    void RenderPackFilter_(bool& changed);
     void RenderTable_();
     void RebuildPropViewsCache_();
     void EnsureFilteredPropsCache_();
@@ -39,6 +41,8 @@ private:
                               const std::unordered_set<uint64_t>& favorites);
 
     [[nodiscard]] bool HasPropTooltipContent_(const Prop& prop) const;
+    // Families, day and night, dates and chance: the tooltip's details besides the pack.
+    [[nodiscard]] static bool HasPropDetails_(const Prop& prop);
     [[nodiscard]] bool RenderPropPills_(const Prop& prop, bool startOnNewLine) const;
     void RenderPropTooltip_(const Prop& prop) const;
     void RenderFavButton_(const Prop& prop) const;
@@ -76,5 +80,9 @@ private:
     std::vector<PropView> allPropViewsCache_{};
     std::vector<PropView> filteredPropsCache_{};
     size_t cachedPropCount_{0};
+    // Props per pack, by pack index; the last entry counts those not in the catalog. Made with the
+    // views, so once per props.cbor.
+    std::vector<uint32_t> packCounts_{};
+    std::vector<int32_t> packsByName_{};
     bool filteredPropsDirty_{true};
 };

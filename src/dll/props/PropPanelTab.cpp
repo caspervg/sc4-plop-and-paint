@@ -7,6 +7,7 @@
 #include "../common/BadgeUtils.hpp"
 #include "../common/Constants.hpp"
 #include "../common/Utils.hpp"
+#include "../packs/PackCatalogRepository.hpp"
 #include "../utils/Logger.h"
 
 namespace {
@@ -163,6 +164,8 @@ void PropPanelTab::RenderFilterUI_() {
         filtersChanged = true;
     }
 
+    RenderPackFilter_(filtersChanged);
+
     filtersChanged = ImGui::Checkbox("Favorites only", &filterHelper_.favoritesOnly) || filtersChanged;
     ImGui::SameLine();
     filtersChanged = ImGui::Checkbox("In a family", &filterHelper_.requireFamily) || filtersChanged;
@@ -207,6 +210,55 @@ void PropPanelTab::RenderFilterUI_() {
     }
 }
 
+void PropPanelTab::RenderPackFilter_(bool& changed) {
+    const PackCatalogRepository* catalog = director_->GetPackCatalog();
+    if (!catalog || catalog->Packs().empty() || packCounts_.empty()) {
+        return;
+    }
+    const std::vector<TexturePack>& packs = catalog->Packs();
+    const auto label = [&](const int32_t pack) {
+        char text[160];
+        if (pack == PropFilterHelper::kAllPacks) {
+            std::snprintf(text, sizeof(text), "All packs (%zu)", allPropViewsCache_.size());
+        }
+        else if (pack == PropFilterHelper::kNoPack) {
+            std::snprintf(text, sizeof(text), "Not in the catalog (%u)", packCounts_.back());
+        }
+        else {
+            std::snprintf(text, sizeof(text), "%s (%u)", packs[static_cast<size_t>(pack)].name.c_str(),
+                          packCounts_[static_cast<size_t>(pack)]);
+        }
+        return std::string(text);
+    };
+
+    ImGui::SetNextItemWidth(-1);
+    if (!ImGui::BeginCombo("##PropPack", label(filterHelper_.packFilter).c_str(), ImGuiComboFlags_HeightLarge)) {
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Show only props from one pack, as the SC4 Prop Texture Catalog knows them.");
+        }
+        return;
+    }
+    const auto option = [&](const int32_t pack) {
+        if (ImGui::Selectable(label(pack).c_str(), filterHelper_.packFilter == pack)) {
+            changed = changed || filterHelper_.packFilter != pack;
+            filterHelper_.packFilter = pack;
+        }
+        if (pack >= 0 && ImGui::IsItemHovered()) {
+            const TexturePack& info = packs[static_cast<size_t>(pack)];
+            ImGui::SetTooltip("%s\n%s%s%s", info.author.c_str(), info.package.c_str(), info.package.empty() ? "" : "\n",
+                              info.url.c_str());
+        }
+    };
+    option(PropFilterHelper::kAllPacks);
+    for (const int32_t pack : packsByName_) {
+        option(pack);
+    }
+    if (packCounts_.back() > 0) {
+        option(PropFilterHelper::kNoPack);
+    }
+    ImGui::EndCombo();
+}
+
 void PropPanelTab::RenderTable_() {
     EnsureFilteredPropsCache_();
     RenderTableInternal_(filteredPropsCache_, favorites_->GetFavoritePropIds());
@@ -214,11 +266,36 @@ void PropPanelTab::RenderTable_() {
 
 void PropPanelTab::RebuildPropViewsCache_() {
     const auto& props = props_->GetProps();
+    const PackCatalogRepository* catalog = director_->GetPackCatalog();
+    const size_t packCount = catalog ? catalog->Packs().size() : 0;
+    filterHelper_.packs = catalog;
+    packCounts_.assign(packCount + 1, 0);
     allPropViewsCache_.clear();
     allPropViewsCache_.reserve(props.size());
+    std::vector<uint32_t> counted;
     for (const auto& prop : props) {
-        allPropViewsCache_.push_back(PropView{&prop});
+        const auto rows = catalog ? catalog->PropRows(prop.groupId.value(), prop.instanceId.value())
+                                  : std::span<const PackCatalogRepository::PropRow>{};
+        // Once in each pack it ships in, even when a pack has it in several files.
+        counted.clear();
+        for (const auto& row : rows) {
+            if (std::ranges::find(counted, row[3]) == counted.end()) {
+                counted.push_back(row[3]);
+                ++packCounts_[row[3]];
+            }
+        }
+        if (rows.empty()) {
+            ++packCounts_[packCount];
+        }
+        allPropViewsCache_.push_back(PropView{&prop, rows});
     }
+    packsByName_.clear();
+    for (int32_t i = 0; i < static_cast<int32_t>(packCount); ++i) {
+        if (packCounts_[static_cast<size_t>(i)] > 0) {
+            packsByName_.push_back(i);
+        }
+    }
+    std::ranges::sort(packsByName_, {}, [&](const int32_t i) { return catalog->Packs()[static_cast<size_t>(i)].name; });
     cachedPropCount_ = props.size();
     filteredPropsDirty_ = true;
 }
@@ -744,6 +821,12 @@ void PropPanelTab::RenderSeasonalSetEditor_() {
 }
 
 bool PropPanelTab::HasPropTooltipContent_(const Prop& prop) const {
+    const PackCatalogRepository* catalog = director_->GetPackCatalog();
+    return (catalog && !catalog->PropRows(prop.groupId.value(), prop.instanceId.value()).empty()) ||
+        HasPropDetails_(prop);
+}
+
+bool PropPanelTab::HasPropDetails_(const Prop& prop) {
     return !prop.familyIds.empty() ||
         prop.nighttimeStateChange.has_value() ||
         prop.timeOfDay.has_value() ||
@@ -780,6 +863,29 @@ bool PropPanelTab::RenderPropPills_(const Prop& prop, const bool startOnNewLine)
 
 void PropPanelTab::RenderPropTooltip_(const Prop& prop) const {
     ImGui::BeginTooltip();
+
+    const PackCatalogRepository* catalog = director_->GetPackCatalog();
+    const auto rows = catalog ? catalog->PropRows(prop.groupId.value(), prop.instanceId.value())
+                              : std::span<const PackCatalogRepository::PropRow>{};
+    if (const TexturePack* pack = rows.empty() ? nullptr : catalog->Pack(static_cast<int32_t>(rows.front()[3]))) {
+        // props.cbor does not say which file a prop is loaded from, so the first pack stands for all.
+        ImGui::Text("From %s by %s", pack->name.c_str(), pack->author.c_str());
+        if (const std::string* file = catalog->File(rows.front()[2])) {
+            ImGui::TextDisabled("%s", file->c_str());
+        }
+        std::vector<uint32_t> others;
+        for (const auto& row : rows) {
+            if (row[3] != rows.front()[3] && std::ranges::find(others, row[3]) == others.end()) {
+                others.push_back(row[3]);
+            }
+        }
+        if (!others.empty()) {
+            ImGui::TextDisabled("Also in %zu other pack%s", others.size(), others.size() == 1 ? "" : "s");
+        }
+        if (HasPropDetails_(prop)) {
+            ImGui::Separator();
+        }
+    }
 
     if (!prop.familyIds.empty()) {
         const auto& familyNames = props_->GetPropFamilyNames();
