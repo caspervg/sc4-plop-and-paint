@@ -323,6 +323,14 @@ namespace {
         }
     }
 
+    // Whether going from one version of an object to the other is cheap enough to show every
+    // frame: the same cut, and nothing the service has to work out again per cell (the soft edge
+    // and worn paint).
+    bool CheapChange(const PaintObject& a, const PaintObject& b) {
+        return SameShape(a, b) && a.look.featherMeters == b.look.featherMeters &&
+               a.look.patchBlendMeters == b.look.patchBlendMeters && a.shape.wear == b.shape.wear;
+    }
+
     std::string Upper(std::string text) {
         std::ranges::transform(text, text.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
         return text;
@@ -365,14 +373,26 @@ void GroundPanelTab::FlushSettings_() {
     if (!settingsDirty_) {
         return;
     }
-    // While a slider is dragged the preview follows every so often, not every frame: worn paint
-    // and soft edges cut the whole preview again. Letting go sends the last value at once.
+    // While a slider is dragged the preview follows every so often, not every frame: shape
+    // changes cut the whole preview again. A change that only restyles it, such as a colour or
+    // the opacity, follows at once. Letting go sends the last value at once.
     const auto now = std::chrono::steady_clock::now();
-    if (ImGui::IsAnyItemActive() && now - lastSettingsPush_ < std::chrono::milliseconds(150)) {
+    const bool restyleOnly = [&] {
+        ToolSettings shapeOnly = settings_;
+        shapeOnly.look = pushedSettings_.look;
+        PaintObject before;
+        PaintObject after;
+        before.look = pushedSettings_.look;
+        after.look = settings_.look;
+        before.shape.kind = after.shape.kind = settings_.tool == Tool::Line ? ShapeKind::Line : ShapeKind::Area;
+        return shapeOnly == pushedSettings_ && CheapChange(before, after);
+    }();
+    if (!restyleOnly && ImGui::IsAnyItemActive() && now - lastSettingsPush_ < std::chrono::milliseconds(150)) {
         return;
     }
     settingsDirty_ = false;
     lastSettingsPush_ = now;
+    pushedSettings_ = settings_;
     if (director_->IsGroundPainting()) {
         director_->UpdateGroundPainting(settings_);
     }
@@ -382,6 +402,7 @@ void GroundPanelTab::SelectTool_(const Tool tool) {
     stamping_ = false;
     settings_.tool = tool;
     ReleaseImGuiInputCapture_();
+    pushedSettings_ = settings_;
     director_->StartGroundPainting(settings_);
 }
 
@@ -398,6 +419,7 @@ void GroundPanelTab::OnRender() {
             // Copied from painted ground in the city.
             settings_.look = current.look;
             settings_.wear = current.wear;
+            settings_.roughness = current.roughness;
             toolLook_ = {};
             toolLook_.wantsTexture = !settings_.look.textures.empty();
         }
@@ -450,7 +472,8 @@ void GroundPanelTab::OnRender() {
         RenderShapeSettings_();
         ImGui::PopID();
         if (settings_.tool != Tool::Erase) {
-            RenderFinish_(settings_.look, settings_.wear, changed, committed);
+            RenderFinish_(settings_.look, settings_.wear, settings_.tool == Tool::Marking ? nullptr : &settings_.roughness,
+                          changed, committed);
         }
         if (changed || committed) {
             SettingsChanged_();
@@ -532,7 +555,7 @@ void GroundPanelTab::RenderStatus_() {
     ImGui::PopStyleColor();
 }
 
-void GroundPanelTab::RenderFinish_(Look& look, float& wear, bool& changed, bool& committed) {
+void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bool& changed, bool& committed) {
     ImGui::PushID("finish");
     ImGui::SeparatorText("Finish");
     // Three short sliders on one line, each saying what it is in its value.
@@ -561,6 +584,26 @@ void GroundPanelTab::RenderFinish_(Look& look, float& wear, bool& changed, bool&
     Track(changed, committed);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Patches of paint missing, as on an old road.");
+    }
+
+    // The second row: a rough edge (not for markings, whose lines should stay crisp) and depth.
+    const float halfWidth = (ImGui::GetContentRegionAvail().x - spacing) / 2.0f;
+    if (roughness) {
+        ImGui::SetNextItemWidth(halfWidth);
+        ImGui::DragFloat("##rough", roughness, 0.02f, 0.0f, 16.0f, *roughness > 0.0f ? "Rough edge %.2f m" : "Smooth edge");
+        Track(changed, committed);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("A natural, uneven outline that wanders this far in and out: grass, dirt, gravel.\n"
+                              "Drag to the right.");
+        }
+        ImGui::SameLine();
+    }
+    ImGui::SetNextItemWidth(roughness ? halfWidth : -1.0f);
+    ImGui::SliderInt("##depth", &look.depthOffset, -1, 8, look.depthOffset < 0 ? "Depth: default" : "Depth %d");
+    Track(changed, committed);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Raise it when the paint flickers or hides under lot textures.\n"
+                          "4 and up draws over the game's shadows.");
     }
     ImGui::PopID();
 }
@@ -643,6 +686,13 @@ void GroundPanelTab::RenderShapeSettings_() {
     if (tool == Tool::Brush || (tool == Tool::Erase && settings_.eraseWithBrush)) {
         changed |= ImGui::DragFloat("Brush size ([ ])", &settings_.brushRadius, 0.05f, 0.25f, 64.0f, "%.2f m radius");
     }
+    if (tool == Tool::Brush) {
+        changed |= ImGui::Checkbox("Join overlapping strokes", &settings_.joinBrushStrokes);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("A stroke over one painted the same way becomes part of it,\n"
+                              "so a patch of ground stays one object in the list.");
+        }
+    }
 
     if (changed) {
         SettingsChanged_();
@@ -707,6 +757,33 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
             if (!following) {
                 ImGui::DragFloat("Texture turn", &look.textureRotationDegrees, 0.5f, -360.0f, 360.0f, "%.0f°");
                 Track(changed, committed);
+                ImGui::DragFloat2("Texture shift", look.textureOffset.data(), 0.05f, -256.0f, 256.0f, "%.2f m");
+                Track(changed, committed);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Moves the texture, to line it up with a kerb or a lot.\n"
+                                      "With Select, Shift+drag the painted ground in the city to move its texture.");
+                }
+            }
+            if (look.textures.size() > 1) {
+                int mix = static_cast<int>(look.mix);
+                if (ImGui::Combo("Mix", &mix, "By 16 m square\0In soft patches\0")) {
+                    look.mix = static_cast<TextureMix>(mix);
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("In soft patches: the first texture covers the shape and the others lie on it\n"
+                                      "in natural, blended patches, each by its share.");
+                }
+                if (look.mix == TextureMix::Patches) {
+                    ImGui::DragFloat("Patch size", &look.patchSizeMeters, 0.1f, 2.0f, 200.0f, "%.1f m");
+                    Track(changed, committed);
+                    ImGui::DragFloat("Patch blend", &look.patchBlendMeters, 0.05f, 0.0f, 32.0f,
+                                     look.patchBlendMeters > 0.0f ? "%.2f m" : "sharp");
+                    Track(changed, committed);
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("How far the edge of each patch fades into what lies under it.");
+                    }
+                }
             }
         }
     }
@@ -718,7 +795,9 @@ void GroundPanelTab::RenderChosenTextures_(Look& look, bool& changed, bool& comm
         return;
     }
     if (look.textures.size() > 1) {
-        ImGui::TextWrapped("A mix: each 16 m square of ground takes one of these, by its share.");
+        ImGui::TextWrapped(look.mix == TextureMix::Patches
+                               ? "A mix: the first covers the shape, the others lie on it in patches, by their share."
+                               : "A mix: each 16 m square of ground takes one of these, by its share.");
     }
 
     float total = 0.0f;
@@ -1102,7 +1181,8 @@ void GroundPanelTab::RenderSelection_(Document& document) {
         }
         break;
     case ShapeKind::Brush:
-        ImGui::DragFloat("Brush size", &shape.brushRadius, 0.05f, 0.25f, 64.0f, "%.2f m radius");
+        ImGui::DragFloat(shape.outline.empty() ? "Brush size" : "Brush size (last stroke)", &shape.brushRadius, 0.05f,
+                         0.25f, 64.0f, "%.2f m radius");
         Track(changed, committed);
         break;
     case ShapeKind::Marking:
@@ -1113,10 +1193,19 @@ void GroundPanelTab::RenderSelection_(Document& document) {
     case ShapeKind::Merged:
         break;
     }
-    RenderFinish_(editing_.look, shape.wear, changed, committed);
+    RenderFinish_(editing_.look, shape.wear, shape.kind == ShapeKind::Marking ? nullptr : &shape.roughness, changed,
+                  committed);
 
     if (committed) {
         document.Update({editing_});
+    }
+    else if (changed) {
+        // Shown while the control is held: a new style at once, a new cut every so often.
+        const auto now = std::chrono::steady_clock::now();
+        if (CheapChange(editing_, *object) || now - lastLivePreview_ >= std::chrono::milliseconds(60)) {
+            lastLivePreview_ = now;
+            document.ShowChanged(editing_);
+        }
     }
 }
 
@@ -1289,6 +1378,9 @@ void GroundPanelTab::RenderLayers_(Document& document) {
         }
         if (object.shape.wear > 0.0f) {
             detail += detail.empty() ? "worn" : ", worn";
+        }
+        if (UsesPatches(object.look)) {
+            detail += detail.empty() ? "patches" : ", patches";
         }
         if (!detail.empty()) {
             ImGui::SameLine();

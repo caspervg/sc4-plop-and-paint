@@ -33,8 +33,8 @@ private:
     void RenderToolRow_();
     // What to do next with the tool in use, from the city's input control.
     void RenderStatus_();
-    // Opacity, soft edge and wear, folded away by default.
-    void RenderFinish_(Ground::Look& look, float& wear, bool& changed, bool& committed);
+    // Opacity, soft edge, wear, rough edge (when roughness is given) and depth.
+    void RenderFinish_(Ground::Look& look, float& wear, float* roughness, bool& changed, bool& committed);
     void RenderGrid_();
     // What the look editor remembers between frames: Texture chosen while no texture is picked
     // yet, and the plain colour while a texture is in use. The look's colour is the paint colour
@@ -77,8 +77,12 @@ private:
     ThumbnailCache<uint32_t> thumbnails_{};
 
     Ground::ToolSettings settings_{};
+    // As the city's tool last got them.
+    Ground::ToolSettings pushedSettings_{};
     bool settingsDirty_ = false;
     std::chrono::steady_clock::time_point lastSettingsPush_{};
+    // When the selection's edit was last shown in the city with a new cut.
+    std::chrono::steady_clock::time_point lastLivePreview_{};
     bool stamping_ = false;
 
     // The selected object being edited, applied when a control is let go.

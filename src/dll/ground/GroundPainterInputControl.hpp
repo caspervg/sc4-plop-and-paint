@@ -75,6 +75,13 @@ private:
     [[nodiscard]] const Ground::PaintObject* PointEditTarget_() const;
     bool StartPointEdit_(bool insert, bool remove);
     void FinishPointDrag_();
+    // Shift+drag in Select: moves the flat textures of the selection, not the shapes.
+    bool StartTextureDrag_();
+    void FinishTextureDrag_();
+    // The selection with its textures moved as far as the mouse since the drag started.
+    [[nodiscard]] std::vector<Ground::PaintObject> TextureDragged_() const;
+    // Joins a brush stroke to the topmost brush paint painted the same way that it overlaps.
+    bool JoinStroke_(const Ground::PaintObject& stroke);
     [[nodiscard]] size_t MarkingMaxPoints_() const;
     [[nodiscard]] bool UsesBrush_() const;
     void Undo_();
@@ -110,8 +117,9 @@ private:
     // Freehand lines, brush and eraser strokes while the left button is down.
     bool strokeActive_ = false;
     std::vector<Ground::Vec2> stroke_{};
-    // Moving the selection.
+    // Moving the selection, or its textures.
     bool dragging_ = false;
+    bool textureDrag_ = false;
     Ground::Vec2 dragStart_{};
     // Dragging one point of the selected object: which, and the object as it is being changed.
     std::optional<size_t> pointDrag_{};

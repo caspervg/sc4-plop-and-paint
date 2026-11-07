@@ -48,6 +48,7 @@ namespace {
             }
             it->second.ringCount = shape.ringCount;
             it->second.pointCount = Points(shape);
+            ++shapeSets;
             return true;
         }
         bool SetPaintStyle(const TerrainPaintId id, const TerrainPaintStyle* style, uint32_t) override {
@@ -71,6 +72,7 @@ namespace {
         std::map<uint32_t, Paint> paints;
         uint32_t nextId = 100;
         int creates = 0;
+        int shapeSets = 0;
 
     private:
         static uint32_t Points(const TerrainPaintShape& shape) {
@@ -239,6 +241,91 @@ int main() {
     CHECK(reloaded.Load(edits.Save()));
     CHECK(reloaded.Find(m)->shape.marking.kind == MarkingKind::Zebra);
     CHECK(std::abs(AreaOf(reloaded.AreaOf(m)) - AreaOf(edits.AreaOf(m))) < 1.0e-6);
+
+    // A change of look alone restyles the paint without cutting it again; a change of shape does.
+    {
+        GroundPaintDocument looks(kWhite);
+        looks.SetPaintService(&service);
+        const uint32_t id = looks.Add(Square(0, 0, 10));
+        PaintObject recoloured = *looks.Find(id);
+        recoloured.look.color = {0.2f, 0.4f, 0.6f};
+        recoloured.look.textureOffset = {3.0f, -2.0f};
+        recoloured.look.depthOffset = 5;
+        int shapeSets = service.shapeSets;
+        looks.Update({recoloured});
+        CHECK(service.shapeSets == shapeSets);
+        const TerrainPaintStyle& style = service.paints.at(looks.Find(id)->paintId).style;
+        CHECK(style.color.fY == 0.4f && style.textureOffsetX == 3.0f && style.textureOffsetZ == -2.0f &&
+              style.depthOffset == 5);
+        // Shown while a control is held, then put back.
+        recoloured.look.opacity = 0.5f;
+        looks.ShowChanged(recoloured);
+        CHECK(service.shapeSets == shapeSets && service.paints.at(looks.Find(id)->paintId).style.opacity == 0.5f);
+        looks.Select(id, false);
+        looks.ShowSelectionMoved({});
+        CHECK(service.paints.at(looks.Find(id)->paintId).style.opacity == 1.0f);
+        // Order changes restyle too.
+        looks.Add(Square(50, 0, 10));
+        shapeSets = service.shapeSets;
+        looks.MoveToTop(id);
+        CHECK(service.shapeSets == shapeSets);
+        CHECK(service.paints.at(looks.Find(id)->paintId).style.drawOrder == looks.Objects().back().drawOrder);
+        // Dragged, then let go: the move cuts it once, putting the selection back cuts nothing more.
+        looks.Select(id, false);
+        looks.ShowSelectionTransformed({.offset = {5.0f, 0.0f}});
+        CHECK(service.shapeSets == shapeSets + 1);
+        const uint32_t dragged[] = {id};
+        looks.Transform(dragged, {.offset = {5.0f, 0.0f}});
+        const int afterMove = service.shapeSets;
+        looks.ShowSelectionMoved({});
+        CHECK(service.shapeSets == afterMove);
+        shapeSets = afterMove;
+        PaintObject rough = *looks.Find(id);
+        rough.shape.roughness = 0.5f;
+        looks.Update({rough});
+        CHECK(service.shapeSets > shapeSets);
+        CHECK(std::abs(AreaOf(looks.AreaOf(id)) - 100.0) < 15.0);
+    }
+
+    // Texture patches: one terrain paint per texture, the later ones patches on the first.
+    {
+        GroundPaintDocument mixed(kWhite);
+        mixed.SetPaintService(&service);
+        PaintObject meadow = Square(0, 0, 64);
+        meadow.look.textures = {{0x1111, 1.0f}, {0x2222, 1.0f}, {0x3333, 1.0f}};
+        meadow.look.mix = TextureMix::Patches;
+        meadow.look.variationSeed = 7;
+        const size_t paintsBefore = service.paints.size();
+        const uint32_t id = mixed.Add(meadow);
+        const PaintObject& added = *mixed.Find(id);
+        CHECK(added.patchPaintIds.size() == 2 && service.paints.size() == paintsBefore + 3);
+        CHECK(service.paints.at(added.paintId).style.textureCount == 1 &&
+              service.paints.at(added.paintId).style.textures[0].key.instance == 0x1111);
+        const TerrainPaintStyle& patch = service.paints.at(added.patchPaintIds[1]).style;
+        CHECK(patch.textures[0].key.instance == 0x3333 && patch.featherMeters == meadow.look.patchBlendMeters);
+        CHECK(service.paints.at(added.patchPaintIds[0]).pointCount > 3);
+        // Moved: the patches go along; removed: all paints go.
+        const uint32_t ids[] = {id};
+        mixed.Transform(ids, {.offset = {100.0f, 0.0f}});
+        CHECK(mixed.Find(id)->patchPaintIds.size() == 2);
+        CHECK(mixed.Find(id)->shape.patternOrigin.x == 100.0f);
+        // Saved paints are kept by Restore.
+        const std::vector<char> bytes = mixed.Save();
+        GroundPaintDocument again(kWhite);
+        again.SetPaintService(&service);
+        CHECK(again.Load(bytes));
+        const int creates = service.creates;
+        again.Restore();
+        CHECK(service.creates == creates);
+        mixed.Remove(ids);
+        CHECK(service.paints.size() == paintsBefore);
+        CHECK(mixed.Undo() && service.paints.size() == paintsBefore + 3);
+        // Back to one texture: the patch paints go.
+        PaintObject plain = *mixed.Find(id);
+        plain.look.textures.resize(1);
+        mixed.Update({plain});
+        CHECK(mixed.Find(id)->patchPaintIds.empty() && service.paints.size() == paintsBefore + 1);
+    }
 
     std::puts("ok");
     return 0;

@@ -4,6 +4,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "GroundPaintModel.hpp"
@@ -34,6 +35,9 @@ namespace Ground {
         [[nodiscard]] const std::vector<PaintObject>& Objects() const { return objects_; }
         [[nodiscard]] const PaintObject* Find(uint32_t id) const;
         [[nodiscard]] const Area& AreaOf(uint32_t id) const;
+        [[nodiscard]] Bounds BoundsOf(uint32_t id) const;
+        // Goes up with every change to what is painted, so others can tell their caches are stale.
+        [[nodiscard]] uint64_t Revision() const { return revision_; }
 
         // Each of these is one undo step.
         uint32_t Add(PaintObject object);  // on top; 0 when it covers nothing
@@ -74,7 +78,9 @@ namespace Ground {
         void ShowSelectionMoved(Vec2 offset);
         void ShowSelectionTransformed(const Placement& placement);
         // Shows an object as it would be after a change that is still being made, such as a
-        // point being dragged. ShowSelectionMoved({}) shows the selection as it is again.
+        // point being dragged or a colour being picked. A change of look alone only restyles the
+        // paint; a change of shape cuts it again. ShowSelectionMoved({}) shows the selection as it
+        // is again.
         void ShowChanged(const PaintObject& object);
         [[nodiscard]] Bounds SelectionBounds() const;
 
@@ -91,12 +97,28 @@ namespace Ground {
             std::vector<PaintObject> after;
         };
 
+        // What an object covers, worked out once per change.
+        struct Built {
+            Area area;
+            Bounds bounds;
+            std::vector<Area> patches;
+        };
+
         void Commit_(std::vector<PaintObject> before, std::vector<PaintObject> after);
         void Apply_(const std::vector<PaintObject>& from, const std::vector<PaintObject>& to);
         void Upsert_(PaintObject object);
         void RemoveObject_(uint32_t id);
         void Sync_(PaintObject& object);
+        // Makes or updates the terrain paints of an area and its patches: one id per part. All
+        // are made again when one has to be, so the patches stay on top of the area.
+        void ShowParts_(uint32_t& paintId, std::vector<uint32_t>& patchIds, const PaintObject& object,
+                        const Area& area, const std::vector<Area>& patches, const std::vector<UvVertex>& uvMap,
+                        int32_t drawOrder, bool hidden, bool transient);
+        // Restyles the terrain paints of an object without touching their shapes.
+        void Restyle_(const PaintObject& object, const Area& area, uint32_t paintId,
+                      const std::vector<uint32_t>& patchIds, int32_t drawOrder, bool hidden, bool transient);
         void RemovePaint_(uint32_t& paintId);
+        void RemovePaints_(uint32_t& paintId, std::vector<uint32_t>& patchIds);
         void SortByOrder_();
         void Reorder_(uint32_t id, int steps);
         [[nodiscard]] PaintObject* FindMutable_(uint32_t id);
@@ -105,11 +127,20 @@ namespace Ground {
         uint32_t whiteTextureInstance_;
         cIGZTerrainPaintService* service_ = nullptr;
         std::vector<PaintObject> objects_{};
-        std::unordered_map<uint32_t, Area> areas_{};
+        std::unordered_map<uint32_t, Built> built_{};
+        // Objects whose terrain paints show a change that is still being made: a moved or
+        // reshaped cut, or only a new style. ShowSelectionMoved({}) puts back just these.
+        std::unordered_set<uint32_t> shownShape_{};
+        std::unordered_set<uint32_t> shownStyle_{};
         std::vector<uint32_t> selection_{};
         std::vector<Step> undo_{};
         std::vector<Step> redo_{};
         uint32_t nextId_ = 1;
         uint32_t previewPaintId_ = 0;
+        std::vector<uint32_t> previewPatchIds_{};
+        // What the preview shows, to tell a new look from a new shape.
+        std::optional<PaintObject> previewObject_{};
+        Area previewArea_{};
+        uint64_t revision_ = 1;
     };
 }

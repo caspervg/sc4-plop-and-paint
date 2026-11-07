@@ -14,16 +14,18 @@ namespace Ground {
         constexpr uint32_t kDecalTextureGroup = 0x0986135E;
         constexpr size_t kMaxUndoSteps = 100;
 
-        // The paint's style. area is what is painted, for the size of the worn patches.
+        // The paint's style. area is what is painted, for the size of the worn patches. part 0 is
+        // the whole area; with texture patches, part i is the patches of texture i.
         TerrainPaintStyle ToStyle(const PaintObject& object, const Area& area, const int32_t drawOrder, const bool hidden,
-                                  const bool transient, const uint32_t whiteTexture) {
+                                  const bool transient, const uint32_t whiteTexture, const size_t part = 0) {
             const Look& look = object.look;
             TerrainPaintStyle style{};
-            const size_t count = std::min<size_t>(look.textures.size(), kTerrainPaintMaxTextures);
+            const bool patches = UsesPatches(look);
+            const size_t count = patches ? 1 : std::min<size_t>(look.textures.size(), kTerrainPaintMaxTextures);
             for (size_t i = 0; i < count; ++i) {
-                style.textures[i].key = cGZPersistResourceKey(kDecalTextureType, kDecalTextureGroup,
-                                                              look.textures[i].instance);
-                style.textures[i].weight = look.textures[i].weight;
+                const TextureChoice& choice = look.textures[patches ? part : i];
+                style.textures[i].key = cGZPersistResourceKey(kDecalTextureType, kDecalTextureGroup, choice.instance);
+                style.textures[i].weight = choice.weight;
             }
             style.textureCount = static_cast<uint32_t>(count);
             if (count == 0) {
@@ -33,16 +35,20 @@ namespace Ground {
             style.variationSeed = look.variationSeed;
             style.textureSizeMeters = std::max(0.1f, look.textureSizeMeters);
             style.textureRotationTurns = look.textureRotationDegrees / 360.0f;
+            style.textureOffsetX = look.textureOffset[0];
+            style.textureOffsetZ = look.textureOffset[1];
             style.color = cS3DVector3(look.color[0], look.color[1], look.color[2]);
             style.opacity = look.opacity;
-            style.featherMeters = look.featherMeters;
+            // Patches blend into what lies under them; the outer soft edge is the area's.
+            style.featherMeters = part == 0 ? look.featherMeters : std::max(look.featherMeters, look.patchBlendMeters);
             style.drawOrder = drawOrder;
+            style.depthOffset = look.depthOffset;
             style.enabled = !hidden;
             style.flags = transient ? kTerrainPaintFlagTransient : 0u;
             if (object.shape.wear > 0.0f) {
                 style.wear = object.shape.wear;
                 style.wearPatchMeters = WearPatchSize(area);
-                style.wearSeed = object.shape.wearSeed;
+                style.wearSeed = object.shape.wearSeed + static_cast<uint32_t>(part);
             }
             return style;
         }
@@ -72,9 +78,10 @@ namespace Ground {
             }
         };
 
-        bool Overlaps(const Bounds& a, const Bounds& b) {
-            return a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.z <= b.max.z && b.min.z <= a.max.z;
-        }
+        // The patches of a texture can come out empty, where the noise leaves none; the service
+        // takes no empty shape, so they are made as a tiny invisible-sized triangle instead of
+        // being left out, which would shift the ids of the parts after them.
+        const Area kNothing{{{0.0f, 0.0f}, {0.001f, 0.0f}, {0.0f, 0.001f}}};
     }
 
     GroundPaintDocument::GroundPaintDocument(const uint32_t whiteTextureInstance)
@@ -85,16 +92,23 @@ namespace Ground {
     void GroundPaintDocument::SetPaintService(cIGZTerrainPaintService* const service) {
         service_ = service;
         previewPaintId_ = 0;
+        previewPatchIds_.clear();
+        previewObject_.reset();
     }
 
     void GroundPaintDocument::Reset() {
         objects_.clear();
-        areas_.clear();
+        built_.clear();
+        shownShape_.clear();
+        shownStyle_.clear();
         selection_.clear();
         undo_.clear();
         redo_.clear();
         nextId_ = 1;
         previewPaintId_ = 0;
+        previewPatchIds_.clear();
+        previewObject_.reset();
+        ++revision_;
     }
 
     const PaintObject* GroundPaintDocument::Find(const uint32_t id) const {
@@ -109,8 +123,13 @@ namespace Ground {
 
     const Area& GroundPaintDocument::AreaOf(const uint32_t id) const {
         static const Area kNone{};
-        const auto it = areas_.find(id);
-        return it != areas_.end() ? it->second : kNone;
+        const auto it = built_.find(id);
+        return it != built_.end() ? it->second.area : kNone;
+    }
+
+    Bounds GroundPaintDocument::BoundsOf(const uint32_t id) const {
+        const auto it = built_.find(id);
+        return it != built_.end() ? it->second.bounds : Bounds{};
     }
 
     int32_t GroundPaintDocument::TopOrder_() const {
@@ -124,6 +143,7 @@ namespace Ground {
         object.id = nextId_++;
         object.drawOrder = TopOrder_() + 1;
         object.paintId = 0;
+        object.patchPaintIds.clear();
         if (object.shape.wearSeed == 0) {
             object.shape.wearSeed = object.id * 2654435761u;
         }
@@ -161,11 +181,11 @@ namespace Ground {
         if (IsEmpty(eraser)) {
             return;
         }
-        const Bounds eraserBounds = BoundsOf(eraser);
+        const Bounds eraserBounds = Ground::BoundsOf(eraser);
         std::vector<PaintObject> before;
         std::vector<PaintObject> after;
         for (const PaintObject& object : objects_) {
-            if (object.hidden || object.locked || !Overlaps(eraserBounds, BoundsOf(AreaOf(object.id))) ||
+            if (object.hidden || object.locked || !Overlaps(eraserBounds, BoundsOf(object.id)) ||
                 IsEmpty(Intersect(AreaOf(object.id), eraser))) {
                 continue;
             }
@@ -234,6 +254,7 @@ namespace Ground {
             copy.id = nextId_++;
             copy.drawOrder = ++order;
             copy.paintId = 0;
+            copy.patchPaintIds.clear();
             copy.locked = false;
             TransformObject(copy, {.offset = offset});
             copies.push_back(std::move(copy));
@@ -346,6 +367,7 @@ namespace Ground {
     }
 
     void GroundPaintDocument::Apply_(const std::vector<PaintObject>& from, const std::vector<PaintObject>& to) {
+        ++revision_;
         for (const PaintObject& object : from) {
             if (std::ranges::find(to, object.id, &PaintObject::id) == to.end()) {
                 RemoveObject_(object.id);
@@ -362,11 +384,21 @@ namespace Ground {
         if (PaintObject* current = FindMutable_(object.id)) {
             // Undo and redo hand in copies from before; the terrain paint stays the current one.
             object.paintId = current->paintId;
+            object.patchPaintIds = current->patchPaintIds;
+            if (SameShape(object, *current) && built_.contains(object.id)) {
+                // Only the look, the order or the name changed: a new style does.
+                *current = std::move(object);
+                shownStyle_.erase(current->id);
+                Restyle_(*current, AreaOf(current->id), current->paintId, current->patchPaintIds, current->drawOrder,
+                         current->hidden, false);
+                return;
+            }
             *current = std::move(object);
             Sync_(*current);
             return;
         }
         object.paintId = 0;
+        object.patchPaintIds.clear();
         objects_.push_back(std::move(object));
         Sync_(objects_.back());
     }
@@ -376,33 +408,84 @@ namespace Ground {
         if (it == objects_.end()) {
             return;
         }
-        RemovePaint_(it->paintId);
-        areas_.erase(id);
+        RemovePaints_(it->paintId, it->patchPaintIds);
+        built_.erase(id);
+        shownShape_.erase(id);
+        shownStyle_.erase(id);
         std::erase(selection_, id);
         objects_.erase(it);
     }
 
     void GroundPaintDocument::Sync_(PaintObject& object) {
-        Area& area = areas_[object.id];
-        area = BuildArea(object);
+        shownShape_.erase(object.id);
+        shownStyle_.erase(object.id);
+        Built& built = built_[object.id];
+        built.area = BuildArea(object);
+        built.bounds = Ground::BoundsOf(built.area);
+        built.patches = BuildPatches(object, built.area, kPatchCells);
         if (!service_) {
             return;
         }
-        if (IsEmpty(area)) {
-            RemovePaint_(object.paintId);
+        if (IsEmpty(built.area)) {
+            RemovePaints_(object.paintId, object.patchPaintIds);
             return;
         }
+        ShowParts_(object.paintId, object.patchPaintIds, object, built.area, built.patches, BuildUvMap(object),
+                   object.drawOrder, object.hidden, false);
+    }
 
-        const FlatShape shape(area, BuildUvMap(object));
-        const TerrainPaintStyle style = ToStyle(object, area, object.drawOrder, object.hidden, false, whiteTextureInstance_);
-        if (object.paintId != 0 && service_->SetPaintShape(TerrainPaintId{object.paintId}, shape.View()) &&
-            service_->SetPaintStyle(TerrainPaintId{object.paintId}, &style, sizeof(style))) {
+    void GroundPaintDocument::ShowParts_(uint32_t& paintId, std::vector<uint32_t>& patchIds, const PaintObject& object,
+                                         const Area& area, const std::vector<Area>& patches,
+                                         const std::vector<UvVertex>& uvMap, const int32_t drawOrder, const bool hidden,
+                                         const bool transient) {
+        const auto shapeOf = [&](const size_t part) {
+            const Area& partArea = part == 0 ? area : patches[part - 1];
+            return FlatShape(IsEmpty(partArea) ? kNothing : partArea, uvMap);
+        };
+        const auto styleOf = [&](const size_t part) {
+            return ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part);
+        };
+        const auto update = [&](const uint32_t id, const size_t part) {
+            const FlatShape shape = shapeOf(part);
+            const TerrainPaintStyle style = styleOf(part);
+            return id != 0 && service_->SetPaintShape(TerrainPaintId{id}, shape.View()) &&
+                   service_->SetPaintStyle(TerrainPaintId{id}, &style, sizeof(style));
+        };
+
+        bool updated = patchIds.size() == patches.size() && update(paintId, 0);
+        for (size_t i = 0; updated && i < patches.size(); ++i) {
+            updated = update(patchIds[i], i + 1);
+        }
+        if (updated) {
             return;
         }
-        RemovePaint_(object.paintId);
-        TerrainPaintId id{};
-        if (service_->CreatePaint(shape.View(), &style, sizeof(style), &id)) {
-            object.paintId = id.value;
+        // Made again, in order: equal draw orders draw in the order the paints were made.
+        RemovePaints_(paintId, patchIds);
+        for (size_t part = 0; part <= patches.size(); ++part) {
+            const FlatShape shape = shapeOf(part);
+            const TerrainPaintStyle style = styleOf(part);
+            TerrainPaintId id{};
+            if (!service_->CreatePaint(shape.View(), &style, sizeof(style), &id)) {
+                RemovePaints_(paintId, patchIds);
+                return;
+            }
+            (part == 0 ? paintId : patchIds.emplace_back()) = id.value;
+        }
+    }
+
+    void GroundPaintDocument::Restyle_(const PaintObject& object, const Area& area, const uint32_t paintId,
+                                       const std::vector<uint32_t>& patchIds, const int32_t drawOrder,
+                                       const bool hidden, const bool transient) {
+        if (!service_ || paintId == 0) {
+            return;
+        }
+        const auto restyle = [&](const uint32_t id, const size_t part) {
+            const TerrainPaintStyle style = ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part);
+            service_->SetPaintStyle(TerrainPaintId{id}, &style, sizeof(style));
+        };
+        restyle(paintId, 0);
+        for (size_t i = 0; i < patchIds.size(); ++i) {
+            restyle(patchIds[i], i + 1);
         }
     }
 
@@ -413,13 +496,23 @@ namespace Ground {
         paintId = 0;
     }
 
+    void GroundPaintDocument::RemovePaints_(uint32_t& paintId, std::vector<uint32_t>& patchIds) {
+        RemovePaint_(paintId);
+        for (uint32_t& id : patchIds) {
+            RemovePaint_(id);
+        }
+        patchIds.clear();
+    }
+
     void GroundPaintDocument::SortByOrder_() {
         std::ranges::stable_sort(objects_, {}, &PaintObject::drawOrder);
     }
 
     std::optional<uint32_t> GroundPaintDocument::HitTest(const Vec2 point) const {
         for (auto it = objects_.rbegin(); it != objects_.rend(); ++it) {
-            if (!it->hidden && Contains(AreaOf(it->id), point)) {
+            const auto built = built_.find(it->id);
+            if (!it->hidden && built != built_.end() && Contains(built->second.bounds, point) &&
+                Contains(built->second.area, point)) {
                 return it->id;
             }
         }
@@ -454,22 +547,27 @@ namespace Ground {
         if (!service_) {
             return;
         }
-        const Area area = object ? BuildArea(*object) : Area{};
-        if (IsEmpty(area)) {
-            RemovePaint_(previewPaintId_);
+        if (object && previewPaintId_ != 0 && previewObject_ && SameShape(*object, *previewObject_) &&
+            UsesPatches(object->look) == UsesPatches(previewObject_->look)) {
+            // The same shape in a new look, or nothing new at all: no new cut.
+            if (!(object->look == previewObject_->look) || object->shape.wear != previewObject_->shape.wear) {
+                Restyle_(*object, previewArea_, previewPaintId_, previewPatchIds_, TopOrder_() + 1, false, true);
+                previewObject_ = *object;
+            }
             return;
         }
-
-        const FlatShape shape(area, BuildUvMap(*object));
-        const TerrainPaintStyle style = ToStyle(*object, area, TopOrder_() + 1, false, true, whiteTextureInstance_);
-        if (previewPaintId_ != 0 && service_->SetPaintShape(TerrainPaintId{previewPaintId_}, shape.View()) &&
-            service_->SetPaintStyle(TerrainPaintId{previewPaintId_}, &style, sizeof(style))) {
+        previewObject_.reset();
+        previewArea_ = object ? BuildArea(*object) : Area{};
+        if (IsEmpty(previewArea_)) {
+            RemovePaints_(previewPaintId_, previewPatchIds_);
             return;
         }
-        RemovePaint_(previewPaintId_);
-        TerrainPaintId id{};
-        if (service_->CreatePaint(shape.View(), &style, sizeof(style), &id)) {
-            previewPaintId_ = id.value;
+        // Coarser patches: the preview is cut again as the mouse moves.
+        ShowParts_(previewPaintId_, previewPatchIds_, *object, previewArea_,
+                   BuildPatches(*object, previewArea_, kPreviewPatchCells), BuildUvMap(*object), TopOrder_() + 1, false,
+                   true);
+        if (previewPaintId_ != 0) {
+            previewObject_ = *object;
         }
     }
 
@@ -484,19 +582,29 @@ namespace Ground {
         const bool moved = placement.rotationRadians != 0.0f || placement.scale != 1.0f ||
                            placement.offset.x != 0.0f || placement.offset.z != 0.0f;
         for (const uint32_t id : selection_) {
-            const PaintObject* const object = Find(id);
-            if (!object || object->paintId == 0) {
+            PaintObject* const object = FindMutable_(id);
+            const auto built = built_.find(id);
+            if (!object || object->paintId == 0 || built == built_.end()) {
                 continue;
             }
             if (!moved) {
-                // As it is, look included: a change shown with ShowChanged is undone too.
-                const FlatShape shape(AreaOf(id), BuildUvMap(*object));
-                const TerrainPaintStyle style =
-                    ToStyle(*object, AreaOf(id), object->drawOrder, object->hidden, false, whiteTextureInstance_);
-                service_->SetPaintShape(TerrainPaintId{object->paintId}, shape.View());
-                service_->SetPaintStyle(TerrainPaintId{object->paintId}, &style, sizeof(style));
+                // As it is, look included: a change shown with ShowChanged is undone too. Only
+                // what was shown changed is put back, so letting go of a drag cuts nothing twice.
+                if (shownShape_.erase(id) > 0) {
+                    shownStyle_.erase(id);
+                    ShowParts_(object->paintId, object->patchPaintIds, *object, built->second.area,
+                               built->second.patches, BuildUvMap(*object), object->drawOrder, object->hidden, false);
+                }
+                else if (shownStyle_.erase(id) > 0) {
+                    Restyle_(*object, built->second.area, object->paintId, object->patchPaintIds, object->drawOrder,
+                             object->hidden, false);
+                }
                 continue;
             }
+            shownShape_.insert(id);
+            const auto move = [&](const Area& area) {
+                return Transformed(area, placement.pivot, placement.rotationRadians, placement.scale, placement.offset);
+            };
             std::vector<UvVertex> uvMap = BuildUvMap(*object);
             if (!uvMap.empty()) {
                 // The texture moves along with the line.
@@ -504,26 +612,39 @@ namespace Ground {
                 TransformObject(moved, placement);
                 uvMap = BuildUvMap(moved);
             }
-            const FlatShape shape(Transformed(AreaOf(id), placement.pivot, placement.rotationRadians, placement.scale,
-                                              placement.offset),
-                                  uvMap);
-            service_->SetPaintShape(TerrainPaintId{object->paintId}, shape.View());
+            // Only the shapes: patches move along with the area, as they will once it is moved.
+            const auto reshape = [&](const uint32_t paintId, const Area& area) {
+                if (paintId != 0 && !IsEmpty(area)) {
+                    const FlatShape shape(move(area), uvMap);
+                    service_->SetPaintShape(TerrainPaintId{paintId}, shape.View());
+                }
+            };
+            reshape(object->paintId, built->second.area);
+            for (size_t i = 0; i < object->patchPaintIds.size() && i < built->second.patches.size(); ++i) {
+                reshape(object->patchPaintIds[i], built->second.patches[i]);
+            }
         }
     }
 
     void GroundPaintDocument::ShowChanged(const PaintObject& object) {
-        const PaintObject* const current = Find(object.id);
+        PaintObject* const current = FindMutable_(object.id);
         if (!service_ || !current || current->paintId == 0) {
+            return;
+        }
+        if (SameShape(object, *current) && UsesPatches(object.look) == UsesPatches(current->look)) {
+            // A colour, opacity or texture change: no new cut.
+            shownStyle_.insert(object.id);
+            Restyle_(object, AreaOf(current->id), current->paintId, current->patchPaintIds, current->drawOrder,
+                     current->hidden, false);
             return;
         }
         const Area area = BuildArea(object);
         if (IsEmpty(area)) {
             return;
         }
-        const FlatShape shape(area, BuildUvMap(object));
-        const TerrainPaintStyle style = ToStyle(object, area, current->drawOrder, current->hidden, false, whiteTextureInstance_);
-        service_->SetPaintShape(TerrainPaintId{current->paintId}, shape.View());
-        service_->SetPaintStyle(TerrainPaintId{current->paintId}, &style, sizeof(style));
+        shownShape_.insert(object.id);
+        ShowParts_(current->paintId, current->patchPaintIds, object, area, BuildPatches(object, area, kPreviewPatchCells),
+                   BuildUvMap(object), current->drawOrder, current->hidden, false);
     }
 
     Bounds GroundPaintDocument::SelectionBounds() const {
@@ -532,7 +653,7 @@ namespace Ground {
             const Area& area = AreaOf(id);
             all.insert(all.end(), area.begin(), area.end());
         }
-        return BoundsOf(all);
+        return Ground::BoundsOf(all);
     }
 
     std::vector<char> GroundPaintDocument::Save() const {
@@ -550,20 +671,36 @@ namespace Ground {
         SortByOrder_();
         for (const PaintObject& object : objects_) {
             nextId_ = std::max(nextId_, object.id + 1);
-            areas_[object.id] = BuildArea(object);
+            Built& built = built_[object.id];
+            built.area = BuildArea(object);
+            built.bounds = Ground::BoundsOf(built.area);
+            built.patches = BuildPatches(object, built.area, kPatchCells);
         }
         return true;
     }
 
     void GroundPaintDocument::Restore() {
         TerrainPaintStyle existing{};
+        const auto exists = [&](const uint32_t id) {
+            return service_ && id != 0 && service_->GetPaintStyle(TerrainPaintId{id}, &existing, sizeof(existing));
+        };
         for (PaintObject& object : objects_) {
-            // The service saved the paint with the city: keep it, it is the same one.
-            if (service_ && object.paintId != 0 &&
-                service_->GetPaintStyle(TerrainPaintId{object.paintId}, &existing, sizeof(existing))) {
+            // The service saved the paints with the city: keep them, they are the same ones.
+            if (exists(object.paintId) && std::ranges::all_of(object.patchPaintIds, exists) &&
+                object.patchPaintIds.size() == built_[object.id].patches.size()) {
                 continue;
             }
+            // Some are missing: make them all again, in order.
+            for (const uint32_t id : object.patchPaintIds) {
+                if (exists(id)) {
+                    service_->RemovePaint(TerrainPaintId{id});
+                }
+            }
+            if (exists(object.paintId)) {
+                service_->RemovePaint(TerrainPaintId{object.paintId});
+            }
             object.paintId = 0;
+            object.patchPaintIds.clear();
             Sync_(object);
         }
     }

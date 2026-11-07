@@ -97,10 +97,11 @@ void GroundPainterInputControl::Deactivate() {
     if (strokeActive_) {
         CancelShape_();  // stroke tools never have anchors
     }
-    if ((dragging_ || pointDrag_) && document_) {
+    if ((dragging_ || pointDrag_ || textureDrag_) && document_) {
         document_->ShowSelectionMoved({});
     }
     dragging_ = false;
+    textureDrag_ = false;
     pointDrag_.reset();
     middleDrag_ = MiddleDrag::None;
     RefreshPreview_();
@@ -191,6 +192,9 @@ bool GroundPainterInputControl::OnMouseDownL(const int32_t x, const int32_t z, c
 
     if (settings_.tool == Tool::Select) {
         const bool add = (modifiers & MOD_CONTROL) != 0 || KeyHeld(VK_CONTROL);
+        if (KeyHeld(VK_SHIFT) && StartTextureDrag_()) {
+            return true;
+        }
         if (StartPointEdit_(add, KeyHeld(VK_MENU))) {
             RefreshPreview_();
             return true;
@@ -253,6 +257,10 @@ bool GroundPainterInputControl::OnMouseUpL(const int32_t x, const int32_t z, con
     }
     if (pointDrag_) {
         FinishPointDrag_();
+        return true;
+    }
+    if (textureDrag_) {
+        FinishTextureDrag_();
         return true;
     }
     if (dragging_) {
@@ -318,6 +326,12 @@ void GroundPainterInputControl::ShowMove_() {
     }
     else if (pointDrag_) {
         document_->ShowChanged(pointEdit_);
+    }
+    else if (textureDrag_) {
+        // A new style for each: no new cut.
+        for (const PaintObject& object : TextureDragged_()) {
+            document_->ShowChanged(object);
+        }
     }
     else if (dragging_) {
         document_->ShowSelectionMoved({cursor_.x - dragStart_.x, cursor_.z - dragStart_.z});
@@ -572,6 +586,7 @@ PaintObject GroundPainterInputControl::ObjectFrom_(const std::vector<Vec2>& poin
     shape.points = points;
     shape.pathStyle = curved ? PathStyle::Curved : PathStyle::Straight;
     shape.wear = settings_.tool == Tool::Erase ? 0.0f : settings_.wear;
+    shape.roughness = settings_.tool == Tool::Erase || settings_.tool == Tool::Marking ? 0.0f : settings_.roughness;
     switch (settings_.tool) {
     case Tool::Line:
         shape.kind = ShapeKind::Line;
@@ -649,7 +664,9 @@ void GroundPainterInputControl::FinishStroke_() {
     }
     else if (settings_.tool == Tool::Brush) {
         const PaintObject object = ObjectFrom_(stroke_, false);
-        LogAdded_(object, document_->Add(object));
+        if (!JoinStroke_(object)) {
+            LogAdded_(object, document_->Add(object));
+        }
     }
     else {
         // Freehand area or line: a smooth curve through the simplified stroke.
@@ -659,6 +676,78 @@ void GroundPainterInputControl::FinishStroke_() {
         return;
     }
     CancelShape_();
+}
+
+bool GroundPainterInputControl::JoinStroke_(const PaintObject& stroke) {
+    if (!settings_.joinBrushStrokes) {
+        return false;
+    }
+    const Area area = BuildArea(stroke);
+    const Bounds bounds = BoundsOf(area);
+    const auto& objects = document_->Objects();
+    // The topmost brush paint painted the same way that the stroke touches.
+    for (auto it = objects.rbegin(); it != objects.rend(); ++it) {
+        const PaintObject& target = *it;
+        if (target.shape.kind != ShapeKind::Brush || target.locked || target.hidden || !(target.look == stroke.look) ||
+            target.shape.wear != stroke.shape.wear || target.shape.roughness != stroke.shape.roughness ||
+            !Overlaps(bounds, document_->BoundsOf(target.id)) || IsEmpty(Intersect(area, document_->AreaOf(target.id)))) {
+            continue;
+        }
+        // Everything painted so far, without its rough edge (that is drawn once, round the
+        // whole), becomes the joined part; erased holes in it stay, the new stroke paints over them.
+        PaintObject smooth = target;
+        smooth.shape.roughness = 0.0f;
+        PaintObject joined = target;
+        joined.shape.outline = BuildArea(smooth);
+        joined.erased.clear();
+        joined.shape.points = stroke.shape.points;
+        joined.shape.brushRadius = stroke.shape.brushRadius;
+        document_->Update({joined});
+        LOG_INFO("Ground: joined a brush stroke to {}", target.id);
+        return true;
+    }
+    return false;
+}
+
+std::vector<PaintObject> GroundPainterInputControl::TextureDragged_() const {
+    std::vector<PaintObject> moved;
+    const Vec2 offset{cursor_.x - dragStart_.x, cursor_.z - dragStart_.z};
+    for (const uint32_t id : document_->Selection()) {
+        const PaintObject* const object = document_->Find(id);
+        if (!object || object->locked || object->look.textures.empty() || !BuildUvMap(*object).empty()) {
+            continue;
+        }
+        moved.push_back(*object);
+        moved.back().look.textureOffset[0] += offset.x;
+        moved.back().look.textureOffset[1] += offset.z;
+    }
+    return moved;
+}
+
+bool GroundPainterInputControl::StartTextureDrag_() {
+    const auto hit = document_->HitTest(cursor_);
+    if (!hit) {
+        return false;
+    }
+    if (!document_->IsSelected(*hit)) {
+        document_->Select(*hit, false);
+    }
+    dragStart_ = cursor_;
+    if (TextureDragged_().empty()) {
+        return false;  // nothing with a flat texture: an ordinary click
+    }
+    textureDrag_ = true;
+    RefreshPreview_();
+    return true;
+}
+
+void GroundPainterInputControl::FinishTextureDrag_() {
+    textureDrag_ = false;
+    if (std::hypot(cursor_.x - dragStart_.x, cursor_.z - dragStart_.z) >= 0.01f) {
+        document_->Update(TextureDragged_());
+    }
+    document_->ShowSelectionMoved({});
+    RefreshPreview_();
 }
 
 void GroundPainterInputControl::FinishDrag_() {
@@ -830,6 +919,7 @@ bool GroundPainterInputControl::PickLook_() {
     }
     settings_.look = object->look;
     settings_.wear = object->shape.wear;
+    settings_.roughness = object->shape.kind == ShapeKind::Marking ? settings_.roughness : object->shape.roughness;
     ++lookPickCount_;
     return true;
 }
@@ -891,11 +981,14 @@ std::string GroundPainterInputControl::StatusText() const {
         if (selected == 0) {
             return "Click painted ground to select it. Ctrl+click adds to the selection.";
         }
+        if (textureDrag_) {
+            return "Let go to leave the texture here.";
+        }
         if (PointEditTarget_()) {
             return "Drag it to move it, or drag its points. Ctrl+click its outline adds a point, Alt+click a point removes it. "
-                   "Delete removes it.";
+                   "Shift+drag moves its texture. Delete removes it.";
         }
-        return "Drag to move. , and . turn, - and = scale, Ctrl+D copies, Delete removes.";
+        return "Drag to move, Shift+drag to move the texture. , and . turn, - and = scale, Ctrl+D copies, Delete removes.";
     }
     }
     return {};

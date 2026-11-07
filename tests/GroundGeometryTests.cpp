@@ -129,6 +129,57 @@ int main() {
         CHECK(PathUvStrip(path, 0.0f, 10.0f).empty());
     }
 
+    {
+        // Contains: inside, outside, and in a hole.
+        Area ring = AreaFromOutline(Square(0, 0, 10));
+        const Area hole = AreaFromOutline(Square(4, 4, 2));
+        const Area holed = Subtract(ring, hole);
+        CHECK(Contains(holed, {1, 1}) && !Contains(holed, {5, 5}) && !Contains(holed, {11, 5}));
+        CHECK(Contains(BoundsOf(ring), {10.5f, 5}, 1.0f) && !Contains(BoundsOf(ring), {10.5f, 5}));
+    }
+    {
+        // Borders: outside a square is the bigger square less the square, inside the opposite.
+        const Area square = AreaFromOutline(Square(0, 0, 10));
+        CHECK(Near(AreaOf(BorderOf(square, 1.0f, BorderSide::Outside)), 144.0 - 100.0, 0.01));
+        CHECK(Near(AreaOf(BorderOf(square, 1.0f, BorderSide::Inside)), 100.0 - 64.0, 0.01));
+        CHECK(Near(AreaOf(BorderOf(square, 1.0f, BorderSide::Centred)), 121.0 - 81.0, 0.01));
+        CHECK(BorderOf(square, 0.0f, BorderSide::Outside).empty());
+    }
+    {
+        // Rough edges wander but keep about the area; the same seed gives the same edge.
+        const Area square = AreaFromOutline(Square(0, 0, 20));
+        const Area rough = Roughened(square, 0.8f, {}, 42);
+        CHECK(Near(AreaOf(rough), 400.0, 40.0));
+        CHECK(rough == Roughened(square, 0.8f, {}, 42));
+        CHECK(!(rough == Roughened(square, 0.8f, {}, 43)));
+        CHECK(Roughened(square, 0.0f, {}, 42) == square);
+        // Moving the frame with the shape moves the edge with it.
+        const Area moved = Roughened(Transformed(square, {}, 0.0f, 1.0f, {100, 0}), 0.8f, {{100, 0}, 0.0f}, 42);
+        CHECK(Near(AreaOf(moved), AreaOf(rough), 0.05));
+    }
+    {
+        // Patches cover about the asked share, inside the area, and fewer cells still work.
+        const Area field = AreaFromOutline(Square(0, 0, 100));
+        for (const float coverage : {0.2f, 0.5f, 0.8f}) {
+            const Area patches = PatchesOf(field, 10.0f, coverage, {}, 9, 60000);
+            CHECK(Near(AreaOf(patches) / 10000.0, coverage, 0.08));
+            CHECK(Near(AreaOf(Intersect(patches, field)), AreaOf(patches), 0.5));
+        }
+        CHECK(Near(AreaOf(PatchesOf(field, 10.0f, 0.5f, {}, 9, 500)) / 10000.0, 0.5, 0.1));
+        CHECK(PatchesOf(field, 10.0f, 0.0f, {}, 9, 1000).empty());
+        CHECK(PatchesOf(field, 10.0f, 1.0f, {}, 9, 1000) == field);
+    }
+    {
+        // Mirrors: a point across the x axis and across a diagonal; areas keep their size.
+        const Vec2 p = MirroredPoint({3, 4}, {0, 0}, 0.0f);
+        CHECK(Near(p.x, 3, 1e-5) && Near(p.z, -4, 1e-5));
+        const Vec2 q = MirroredPoint({3, 4}, {0, 0}, std::numbers::pi_v<float> / 4.0f);
+        CHECK(Near(q.x, 4, 1e-5) && Near(q.z, 3, 1e-5));
+        const Area l = AreaFromOutline(std::vector<Vec2>{{0, 0}, {4, 0}, {4, 1}, {1, 1}, {1, 3}, {0, 3}});
+        const Area mirrored = Mirrored(l, {10, 0}, 0.3f);
+        CHECK(Near(AreaOf(mirrored), AreaOf(l), 0.01));
+        CHECK(Near(AreaOf(Unite(mirrored, mirrored)), AreaOf(l), 0.01));
+    }
     std::puts("ok");
     return 0;
 }
