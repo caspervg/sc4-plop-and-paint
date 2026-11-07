@@ -385,13 +385,23 @@ void FloraPanelTab::RenderGrid_(const std::vector<size_t>& filteredIndices) {
 
     // The table sorts by its column headers; the grid has none, so it goes by name.
     const auto& items = flora_->GetFloraItems();
-    std::vector<size_t> sortedIndices(filteredIndices.begin(), filteredIndices.end());
-    std::ranges::sort(sortedIndices, [&](const size_t lhs, const size_t rhs) {
-        return FloraDisplayName(items[lhs]) < FloraDisplayName(items[rhs]);
-    });
+    if (filteredIndices != gridSortInput_ || items.data() != gridSortItems_) {
+        gridSortInput_ = filteredIndices;
+        gridSortItems_ = items.data();
+        gridSorted_ = filteredIndices;
+        std::ranges::sort(gridSorted_, [&](const size_t lhs, const size_t rhs) {
+            return FloraDisplayName(items[lhs]) < FloraDisplayName(items[rhs]);
+        });
+    }
+    const std::vector<size_t>& sortedIndices = gridSorted_;
 
     ThumbnailStore& store = flora_->GetFloraThumbnailStore();
-    const size_t visible = ThumbnailGrid::Render(sortedIndices.size(), gridTileSize_, [&](const size_t index) {
+    const size_t visible = ThumbnailGrid::Render(sortedIndices.size(), gridTileSize_,
+        [&](const size_t index) {
+            const Flora& f = items[sortedIndices[index]];
+            return MakeGIKey(f.groupId.value(), f.instanceId.value());
+        },
+        [&](const size_t index) {
         const Flora& f = items[sortedIndices[index]];
         const uint64_t key = MakeGIKey(f.groupId.value(), f.instanceId.value());
         const bool hasThumbnail = store.HasThumbnail(key);

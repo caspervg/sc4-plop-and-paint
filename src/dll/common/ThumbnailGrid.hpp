@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 
 #include "imgui.h"
 
@@ -14,9 +15,11 @@
 namespace ThumbnailGrid {
     // Calls drawTile(index) for every visible tile, right after an invisible button covering the
     // tile, so IsItemHovered, IsItemClicked, BeginPopupContextItem and GetItemRectMin inside
-    // drawTile refer to that tile. Returns how many tiles fit on screen, for sizing the texture cache.
-    template <typename DrawTile>
-    size_t Render(const size_t count, const float tileSize, DrawTile&& drawTile) {
+    // drawTile refer to that tile. idOf(index) gives the item's stable id, so a tile's popup stays
+    // with its item when the list changes. Returns how many tiles fit on screen, for sizing the
+    // texture cache.
+    template <typename IdOf, typename DrawTile>
+    size_t Render(const size_t count, const float tileSize, IdOf&& idOf, DrawTile&& drawTile) {
         const ImGuiStyle& style = ImGui::GetStyle();
         const ImVec2 avail = ImGui::GetContentRegionAvail();
         const int columns = std::max(1, static_cast<int>((avail.x + style.ItemSpacing.x) /
@@ -36,7 +39,8 @@ namespace ThumbnailGrid {
                     if (col > 0) {
                         ImGui::SameLine(0.0f, style.ItemSpacing.x);
                     }
-                    ImGui::PushID(static_cast<int>(index));
+                    const auto id = static_cast<uint64_t>(idOf(index));
+                    ImGui::PushID(static_cast<int>(id ^ (id >> 32)));
                     ImGui::InvisibleButton("##tile", ImVec2(tileSize, tileSize),
                                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
                     drawTile(index);

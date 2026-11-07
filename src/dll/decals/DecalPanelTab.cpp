@@ -513,7 +513,9 @@ void DecalPanelTab::RenderDecalGrid_(const std::vector<size_t>& indices) {
         scrollToInstanceId_ = 0;
     }
 
-    const size_t visible = ThumbnailGrid::Render(indices.size(), kIconSize, [&](const size_t index) {
+    const size_t visible = ThumbnailGrid::Render(indices.size(), kIconSize,
+        [&](const size_t index) { return ids[indices[index]]; },
+        [&](const size_t index) {
         const uint32_t instanceId = ids[indices[index]];
         const bool isFavorite = favorites_ && favorites_->IsDecalFavorite(instanceId);
         const bool hasSavedPresets =

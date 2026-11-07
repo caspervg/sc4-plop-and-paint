@@ -520,7 +520,12 @@ void PropPanelTab::RenderGrid_(const std::vector<PropView>& filteredProps) {
     }
 
     ThumbnailStore& store = props_->GetPropThumbnailStore();
-    const size_t visible = ThumbnailGrid::Render(filteredProps.size(), gridTileSize_, [&](const size_t index) {
+    const size_t visible = ThumbnailGrid::Render(filteredProps.size(), gridTileSize_,
+        [&](const size_t index) {
+            const Prop& prop = *filteredProps[index].prop;
+            return MakeGIKey(prop.groupId.value(), prop.instanceId.value());
+        },
+        [&](const size_t index) {
         const Prop& prop = *filteredProps[index].prop;
         const uint64_t key = MakeGIKey(prop.groupId.value(), prop.instanceId.value());
         const bool hasThumbnail = store.HasThumbnail(key);
@@ -702,7 +707,7 @@ void PropPanelTab::RenderSeasonalSetEditor_() {
     }
 
     ImGui::SetNextWindowSize(ImVec2(540, 460), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Seasonal sets###PlopAndPaintSeasonalSets", &seasonalSetEditorOpen_)) {
+    if (!ImGui::Begin("Seasonal sets###PlopAndPaintSeasonalSets", &seasonalSetEditorOpen_, ImGuiWindowFlags_NoNav)) {
         ImGui::End();
         return;
     }

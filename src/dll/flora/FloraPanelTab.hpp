@@ -46,6 +46,10 @@ private:
     ThumbnailCache<uint64_t> thumbnailCache_{};
     uint32_t lastDeviceGeneration_{0};
     uint64_t selectedFloraKey_{0};
+    // Grid order by name, redone only when the filtered list (or flora.cbor) changes.
+    std::vector<size_t> gridSortInput_{};
+    std::vector<size_t> gridSorted_{};
+    const Flora* gridSortItems_{nullptr};
 
     char searchBuf_[256]{};
     bool favoritesOnly_{false};

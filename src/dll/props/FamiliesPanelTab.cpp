@@ -420,7 +420,9 @@ void FamiliesPanelTab::RenderMemberGrid_(const PropFamily& family, const bool is
 
     ThumbnailStore& store = props_->GetPropThumbnailStore();
     int removeIndex = -1;
-    const size_t visible = ThumbnailGrid::Render(family.entries.size(), gridTileSize_, [&](const size_t index) {
+    const size_t visible = ThumbnailGrid::Render(family.entries.size(), gridTileSize_,
+        [&](const size_t index) { return family.entries[index].propID.value(); },
+        [&](const size_t index) {
         const FamilyEntry& entry = family.entries[index];
         const Prop* prop = props_->FindPropByInstanceId(entry.propID.value());
         const uint64_t key = prop ? MakeGIKey(prop->groupId.value(), prop->instanceId.value()) : 0;
