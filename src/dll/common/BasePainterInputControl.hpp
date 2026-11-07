@@ -124,6 +124,9 @@ protected:
     virtual void PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement,
                                         uint32_t typeID) const {}
 
+    // Shows models for the planned Line and Polygon placements; empty hides them.
+    virtual void ShowPlannedModels_(const std::vector<PaintOverlay::PreviewPlacement>& placements) {}
+
     // Returns whether the current direct preview position is valid for placement.
     [[nodiscard]] virtual bool IsDirectPreviewPlacementValid_(const PlannedPaint& placement) const { return true; }
 
@@ -216,6 +219,7 @@ private:
     void Turn_();
     void TrimUndoStack_();
     [[nodiscard]] bool ShouldShowOutlinePreview_() const;
+    void ClearOverlay_();
 
     ControlState state_{ControlState::Uninitialized};
 

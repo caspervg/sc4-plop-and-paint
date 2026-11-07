@@ -3,6 +3,7 @@
 
 #include "../../shared/entities.hpp"
 #include "../common/BasePainterInputControl.hpp"
+#include "../paint/ModelPreview.hpp"
 #include "../paint/PaintSettings.hpp"
 #include "cISC4PropManager.h"
 #include "cRZAutoRefCount.h"
@@ -28,10 +29,10 @@ protected:
     [[nodiscard]] bool IsPreviewOccupantStale_() const override;
     void CreatePreviewOccupant_() override;
     void DestroyPreviewOccupant_() override;
-    void HidePreviewForPick_() override;
-    void UpdatePreviewOccupantRotation_() override;
     void UpdatePreviewOccupant_() override;
     void PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement, uint32_t typeID) const override;
+    void ShowPlannedModels_(const std::vector<PaintOverlay::PreviewPlacement>& placements) override;
+    [[nodiscard]] bool ShouldForceDirectOverlay_() const override;
 
 private:
     bool PlaceSingleProp_(uint32_t propToCreate, const cS3DVector3& pos, int32_t rotation);
@@ -40,9 +41,10 @@ private:
     cRZAutoRefCount<cISC4PropManager> propManager_;
     const PropRepository* propRepository_{nullptr};
 
-    cRZAutoRefCount<cISC4PropOccupant> previewProp_{};
-    cRZAutoRefCount<cISC4Occupant> previewOccupant_{};
-    // Seasonal set member the preview occupant was created as (may differ from
-    // the selected previewOccupantTypeID_).
+    // The model under the cursor, and the ones planned along a line or in a polygon.
+    ModelPreview cursorPreview_;
+    ModelPreview plannedPreview_;
+    bool cursorPreviewActive_{false};
+    // Seasonal set member the preview shows (may differ from the selected previewOccupantTypeID_).
     uint32_t previewDisplayedPropID_{0};
 };

@@ -5,6 +5,7 @@
 #include "../../shared/SeasonalSetDetector.hpp"
 #include "../common/Constants.hpp"
 #include "../utils/Logger.h"
+#include "PropModelKey.hpp"
 #include "PropRepository.hpp"
 #include "cISC4Occupant.h"
 #include "cISC4Simulator.h"
@@ -35,6 +36,12 @@ void PropPainterInputControl::SetPropToPaint(const uint32_t propID, const PropPa
 
 void PropPainterInputControl::SetPropRepository(const PropRepository* propRepository) {
     propRepository_ = propRepository;
+    const auto lookup = [this](const uint32_t propID) -> std::optional<cGZPersistResourceKey> {
+        const Prop* prop = propRepository_ ? propRepository_->FindPropByInstanceId(propID) : nullptr;
+        return prop ? FindPropModelKey(prop->groupId.value(), prop->instanceId.value()) : std::nullopt;
+    };
+    cursorPreview_.SetModelKeyLookup(lookup);
+    plannedPreview_.SetModelKeyLookup(lookup);
 }
 
 // ── Virtual overrides ─────────────────────────────────────────────────────────
@@ -46,6 +53,9 @@ void PropPainterInputControl::OnCityChanged_(cISC4City* pCity) {
     else {
         propManager_.Reset();
     }
+    cursorPreview_.SetCity(pCity);
+    plannedPreview_.SetCity(pCity);
+    cursorPreviewActive_ = false;
 }
 
 bool PropPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos, const int32_t rotation,
@@ -139,72 +149,29 @@ bool PropPainterInputControl::ShouldShowModelPreview_() const {
 }
 
 bool PropPainterInputControl::HasActivePreviewOccupant_() const {
-    return previewProp_ != nullptr;
+    return cursorPreviewActive_;
 }
 
 void PropPainterInputControl::CreatePreviewOccupant_() {
-    if (!propManager_) {
-        return;
-    }
-
     const uint32_t selectedPropID = CurrentDirectTypeID_();
-    if (selectedPropID == 0 || previewProp_) {
+    if (selectedPropID == 0 || cursorPreviewActive_ || !cursorPreview_.Available()) {
         return;
     }
 
-    // For seasonal sets, preview the member active at the current sim date: the
-    // selected member may be out of season, and the prop simulator would hide it.
-    const uint32_t previewPropID = ResolveInSeasonPreviewProp_(selectedPropID);
-
-    cISC4PropOccupant* prop = nullptr;
-    if (!propManager_->CreateProp(previewPropID, prop)) {
-        LOG_WARN("Failed to create prop for preview");
-        return;
-    }
-
-    cISC4Occupant* occupant = prop->AsOccupant();
-    if (!occupant) {
-        prop->Release();
-        return;
-    }
-
-    cRZAutoRefCount<cISC4PropOccupant> previewProp(prop);
-    cRZAutoRefCount<cISC4Occupant> previewOccupant(occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
-
-    cS3DVector3 initialPos(0.0f, 1000.0f, 0.0f);
-    if (!previewOccupant->SetPosition(&initialPos)) {
-        return;
-    }
-
-    const int32_t normalizedRotation = settings_.rotation & 3;
-    if (!previewProp->SetOrientation(normalizedRotation)) {
-        return;
-    }
-
-    if (!propManager_->AddCityProp(previewOccupant)) {
-        return;
-    }
-
-    lastPreviewPosition_ = initialPos;
-    lastPreviewRotation_ = normalizedRotation;
-    previewPositionValid_ = false;
-    previewOccupant->SetHighlight(0x3, true);
-    previewOccupant->SetVisibility(false, true);
-
-    previewProp_ = std::move(previewProp);
-    previewOccupant_ = std::move(previewOccupant);
     // Track the selected ID, not the displayed member: SyncPreviewForState_
     // recreates the preview whenever this differs from CurrentDirectTypeID_().
     previewOccupantTypeID_ = selectedPropID;
-    previewDisplayedPropID_ = previewPropID;
-    LOG_INFO("Created preview prop 0x{:08X} (selected 0x{:08X})", previewPropID, selectedPropID);
+    // For seasonal sets, preview the member active at the current sim date.
+    previewDisplayedPropID_ = ResolveInSeasonPreviewProp_(selectedPropID);
+    previewPositionValid_ = false;
+    cursorPreviewActive_ = true;
 }
 
 bool PropPainterInputControl::IsPreviewOccupantStale_() const {
-    if (!previewProp_ || previewOccupantTypeID_ == 0) {
+    if (previewOccupantTypeID_ == 0) {
         return false;
     }
-    return ResolveInSeasonPreviewProp_(previewOccupantTypeID_) != previewDisplayedPropID_;
+    return cursorPreviewActive_ && ResolveInSeasonPreviewProp_(previewOccupantTypeID_) != previewDisplayedPropID_;
 }
 
 uint32_t PropPainterInputControl::ResolveInSeasonPreviewProp_(const uint32_t propID) const {
@@ -239,74 +206,47 @@ uint32_t PropPainterInputControl::ResolveInSeasonPreviewProp_(const uint32_t pro
 }
 
 void PropPainterInputControl::DestroyPreviewOccupant_() {
-    if (!previewOccupant_) {
-        previewProp_.Reset();
-        return;
-    }
-
-    previewOccupant_->SetVisibility(false, true);
-    if (propManager_) {
-        propManager_->RemovePropA(previewOccupant_);
-    }
-
-    previewOccupant_.Reset();
-    previewProp_.Reset();
+    cursorPreview_.Hide();
+    cursorPreviewActive_ = false;
     previewOccupantTypeID_ = 0;
     previewDisplayedPropID_ = 0;
     previewPositionValid_ = false;
-    LOG_INFO("Destroyed preview prop");
-}
-
-void PropPainterInputControl::HidePreviewForPick_() {
-    if (previewOccupant_) {
-        previewOccupant_->SetVisibility(false, true);
-    }
-}
-
-void PropPainterInputControl::UpdatePreviewOccupantRotation_() {
-    if (!previewProp_ || !previewOccupant_) {
-        return;
-    }
-
-    const int32_t normalizedRotation = settings_.rotation & 3;
-    if (normalizedRotation != lastPreviewRotation_) {
-        if (previewProp_->SetOrientation(normalizedRotation)) {
-            lastPreviewRotation_ = normalizedRotation;
-        }
-    }
-
-    previewOccupant_->SetHighlight(0x2, false);
-    previewOccupant_->SetHighlight(0x3, true);
 }
 
 void PropPainterInputControl::UpdatePreviewOccupant_() {
-    if (!previewOccupant_) {
+    if (!cursorPreviewActive_) {
         return;
     }
-
     if (!cursorValid_) {
-        previewOccupant_->SetVisibility(false, true);
+        cursorPreview_.Hide();
         return;
     }
 
-    const cS3DVector3 worldPos = ResolveDirectPosition_(currentCursorWorld_);
+    PlannedPaint placement;
+    placement.position = ResolveDirectPosition_(currentCursorWorld_);
+    placement.rotation = settings_.rotation;
+    placement.itemId = previewDisplayedPropID_;
+    cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation,
+                          IsDirectPreviewPlacementValid_(placement)}});
+    lastPreviewPosition_ = placement.position;
+    lastPreviewRotation_ = placement.rotation;
+    previewPositionValid_ = true;
+}
 
-    const bool posChanged =
-        std::abs(worldPos.fX - lastPreviewPosition_.fX) > 0.05f ||
-        std::abs(worldPos.fY - lastPreviewPosition_.fY) > 0.05f ||
-        std::abs(worldPos.fZ - lastPreviewPosition_.fZ) > 0.05f;
-
-    if (posChanged) {
-        if (previewOccupant_->SetPosition(&worldPos)) {
-            lastPreviewPosition_ = worldPos;
-            previewPositionValid_ = true;
-        }
+void PropPainterInputControl::ShowPlannedModels_(const std::vector<PaintOverlay::PreviewPlacement>& placements) {
+    std::vector<ModelPreview::Item> items;
+    items.reserve(placements.size());
+    for (const auto& preview : placements) {
+        const PlannedPaint& placement = preview.placement;
+        items.push_back({ResolveInSeasonPreviewProp_(placement.itemId), placement.position, placement.rotation,
+                         preview.valid});
     }
-    else {
-        previewPositionValid_ = true;
-    }
+    plannedPreview_.Show(items);
+}
 
-    previewOccupant_->SetVisibility(true, true);
+bool PropPainterInputControl::ShouldForceDirectOverlay_() const {
+    // Without the effects there is no model, so keep the outline.
+    return !cursorPreview_.Available();
 }
 
 void PropPainterInputControl::PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement,

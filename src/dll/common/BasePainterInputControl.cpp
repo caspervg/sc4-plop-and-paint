@@ -478,7 +478,7 @@ void BasePainterInputControl::SyncPreviewForState_() {
     }
 
     if (!ShouldShowOutlinePreview_()) {
-        overlay_.Clear();
+        ClearOverlay_();
     }
     else {
         RebuildPreviewOverlay_();
@@ -784,7 +784,7 @@ void BasePainterInputControl::ClearCollectedPoints_() {
     cursorValid_ = false;
     cachedPolygonPlacements_.clear();
     polygonPreviewDirty_ = true;
-    overlay_.Clear();
+    ClearOverlay_();
 }
 
 cISTETerrain* BasePainterInputControl::GetTerrain_() const {
@@ -836,7 +836,7 @@ cS3DVector3 BasePainterInputControl::ResolveDirectPosition_(const cS3DVector3& t
 
 void BasePainterInputControl::RefreshPreviewOverlay_() {
     if (!ShouldShowOutlinePreview_()) {
-        overlay_.Clear();
+        ClearOverlay_();
         return;
     }
 
@@ -1058,15 +1058,23 @@ bool BasePainterInputControl::ShouldShowOutlinePreview_() const {
     return state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon;
 }
 
+void BasePainterInputControl::ClearOverlay_() {
+    overlay_.Clear();
+    ShowPlannedModels_({});
+}
+
 void BasePainterInputControl::RebuildPreviewOverlay_() {
     if (!ShouldShowOutlinePreview_()) {
-        overlay_.Clear();
+        ClearOverlay_();
         return;
     }
 
     constexpr auto kMaxPreviewPlacements = 5000uz;
+    const bool showModels = settings_.previewMode == PreviewMode::FullModel ||
+        settings_.previewMode == PreviewMode::Combined;
 
     if (state_ == ControlState::ActiveDirect) {
+        ShowPlannedModels_({});
         const bool usePreviewAnchor = ShouldShowModelPreview_() && previewPositionValid_;
         const bool hasOverlayCursor = cursorValid_ || usePreviewAnchor;
         cS3DVector3 overlayCursor = currentCursorWorld_;
@@ -1157,6 +1165,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
                                   GetTerrain_(),
                                   settings_,
                                   plannedPlacements);
+        ShowPlannedModels_(showModels ? plannedPlacements : std::vector<PaintOverlay::PreviewPlacement>{});
         return;
     }
 
@@ -1216,6 +1225,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
                                  GetTerrain_(),
                                  settings_,
                                  polygonPlacements);
+    ShowPlannedModels_(showModels ? polygonPlacements : std::vector<PaintOverlay::PreviewPlacement>{});
 }
 
 size_t BasePainterInputControl::PendingPlacementCount_() const {
