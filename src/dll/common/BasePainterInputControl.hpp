@@ -11,11 +11,12 @@
 #include "cISC4Occupant.h"
 #include "cRZAutoRefCount.h"
 #include "cS3DVector3.h"
-#include "cSC4BaseViewInputControl.h"
+#include "cSC4BaseViewInputControlEx.h"
 
 class WeightedPicker;
 
-class BasePainterInputControl : public cSC4BaseViewInputControl {
+// The back mouse button undoes the last placement (Ctrl+Z) and the middle button turns (R).
+class BasePainterInputControl : public cSC4BaseViewInputControlEx {
 public:
     explicit BasePainterInputControl(uint32_t controlID);
     ~BasePainterInputControl() override;
@@ -27,6 +28,8 @@ public:
     bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
+    bool OnMouseDownM(int32_t x, int32_t z, uint32_t modifiers) override;
+    bool OnMouseDownX(int32_t x, int32_t z, uint32_t modifiers, uint32_t button) override;
 
     void Activate() override;
     void Deactivate() override;
@@ -191,6 +194,8 @@ private:
     bool PlaceTypeAt_(int32_t screenX, int32_t screenZ);
 
     void UndoLastPlacementInGroup_();
+    // The next quarter turn (R, middle mouse button).
+    void Turn_();
     void TrimUndoStack_();
     [[nodiscard]] bool ShouldShowOutlinePreview_() const;
 

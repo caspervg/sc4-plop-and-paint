@@ -52,7 +52,7 @@ namespace {
 }
 
 BasePainterInputControl::BasePainterInputControl(const uint32_t controlID)
-    : cSC4BaseViewInputControl(controlID) {}
+    : cSC4BaseViewInputControlEx(controlID) {}
 
 BasePainterInputControl::~BasePainterInputControl() = default;
 
@@ -61,7 +61,7 @@ bool BasePainterInputControl::Init() {
         return true;
     }
 
-    if (!cSC4BaseViewInputControl::Init()) {
+    if (!cSC4BaseViewInputControlEx::Init()) {
         return false;
     }
 
@@ -77,7 +77,7 @@ bool BasePainterInputControl::Shutdown() {
 
     CancelAllPlacements();
     TransitionTo_(ControlState::Uninitialized, "Shutdown");
-    cSC4BaseViewInputControl::Shutdown();
+    cSC4BaseViewInputControlEx::Shutdown();
     return true;
 }
 
@@ -111,8 +111,33 @@ bool BasePainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t mod
     return HandleActiveKeyDown_(vkCode, modifiers);
 }
 
+bool BasePainterInputControl::OnMouseDownM(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
+    if (!IsTargetActiveState_(state_)) {
+        return false;
+    }
+    Turn_();  // R
+    return true;
+}
+
+bool BasePainterInputControl::OnMouseDownX(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/,
+                                           const uint32_t button) {
+    if (button != XBUTTON1 || !IsActiveState_(state_)) {
+        return false;
+    }
+    UndoLastPlacement();  // Ctrl+Z
+    return true;
+}
+
+void BasePainterInputControl::Turn_() {
+    settings_.rotation = (settings_.rotation + 1) & 3;
+    if (state_ == ControlState::ActivePolygon) {
+        polygonPreviewDirty_ = true;
+    }
+    SyncPreviewForState_();
+}
+
 void BasePainterInputControl::Activate() {
-    cSC4BaseViewInputControl::Activate();
+    cSC4BaseViewInputControlEx::Activate();
     if (!Init()) {
         return;
     }
@@ -128,7 +153,7 @@ void BasePainterInputControl::Deactivate() {
         TransitionTo_(typeToPaint_ != 0 ? ControlState::ReadyWithTarget : ControlState::ReadyNoTarget, "Deactivate");
     }
 
-    cSC4BaseViewInputControl::Deactivate();
+    cSC4BaseViewInputControlEx::Deactivate();
 }
 
 void BasePainterInputControl::SetTypeToPaint(const uint32_t typeID, const PropPaintSettings& settings,
@@ -477,11 +502,7 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
     }
 
     if (vkCode == 'R') {
-        settings_.rotation = (settings_.rotation + 1) & 3;
-        if (state_ == ControlState::ActivePolygon) {
-            polygonPreviewDirty_ = true;
-        }
-        SyncPreviewForState_();
+        Turn_();
         return true;
     }
 
