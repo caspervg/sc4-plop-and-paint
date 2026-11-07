@@ -31,6 +31,14 @@ namespace {
     constexpr float kScaleStep = 1.1f;
     // Where Ctrl+D puts the copies.
     constexpr Vec2 kDuplicateOffset{4.0f, 4.0f};
+    // How far a snap reaches, on screen; and in metres when the terrain is not under that spot.
+    constexpr int32_t kSnapPixels = 12;
+    constexpr float kDefaultSnapReach = 1.5f;
+    // Shift: points on 15 degree steps from the last. Lines within 2 degrees of parallel or square
+    // to the last edge snapped to line up with it.
+    constexpr float kAngleStep = 3.14159265f / 12.0f;
+    constexpr float kAlignTolerance = 2.0f * 3.14159265f / 180.0f;
+    constexpr float kRadiansToDegrees = 180.0f / 3.14159265f;
 
     constexpr uint32_t kPathColor = 0xE0FFFFFF;
     constexpr uint32_t kCursorPathColor = 0xC0FFD700;
@@ -38,6 +46,9 @@ namespace {
     constexpr uint32_t kEraserColor = 0xE0FF4040;
     constexpr uint32_t kSelectionColor = 0xF040C0FF;
     constexpr uint32_t kHoverColor = 0x9040C0FF;
+    constexpr uint32_t kSnapPointColor = 0xF0FF40FF;
+    constexpr uint32_t kSnapEdgeColor = 0xF040FFFF;
+    constexpr uint32_t kSnapGuideColor = 0xA0FF40FF;
 
     bool KeyHeld(const int vk) {
         return (GetKeyState(vk) & 0x8000) != 0;
@@ -177,12 +188,132 @@ bool GroundPainterInputControl::UpdateCursor_(const int32_t screenX, const int32
         return false;
     }
     cursor_ = {world[0], world[2]};
+    SnapCursor_(screenX, screenZ);
+    return true;
+}
+
+bool GroundPainterInputControl::SnapsPoints_() const {
+    if (pointDrag_) {
+        return true;
+    }
+    switch (settings_.tool) {
+    case Tool::Area:
+    case Tool::Line:
+        return settings_.drawStyle != DrawStyle::Freehand;
+    case Tool::Marking:
+        return true;
+    case Tool::Erase:
+        return !settings_.eraseWithBrush && settings_.drawStyle != DrawStyle::Freehand;
+    case Tool::Brush:
+    case Tool::Select:
+        return false;
+    }
+    return false;
+}
+
+std::optional<Vec2> GroundPainterInputControl::LastPoint_() const {
+    if (pointDrag_) {
+        const std::vector<Vec2>& points = pointEdit_.shape.points;
+        if (points.size() < 2) {
+            return std::nullopt;
+        }
+        const size_t index = *pointDrag_;
+        if (index > 0) {
+            return points[index - 1];
+        }
+        return PointsClosed(pointEdit_) ? points.back() : points[1];
+    }
+    if (!anchors_.empty() && !strokeActive_) {
+        return anchors_.back();
+    }
+    return std::nullopt;
+}
+
+void GroundPainterInputControl::SnapCursor_(const int32_t screenX, const int32_t screenZ) {
+    snap_.reset();
+    const bool snapsPoints = SnapsPoints_();
+    const std::optional<Vec2> last = snapsPoints ? LastPoint_() : std::nullopt;
+    const Vec2 raw = cursor_;
+
+    if (snapsPoints && last && KeyHeld(VK_SHIFT)) {
+        cursor_ = SnapToAngle(*last, raw, kAngleStep);
+        snap_ = SnapResult{cursor_, SnapKind::Angle, {}, {}};
+        return;
+    }
+
+    if (snapsPoints && settings_.snapToPaint && document_) {
+        // A few pixels, in metres at this zoom: the terrain a little to the right.
+        float aside[3] = {};
+        if (view3D && view3D->PickTerrain(screenX + kSnapPixels, screenZ, aside, false)) {
+            snapReach_ = std::clamp(std::hypot(aside[0] - raw.x, aside[2] - raw.z), 0.05f, 25.0f);
+        }
+        else {
+            snapReach_ = kDefaultSnapReach;
+        }
+        UpdateSnapIndex_();
+        std::optional<SnapResult> found = snapIndex_.Snap(raw, snapReach_);
+        // The points of the shape being drawn count too, to close it or line up with it.
+        for (size_t i = 0; !found && i + 1 < anchors_.size(); ++i) {
+            if (std::hypot(anchors_[i].x - raw.x, anchors_[i].z - raw.z) <= snapReach_) {
+                found = SnapResult{anchors_[i], SnapKind::Point, {}, {}};
+            }
+        }
+        if (found) {
+            if (found->kind == SnapKind::Edge || found->kind == SnapKind::Middle) {
+                alignDirection_ = Vec2{found->edgeTo.x - found->edgeFrom.x, found->edgeTo.z - found->edgeFrom.z};
+            }
+            cursor_ = found->point;
+            snap_ = found;
+            return;
+        }
+        if (last && alignDirection_) {
+            if (const auto aligned = SnapToDirection(*last, raw, *alignDirection_, kAlignTolerance)) {
+                cursor_ = aligned->point;
+                snap_ = aligned;
+                return;
+            }
+        }
+    }
+
     if (settings_.snapPointsToGrid && (settings_.tool != Tool::Select || pointDrag_)) {
         // The other painters' grid: at least 1 m.
         const float step = std::max(settings_.gridStepMeters, 1.0f);
         cursor_ = {std::round(cursor_.x / step) * step, std::round(cursor_.z / step) * step};
     }
-    return true;
+}
+
+void GroundPainterInputControl::UpdateSnapIndex_() {
+    const uint32_t leftOut = pointDrag_ ? pointEdit_.id : 0;
+    if (snapRevision_ == document_->Revision() && snapLeftOut_ == leftOut) {
+        return;
+    }
+    snapRevision_ = document_->Revision();
+    snapLeftOut_ = leftOut;
+    snapIndex_.Clear();
+    for (const PaintObject& object : document_->Objects()) {
+        if (object.hidden || object.id == leftOut) {
+            continue;
+        }
+        const ShapeSpec& shape = object.shape;
+        if (shape.kind == ShapeKind::Marking && shape.marking.kind == MarkingKind::Text) {
+            continue;  // letters are all corners: nothing to line up with
+        }
+        snapIndex_.AddArea(document_->AreaOf(object.id));
+        if (shape.kind == ShapeKind::Line || shape.kind == ShapeKind::Area ||
+            (shape.kind == ShapeKind::Marking && !PointsFor(shape.marking.kind).closed)) {
+            // The clicked points, and a line's middle, which its outline does not show.
+            for (const Vec2& point : shape.points) {
+                snapIndex_.AddPoint(point);
+            }
+        }
+        if (shape.kind == ShapeKind::Line) {
+            const std::vector<Vec2> path = PathThrough(shape.points, shape.pathStyle, false);
+            for (size_t i = 0; i + 1 < path.size(); ++i) {
+                snapIndex_.AddSegment(path[i], path[i + 1], shape.pathStyle == PathStyle::Straight);
+            }
+        }
+    }
+    LOG_DEBUG("Ground: snap index of {} points and {} edges", snapIndex_.PointCount(), snapIndex_.SegmentCount());
 }
 
 bool GroundPainterInputControl::OnMouseDownL(const int32_t x, const int32_t z, const uint32_t modifiers) {
@@ -415,6 +546,14 @@ bool GroundPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
             return false;
         }
         settings_.snapPointsToGrid = !settings_.snapPointsToGrid;
+        return true;
+    case 'M':
+        if (ctrl) {
+            return false;
+        }
+        settings_.snapToPaint = !settings_.snapToPaint;
+        snap_.reset();
+        RefreshPreview_();
         return true;
     case VK_OEM_4:
     case VK_OEM_6:
@@ -834,6 +973,7 @@ void GroundPainterInputControl::CancelShape_() {
     anchors_.clear();
     stroke_.clear();
     strokeActive_ = false;
+    alignDirection_.reset();
     if (document_) {
         document_->ShowPreview(nullptr);
     }
@@ -907,8 +1047,148 @@ void GroundPainterInputControl::RefreshPreview_() {
         ring = settings_.brushRadius;
         ringColor = settings_.tool == Tool::Erase ? kEraserColor : kCursorPathColor;
     }
+    if (cursorValid_ && snap_) {
+        // What the point snapped to: a small ring on it, the edge it lies on, or the line it
+        // was lined up along.
+        const float size = std::max(0.1f, snapReach_ * 0.5f);
+        const bool onPoint = snap_->kind == SnapKind::Point || snap_->kind == SnapKind::Middle;
+        std::vector<Vec2> marker;
+        constexpr int kMarkerPoints = 16;
+        for (int i = 0; i < kMarkerPoints; ++i) {
+            const float angle = 6.2831853f * static_cast<float>(i) / kMarkerPoints;
+            marker.push_back({cursor_.x + size * std::cos(angle), cursor_.z + size * std::sin(angle)});
+        }
+        guides.push_back({std::move(marker), true, onPoint ? kSnapPointColor : kSnapEdgeColor});
+        if (snap_->kind == SnapKind::Edge || snap_->kind == SnapKind::Middle) {
+            guides.push_back({{snap_->edgeFrom, snap_->edgeTo}, false, kSnapEdgeColor});
+        }
+        else if (const auto last = LastPoint_();
+                 last && (snap_->kind == SnapKind::Parallel || snap_->kind == SnapKind::Square ||
+                          snap_->kind == SnapKind::Angle)) {
+            const float dx = cursor_.x - last->x;
+            const float dz = cursor_.z - last->z;
+            const float length = std::hypot(dx, dz);
+            if (length > 0.01f) {
+                const float reach = length + std::max(8.0f, length * 0.5f);
+                guides.push_back({{*last, {last->x + dx / length * reach, last->z + dz / length * reach}}, false,
+                                  kSnapGuideColor});
+            }
+        }
+    }
+    UpdateMeasure_();
     overlay_.BuildGroundPreview(guides, markers, kAnchorColor, cursorValid_, cursor_, ring, ringColor, settings_.showGrid,
                                 settings_.gridStepMeters, Terrain_());
+}
+
+void GroundPainterInputControl::UpdateMeasure_() {
+    measure_.clear();
+    char text[192];
+    const auto lengthOf = [](const std::vector<Vec2>& path, const bool closed) {
+        double total = 0.0;
+        for (size_t i = 1; i < path.size(); ++i) {
+            total += std::hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+        }
+        if (closed && path.size() > 2) {
+            total += std::hypot(path.front().x - path.back().x, path.front().z - path.back().z);
+        }
+        return total;
+    };
+    const auto areaOf = [](const std::vector<Vec2>& ring) {
+        double twice = 0.0;
+        for (size_t i = 0; i < ring.size(); ++i) {
+            const Vec2 a = ring[i];
+            const Vec2 b = ring[(i + 1) % ring.size()];
+            twice += static_cast<double>(a.x) * b.z - static_cast<double>(b.x) * a.z;
+        }
+        return std::abs(twice) * 0.5;
+    };
+    if (!cursorValid_ || strokeActive_ || (!pointDrag_ && anchors_.empty())) {
+        return;
+    }
+    const std::optional<Vec2> last = LastPoint_();
+    if (!last) {
+        return;
+    }
+    const float dx = cursor_.x - last->x;
+    const float dz = cursor_.z - last->z;
+    const float side = std::hypot(dx, dz);
+    // The turn from the side before: 0 straight on, positive to the left.
+    std::optional<float> turn;
+    const std::vector<Vec2>& points = pointDrag_ ? pointEdit_.shape.points : anchors_;
+    if (!pointDrag_ && points.size() >= 2) {
+        const Vec2 before = points[points.size() - 2];
+        const float a0 = std::atan2(last->z - before.z, last->x - before.x);
+        const float a1 = std::atan2(dz, dx);
+        float delta = (a0 - a1) * kRadiansToDegrees;
+        while (delta > 180.0f) delta -= 360.0f;
+        while (delta < -180.0f) delta += 360.0f;
+        turn = delta;
+    }
+    int used = turn ? std::snprintf(text, sizeof(text), "Side %.2f m, turning %.0f°%s.", side, std::abs(*turn),
+                                    std::abs(*turn) < 0.5f ? "" : (*turn > 0.0f ? " left" : " right"))
+                    : std::snprintf(text, sizeof(text), "%.2f m, at %.0f° to the grid.", side,
+                                    std::atan2(-dz, dx) * kRadiansToDegrees);
+    if (!pointDrag_ && settings_.tool != Tool::Select) {
+        const bool closed = ClosesShape_();
+        const PathStyle style = settings_.drawStyle != DrawStyle::Clicks ? PathStyle::Curved : PathStyle::Straight;
+        const std::vector<Vec2> path = PathThrough(PointsWithCursor_(), style, closed);
+        if (closed && path.size() >= 3) {
+            const double area = areaOf(path);
+            used += std::snprintf(text + used, sizeof(text) - static_cast<size_t>(std::max(0, used)),
+                                  " Round %.1f m, %.0f m² (%.2f tiles).", lengthOf(path, true), area, area / 256.0);
+        }
+        else if (path.size() >= 3) {
+            used += std::snprintf(text + used, sizeof(text) - static_cast<size_t>(std::max(0, used)), " Length %.1f m.",
+                                  lengthOf(path, false));
+        }
+    }
+    measure_ = text;
+    (void)used;
+}
+
+const std::string& GroundPainterInputControl::MeasureText() const {
+    if (settings_.tool != Tool::Select || pointDrag_ || !document_) {
+        return measure_;
+    }
+    static const std::string kNone;
+    if (document_->Selection().size() != 1) {
+        return kNone;
+    }
+    const uint32_t id = document_->Selection().front();
+    if (id == selectionMeasureId_ && document_->Revision() == selectionMeasureRevision_) {
+        return selectionMeasure_;
+    }
+    selectionMeasureId_ = id;
+    selectionMeasureRevision_ = document_->Revision();
+    selectionMeasure_.clear();
+    const PaintObject* const object = document_->Find(id);
+    if (!object) {
+        return selectionMeasure_;
+    }
+    // Signed areas: holes run the other way round and take themselves off.
+    double painted = 0.0;
+    for (const Ring& ring : document_->AreaOf(id)) {
+        for (size_t i = 0; i < ring.size(); ++i) {
+            const Vec2 a = ring[i];
+            const Vec2 b = ring[(i + 1) % ring.size()];
+            painted += 0.5 * (static_cast<double>(a.x) * b.z - static_cast<double>(b.x) * a.z);
+        }
+    }
+    painted = std::abs(painted);
+    char text[128];
+    if (object->shape.kind == ShapeKind::Line) {
+        const std::vector<Vec2> path = PathThrough(object->shape.points, object->shape.pathStyle, false);
+        double length = 0.0;
+        for (size_t i = 1; i < path.size(); ++i) {
+            length += std::hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+        }
+        std::snprintf(text, sizeof(text), "Length %.1f m, %.0f m² painted.", length, painted);
+    }
+    else {
+        std::snprintf(text, sizeof(text), "%.0f m² painted (%.2f tiles).", painted, painted / 256.0);
+    }
+    selectionMeasure_ = text;
+    return selectionMeasure_;
 }
 
 bool GroundPainterInputControl::PickLook_() {

@@ -413,6 +413,7 @@ void GroundPanelTab::OnRender() {
         const ToolSettings& current = painter->Settings();
         settings_.showGrid = current.showGrid;
         settings_.snapPointsToGrid = current.snapPointsToGrid;
+        settings_.snapToPaint = current.snapToPaint;
         settings_.gridStepMeters = current.gridStepMeters;
         settings_.brushRadius = current.brushRadius;
         if (current.look != settings_.look && painter->LookPickCount() != lookPickCount_) {
@@ -540,14 +541,18 @@ void GroundPanelTab::RenderStatus_() {
                                       : "Pick a tool above. Area, Line, Brush and Marking paint the ground; Select "
                                         "changes what was painted; Erase rubs it out.";
 
+    static const std::string kNoMeasure;
+    const std::string& measure = painting ? painter->MeasureText() : kNoMeasure;
     const ImGuiStyle& style = ImGui::GetStyle();
     const float wrap = ImGui::GetContentRegionAvail().x - style.WindowPadding.x * 2.0f;
+    // Room for a measure line always while painting, so the box does not jump as it comes and goes.
     const float height = ImGui::CalcTextSize(text.c_str(), nullptr, false, wrap).y +
-                         ImGui::GetTextLineHeightWithSpacing() * (painting ? 1.0f : 0.0f) + style.WindowPadding.y * 2.0f;
+                         ImGui::GetTextLineHeightWithSpacing() * (painting ? 2.0f : 0.0f) + style.WindowPadding.y * 2.0f;
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
     if (ImGui::BeginChild("##status", ImVec2(0, height), true, ImGuiWindowFlags_NoScrollbar)) {
         ImGui::TextWrapped("%s", text.c_str());
         if (painting) {
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", measure.empty() ? " " : measure.c_str());
             ImGui::TextDisabled("Esc cancels the shape being drawn, then stops. Right-drag pans the camera.");
         }
     }
@@ -619,6 +624,13 @@ void GroundPanelTab::RenderGrid_() {
     changed |= ImGui::Checkbox("Snap", &settings_.snapPointsToGrid);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Snap points to the grid (Shift+S).");
+    }
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("Snap to paint", &settings_.snapToPaint);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Snap points to what is painted: corners, the middles of sides, edges,\n"
+                          "and lines parallel or square to the last edge snapped to (M).\n"
+                          "Hold Shift for 15° steps from the last point.");
     }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-1.0f);

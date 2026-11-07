@@ -42,6 +42,9 @@ namespace Ground {
         float wear = 0.0f;
         float roughness = 0.0f;
         Look look{};
+        // Snap points to what is already painted: its corners, the middles of its sides, its
+        // edges, and lines parallel or square to them (M).
+        bool snapToPaint = true;
         // The grid, as the other painters have it.
         bool showGrid = true;
         bool snapPointsToGrid = false;
