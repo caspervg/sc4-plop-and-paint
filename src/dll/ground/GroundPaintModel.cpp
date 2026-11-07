@@ -1,6 +1,7 @@
 #include "GroundPaintModel.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace Ground {
@@ -180,6 +181,40 @@ namespace Ground {
         default:
             break;
         }
+    }
+
+    PlantingOutline PlantingOutlineOf(const PaintObject& object, const Area& area, const bool along,
+                                      const size_t maxPoints) {
+        PlantingOutline outline;
+        if (along && object.shape.kind == ShapeKind::Line) {
+            outline.points = PathThrough(object.shape.points, object.shape.pathStyle, false);
+            outline.closed = false;
+        }
+        else {
+            // The biggest ring is the outside of the biggest part; holes and smaller parts are
+            // left to the mask of the fill.
+            double biggest = 0.0;
+            for (const Ring& ring : area) {
+                double twice = 0.0;
+                for (size_t i = 0; i < ring.size(); ++i) {
+                    const Vec2 a = ring[i];
+                    const Vec2 b = ring[(i + 1) % ring.size()];
+                    twice += static_cast<double>(a.x) * b.z - static_cast<double>(b.x) * a.z;
+                }
+                if (std::abs(twice) > biggest) {
+                    biggest = std::abs(twice);
+                    outline.points = ring;
+                }
+            }
+            outline.closed = true;
+        }
+        // Curves and rough edges have many points: thin them until the sketch is small enough to
+        // show and fill quickly.
+        for (float tolerance = 0.05f; outline.points.size() > std::max<size_t>(3, maxPoints) && tolerance < 64.0f;
+             tolerance *= 2.0f) {
+            outline.points = SimplifyPath(outline.points, tolerance, outline.closed);
+        }
+        return outline;
     }
 
     bool HasEditablePoints(const PaintObject& object) {

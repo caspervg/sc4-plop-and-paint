@@ -138,6 +138,15 @@ namespace Ground {
     // keep reading the right way: bays and arrows swap sides, text is not written backwards.
     void MirrorObject(PaintObject& object, Vec2 pivot, float axisRadians);
 
+    // A painted object as a sketch for the prop and flora painters: the path a line runs along
+    // (along) or the outline of its biggest part, thinned to at most maxPoints points.
+    struct PlantingOutline {
+        std::vector<Vec2> points;
+        bool closed = true;
+    };
+    [[nodiscard]] PlantingOutline PlantingOutlineOf(const PaintObject& object, const Area& area, bool along,
+                                                    size_t maxPoints = 256);
+
     // Whether the object's points can be dragged one by one, and how many it needs.
     [[nodiscard]] bool HasEditablePoints(const PaintObject& object);
     [[nodiscard]] size_t MinimumPoints(const PaintObject& object);

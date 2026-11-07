@@ -1263,6 +1263,42 @@ void GroundPanelTab::RenderSelectionActions_(Document& document) {
         return;
     }
     RenderShapeTools_(document, selection);
+    RenderPlanting_(selection.front());
+}
+
+void GroundPanelTab::RenderPlanting_(const uint32_t objectId) {
+    if (!ImGui::CollapsingHeader("Props and flora on it")) {
+        return;
+    }
+    ImGui::PushID("planting");
+    const RecentPaintHistory& recent = director_->GetRecentPaintHistory();
+    if (recent.Empty()) {
+        ImGui::TextWrapped("Start painting a prop, a prop family or flora in its own tab first. "
+                           "Then come back here, or press F over painted ground in its Line or Polygon mode.");
+        ImGui::PopID();
+        return;
+    }
+    const RecentPaintEntry& entry = recent.Entries().front();
+    const std::string name = entry.name.empty() ? std::string(entry.kind == RecentPaintEntry::Kind::Prop ? "props" : "flora")
+                                                : entry.name;
+    ImGui::TextWrapped("With %s, the last you painted:", name.c_str());
+    if (ImGui::SmallButton("Fill it")) {
+        director_->PlantOnGround(objectId, false);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Its painter opens in Polygon mode with this shape as the sketch; holes stay empty.\n"
+                          "- and + change the density, Enter places them.");
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Plant along it")) {
+        director_->PlantOnGround(objectId, true);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Its painter opens in Line mode along this line, or round the edge of this shape.\n"
+                          "- and + change the spacing, Enter places them.");
+    }
+    ImGui::TextDisabled("In the Line and Polygon modes of the prop and flora painters, F over painted ground does the same.");
+    ImGui::PopID();
 }
 
 void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uint32_t>& selection) {

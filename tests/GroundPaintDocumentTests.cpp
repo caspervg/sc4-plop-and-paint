@@ -371,6 +371,25 @@ int main() {
         CHECK(std::abs((before.min.z - 50) + (after.max.z - 50)) < 0.05);
     }
 
+    // Outlines for the prop and flora painters: the biggest part, or the path of a line, thinned.
+    {
+        PaintObject ring = Square(0, 0, 40);
+        ring.erased = AreaFromOutline(std::vector<Vec2>{{10, 10}, {30, 10}, {30, 30}, {10, 30}});
+        ring.shape.roughness = 1.0f;
+        const Area area = BuildArea(ring);
+        const PlantingOutline fill = PlantingOutlineOf(ring, area, false, 64);
+        CHECK(fill.closed && fill.points.size() >= 3 && fill.points.size() <= 64);
+        CHECK(std::abs(AreaOf(AreaFromOutline(fill.points)) - 1600.0) < 200.0);
+        PaintObject line;
+        line.shape.kind = ShapeKind::Line;
+        line.shape.points = {{0, 0}, {50, 0}, {50, 50}};
+        line.shape.pathStyle = PathStyle::Curved;
+        const PlantingOutline along = PlantingOutlineOf(line, BuildArea(line), true, 32);
+        CHECK(!along.closed && along.points.size() <= 32);
+        CHECK(std::hypot(along.points.front().x, along.points.front().z) < 0.01f);
+        CHECK(std::hypot(along.points.back().x - 50, along.points.back().z - 50) < 0.01f);
+    }
+
     std::puts("ok");
     return 0;
 }

@@ -111,6 +111,11 @@ void PaintStatusPanel::OnRender() {
     if (settings.mode == PaintMode::Polygon) {
         ImGui::TextUnformatted("Ctrl+-/+ variation");
     }
+    if ((settings.mode == PaintMode::Line || settings.mode == PaintMode::Polygon) &&
+        activeControl_->CanUseGroundShapes()) {
+        ImGui::TextUnformatted(settings.mode == PaintMode::Polygon ? "F fill the painted ground under the cursor"
+                                                                   : "F plant along the painted ground under the cursor");
+    }
     ImGui::PopStyleColor();
 
     ImGui::End();

@@ -64,6 +64,8 @@ private:
     void RenderSelectionActions_(Ground::GroundPaintDocument& document);
     // Border, repeat and mirror for the selection.
     void RenderShapeTools_(Ground::GroundPaintDocument& document, const std::vector<uint32_t>& selection);
+    // Fill the selected object with the last props or flora painted, or plant them along it.
+    void RenderPlanting_(uint32_t objectId);
     void RenderTransform_(Ground::GroundPaintDocument& document);
     void RenderLayers_(Ground::GroundPaintDocument& document);
     // Marks the tool settings changed; FlushSettings_ hands them to the city's tool, at most every

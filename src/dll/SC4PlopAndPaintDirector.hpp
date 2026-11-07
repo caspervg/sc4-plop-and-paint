@@ -114,6 +114,9 @@ public:
     [[nodiscard]] Ground::GroundPaintDocument* GetGroundDocument() const;
     [[nodiscard]] const GroundPainterInputControl* GetGroundPainter() const;
     [[nodiscard]] GroundPainterInputControl* GetGroundPainter();
+    // Starts the most recent prop or flora paint on a painted object: filling it in Polygon mode,
+    // or along it in Line mode. Enter then places them, as for a sketch drawn by hand.
+    bool PlantOnGround(uint32_t objectId, bool along);
     bool StartPropPicking(std::function<void(const PickedProp& picked)> onPick);
     void StopPropPicking();
     [[nodiscard]] bool IsPropPicking() const;
@@ -172,6 +175,9 @@ private:
                                         bool keepScenePicking = false);
     void ApplySwitchPolicy_(BasePainterInputControl* control);
     void RememberDecalPlacementSettings_();
+    // Finds painted ground for F in the prop and flora painters.
+    [[nodiscard]] BasePainterInputControl::GroundShapeLookup MakeGroundShapeLookup_() const;
+    [[nodiscard]] std::optional<BasePainterInputControl::GroundShape> GroundShapeOf_(uint32_t objectId, bool along) const;
     [[nodiscard]] RecentPaintEntry BuildRecentPaintEntry_(RecentPaintEntry::Kind kind,
                                                           uint32_t typeId,
                                                           const PropPaintSettings& settings,
