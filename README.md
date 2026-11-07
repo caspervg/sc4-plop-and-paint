@@ -161,5 +161,14 @@ ctest -C Debug --test-dir cmake-build-debug-visual-studio --output-on-failure
 | [raylib](https://www.raylib.com) | 3D rendering for thumbnail generation | zlib |
 | [GLFW](https://www.glfw.org) | OpenGL windowing (raylib dependency) | zlib |
 | [Fira Mono](https://fonts.google.com/specimen/Fira+Mono) | Embedded monospace font | SIL Open Font License 1.1 |
+| [libwebp](https://chromium.googlesource.com/webm/libwebp) | Thumbnail compression (WebP) | BSD 3-Clause |
+| [Clipper2](https://github.com/AngusJohnson/Clipper2) | Polygon clipping for ground painting | Boost 1.0 |
+| [TinySpline](https://github.com/msteinbeck/tinyspline) | Splines for ground painting | MIT |
+| [Hershey Fonts](https://github.com/kamalmostafa/hershey-fonts) | Stroke font for ground markings | Hershey font licence |
+| [curl](https://curl.se) | Downloading the SC4 Prop Texture Catalog | curl licence |
+| [zlib](https://zlib.net) | Compression (curl dependency) | zlib |
+| [SQLite](https://www.sqlite.org) | Reading the SC4 Prop Texture Catalog | Public domain |
+| cgltf, qoi, NanoSVG, sdefl/sinfl, miniaudio, dr_libs | Built into raylib | MIT / zlib / public domain |
+| [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) | Pack names for textures, props and flora | Data, used with permission |
 
-Full license texts are in [dist/ThirdPartyNotices.txt](dist/ThirdPartyNotices.txt).
+Full license texts are in [dist/THIRD_PARTY_NOTICES.txt](dist/THIRD_PARTY_NOTICES.txt).

@@ -33,6 +33,14 @@ TABLE OF CONTENTS
 23. curl (curl licence)
 24. SQLite (public domain)
 25. SC4 Prop Texture Catalog (data, used with permission)
+26. libwebp (BSD 3-Clause)
+27. zlib (zlib/libpng)
+28. cgltf (MIT)
+29. qoi (MIT)
+30. NanoSVG (zlib/libpng)
+31. sdefl / sinfl (MIT)
+32. miniaudio (public domain or MIT No Attribution)
+33. dr_libs (public domain or MIT No Attribution)
 
 ===============================================================================
 1. SC4 Render Services
@@ -335,3 +343,105 @@ The cache builder fetches the catalog's database and keeps which pack and file
 each ground texture first shipped in, in packs.cbor. Plop and Paint uses it to
 name, search and group ground textures. Thanks to Noah Severyn for the catalog
 and for permission to use it.
+
+===============================================================================
+26. libwebp
+   https://chromium.googlesource.com/webm/libwebp
+   Copyright (c) 2010, Google Inc.
+   License: BSD 3-Clause, with an additional patent grant
+   Used by the cache builder (SC4PlopAndPaintCli) to compress thumbnails and by
+   the plugin to read them.
+===============================================================================
+
+Copyright (c) 2010, Google Inc. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+  * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in
+    the documentation and/or other materials provided with the
+    distribution.
+
+  * Neither the name of Google nor the names of its contributors may
+    be used to endorse or promote products derived from this software
+    without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+-------------------------------------------------------------------------------
+Additional IP Rights Grant (Patents)
+------------------------------------
+
+"These implementations" means the copyrightable works that implement the WebM
+codecs distributed by Google as part of the WebM Project.
+
+Google hereby grants to you a perpetual, worldwide, non-exclusive, no-charge,
+royalty-free, irrevocable (except as stated in this section) patent license to
+make, have made, use, offer to sell, sell, import, transfer, and otherwise
+run, modify and propagate the contents of these implementations of WebM, where
+such license applies only to those patent claims, both currently owned by
+Google and acquired in the future, licensable by Google that are necessarily
+infringed by these implementations of WebM. This grant does not include claims
+that would be infringed only as a consequence of further modification of these
+implementations. If you or your agent or exclusive licensee institute or order
+or agree to the institution of patent litigation or any other patent
+enforcement activity against any entity (including a cross-claim or
+counterclaim in a lawsuit) alleging that any of these implementations of WebM
+or any code incorporated within any of these implementations of WebM
+constitute direct or contributory patent infringement, or inducement of
+patent infringement, then any patent rights granted to you under this License
+for these implementations of WebM shall terminate as of the date such
+litigation is filed.
+
+===============================================================================
+LIBRARIES BUILT INTO CURL AND RAYLIB
+===============================================================================
+
+The cache builder (SC4PlopAndPaintCli) links these through curl (zlib) and
+raylib (the rest). The MIT and zlib/libpng license texts are reproduced in the
+sections for those licenses above.
+
+-------------------------------------------------------------------------------
+27. zlib - https://zlib.net
+    Copyright (C) 1995-2022 Jean-loup Gailly and Mark Adler
+    License: zlib/libpng (text above)
+
+28. cgltf - https://github.com/jkuhlmann/cgltf
+    Copyright (c) 2018-2021 Johannes Kuhlmann
+    License: MIT (text above)
+
+29. qoi - https://github.com/phoboslab/qoi
+    Copyright (c) 2022 Dominic Szablewski
+    License: MIT (text above)
+
+30. NanoSVG - https://github.com/memononen/nanosvg
+    Copyright (c) 2013-14 Mikko Mononen
+    License: zlib/libpng (text above)
+
+31. sdefl / sinfl - https://github.com/vurtun/lib
+    Copyright (c) 2020-2023 Micha Mettke
+    License: MIT (text above), also available as public domain (Unlicense)
+
+32. miniaudio - https://miniaud.io
+    Copyright David Reid
+    License: public domain (Unlicense) or MIT No Attribution, at your choice
+
+33. dr_libs - https://github.com/mackron/dr_libs
+    Copyright David Reid
+    License: public domain (Unlicense) or MIT No Attribution, at your choice
+-------------------------------------------------------------------------------
