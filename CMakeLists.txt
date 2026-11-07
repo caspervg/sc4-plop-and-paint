@@ -46,7 +46,8 @@ if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
             set(SC4_PLOP_AND_PAINT_APP_VERSION "${SC4_PLOP_AND_PAINT_GIT_DESCRIBE}")
         endif()
 
-        string(REGEX REPLACE "^v" "" SC4_PLOP_AND_PAINT_PROJECT_VERSION "${SC4_PLOP_AND_PAINT_GIT_TAG}")
+        # project(VERSION) only takes numeric parts, so drop the "v" and any prerelease suffix ("-rc.1").
+        string(REGEX REPLACE "^v([0-9]+\\.[0-9]+\\.[0-9]+).*$" "\\1" SC4_PLOP_AND_PAINT_PROJECT_VERSION "${SC4_PLOP_AND_PAINT_GIT_TAG}")
     endif()
 endif()
 
