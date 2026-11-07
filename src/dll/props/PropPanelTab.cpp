@@ -77,6 +77,9 @@ void PropPanelTab::OnRender() {
     EnsureFilteredPropsCache_();
 
     ImGui::Text("Showing %zu of %zu props", filteredPropsCache_.size(), allPropViewsCache_.size());
+    if (RenderViewControls_()) {
+        thumbnailCache_.Clear();
+    }
     if (director_->IsPropPainting()) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Stop painting")) {
@@ -115,7 +118,12 @@ void PropPanelTab::OnRender() {
     }
 
     // Table in scrollable child region so filters stay visible
-    if (ImGui::BeginChild("PropTableRegion", ImVec2(0, 0), false)) {
+    if (gridView_) {
+        if (ImGui::BeginChild("PropGridRegion", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+            RenderGrid_(filteredPropsCache_);
+        }
+    }
+    else if (ImGui::BeginChild("PropTableRegion", ImVec2(0, 0), false)) {
         RenderTableInternal_(filteredPropsCache_, favorites_->GetFavoritePropIds());
     }
     ImGui::EndChild();
@@ -127,6 +135,7 @@ void PropPanelTab::OnRender() {
 void PropPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
     if (deviceGeneration != lastDeviceGeneration_) {
         thumbnailCache_.OnDeviceReset();
+        previewCache_.OnDeviceReset();
         lastDeviceGeneration_ = deviceGeneration;
     }
 }
@@ -139,7 +148,7 @@ ImGuiTexture PropPanelTab::LoadPropTexture_(uint64_t propKey) {
         return texture;
     }
 
-    auto data = props_->GetPropThumbnailStore().LoadThumbnail(propKey);
+    auto data = props_->GetPropThumbnailStore().LoadThumbnail(propKey, static_cast<uint32_t>(ShownThumbnailSize_()));
     if (!data.has_value()) {
         LOG_WARN("Prop thumbnail not found in store for key 0x{:016X}", propKey);
         return texture;
@@ -164,7 +173,7 @@ void PropPanelTab::RenderFilterUI_() {
         filtersChanged = true;
     }
 
-    RenderPackFilter_(filtersChanged);
+    filtersChanged = packFilter_.Render("##PropPack", "props") || filtersChanged;
 
     filtersChanged = ImGui::Checkbox("Favorites only", &filterHelper_.favoritesOnly) || filtersChanged;
     ImGui::SameLine();
@@ -202,61 +211,13 @@ void PropPanelTab::RenderFilterUI_() {
 
     if (ImGui::Button("Clear filters")) {
         filterHelper_.ResetFilters();
+        packFilter_.Clear();
         filtersChanged = true;
     }
 
     if (filtersChanged) {
         filteredPropsDirty_ = true;
     }
-}
-
-void PropPanelTab::RenderPackFilter_(bool& changed) {
-    const PackCatalogRepository* catalog = director_->GetPackCatalog();
-    if (!catalog || catalog->Packs().empty() || packCounts_.empty()) {
-        return;
-    }
-    const std::vector<TexturePack>& packs = catalog->Packs();
-    const auto label = [&](const int32_t pack) {
-        char text[160];
-        if (pack == PropFilterHelper::kAllPacks) {
-            std::snprintf(text, sizeof(text), "All packs (%zu)", allPropViewsCache_.size());
-        }
-        else if (pack == PropFilterHelper::kNoPack) {
-            std::snprintf(text, sizeof(text), "Not in the catalog (%u)", packCounts_.back());
-        }
-        else {
-            std::snprintf(text, sizeof(text), "%s (%u)", packs[static_cast<size_t>(pack)].name.c_str(),
-                          packCounts_[static_cast<size_t>(pack)]);
-        }
-        return std::string(text);
-    };
-
-    ImGui::SetNextItemWidth(-1);
-    if (!ImGui::BeginCombo("##PropPack", label(filterHelper_.packFilter).c_str(), ImGuiComboFlags_HeightLarge)) {
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Show only props from one pack, as the SC4 Prop Texture Catalog knows them.");
-        }
-        return;
-    }
-    const auto option = [&](const int32_t pack) {
-        if (ImGui::Selectable(label(pack).c_str(), filterHelper_.packFilter == pack)) {
-            changed = changed || filterHelper_.packFilter != pack;
-            filterHelper_.packFilter = pack;
-        }
-        if (pack >= 0 && ImGui::IsItemHovered()) {
-            const TexturePack& info = packs[static_cast<size_t>(pack)];
-            ImGui::SetTooltip("%s\n%s%s%s", info.author.c_str(), info.package.c_str(), info.package.empty() ? "" : "\n",
-                              info.url.c_str());
-        }
-    };
-    option(PropFilterHelper::kAllPacks);
-    for (const int32_t pack : packsByName_) {
-        option(pack);
-    }
-    if (packCounts_.back() > 0) {
-        option(PropFilterHelper::kNoPack);
-    }
-    ImGui::EndCombo();
 }
 
 void PropPanelTab::RenderTable_() {
@@ -267,35 +228,16 @@ void PropPanelTab::RenderTable_() {
 void PropPanelTab::RebuildPropViewsCache_() {
     const auto& props = props_->GetProps();
     const PackCatalogRepository* catalog = director_->GetPackCatalog();
-    const size_t packCount = catalog ? catalog->Packs().size() : 0;
-    filterHelper_.packs = catalog;
-    packCounts_.assign(packCount + 1, 0);
+    filterHelper_.packFilter = &packFilter_;
+    packFilter_.Begin(catalog);
     allPropViewsCache_.clear();
     allPropViewsCache_.reserve(props.size());
-    std::vector<uint32_t> counted;
     for (const auto& prop : props) {
-        const auto rows = catalog ? catalog->PropRows(prop.groupId.value(), prop.instanceId.value())
-                                  : std::span<const PackCatalogRepository::PropRow>{};
-        // Once in each pack it ships in, even when a pack has it in several files.
-        counted.clear();
-        for (const auto& row : rows) {
-            if (std::ranges::find(counted, row[3]) == counted.end()) {
-                counted.push_back(row[3]);
-                ++packCounts_[row[3]];
-            }
-        }
-        if (rows.empty()) {
-            ++packCounts_[packCount];
-        }
+        const auto rows = catalog ? catalog->ExemplarRows(prop.groupId.value(), prop.instanceId.value())
+                                  : std::span<const PackCatalogRepository::ExemplarRow>{};
+        packFilter_.Count(rows);
         allPropViewsCache_.push_back(PropView{&prop, rows});
     }
-    packsByName_.clear();
-    for (int32_t i = 0; i < static_cast<int32_t>(packCount); ++i) {
-        if (packCounts_[static_cast<size_t>(i)] > 0) {
-            packsByName_.push_back(i);
-        }
-    }
-    std::ranges::sort(packsByName_, {}, [&](const int32_t i) { return catalog->Packs()[static_cast<size_t>(i)].name; });
     cachedPropCount_ = props.size();
     filteredPropsDirty_ = true;
 }
@@ -401,7 +343,7 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                                   ImVec2(0, rowHeight));
                 ImGui::SameLine();
                 auto thumbTextureId = thumbnailCache_.Get(key);
-                RenderThumbnail_(thumbTextureId);
+                RenderThumbnailWithPreview_(thumbTextureId, props_->GetPropThumbnailStore(), key);
 
                 // Name
                 ImGui::TableNextColumn();
@@ -444,24 +386,7 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 // Actions
                 ImGui::TableNextColumn();
                 if (ImGui::Button("Paint")) {
-                    bool switchedTarget = false;
-                    if (director_->IsPropPainting()) {
-                        ReleaseImGuiInputCapture_();
-                        switchedTarget = director_->SwitchPropPaintingTarget(
-                            prop.instanceId.value(),
-                            PropDisplayName_(prop));
-                    }
-
-                    if (switchedTarget) {
-                        // Reuse current paint mode and rotation; no modal.
-                        }
-                    else {
-                        pendingPaint_.propId = prop.instanceId.value();
-                        pendingPaint_.propName = PropDisplayName_(prop);
-                        pendingPaint_.settings.mode = PaintMode::Direct;
-                        pendingPaint_.settings.rotation = 0;
-                        pendingPaint_.open = true;
-                    }
+                    PaintProp_(prop);
                 }
                 ImGui::SameLine();
                 RenderFavButton_(prop);
@@ -474,20 +399,7 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 }
 
                 if (ImGui::BeginPopup("AddToPalette")) {
-                    const auto& userFamilies = favorites_->GetUserFamilies();
-                    if (userFamilies.empty()) {
-                        ImGui::TextDisabled("No families yet.");
-                        ImGui::TextDisabled("Create a user-defined family in the Families tab first.");
-                    }
-                    else {
-                        for (size_t familyIndex = 0; familyIndex < userFamilies.size(); ++familyIndex) {
-                            if (ImGui::Selectable(userFamilies[familyIndex].name.c_str())) {
-                                favorites_->AddPropToUserFamily(prop.instanceId.value(), familyIndex);
-                                ImGui::CloseCurrentPopup();
-                                break;
-                            }
-                        }
-                    }
+                    RenderAddToFamilyItems_(prop);
                     ImGui::EndPopup();
                 }
 
@@ -527,10 +439,13 @@ void PropPanelTab::RenderSeasonalSetRowActions_(const Prop& prop) {
         ImGui::SetTooltip("Add to a custom seasonal set");
     }
 
-    if (!ImGui::BeginPopup("AddToSeasonalSet")) {
-        return;
+    if (ImGui::BeginPopup("AddToSeasonalSet")) {
+        RenderSeasonalSetItems_(prop);
+        ImGui::EndPopup();
     }
+}
 
+void PropPanelTab::RenderSeasonalSetItems_(const Prop& prop) {
     const uint32_t propId = prop.instanceId.value();
     const SeasonalSet* currentSet = props_->FindSeasonalSetForProp(propId);
     if (currentSet != nullptr && currentSet->confidence != 2) {
@@ -565,8 +480,111 @@ void PropPanelTab::RenderSeasonalSetRowActions_(const Prop& prop) {
         seasonalSetEditorOpen_ = true;
         ImGui::CloseCurrentPopup();
     }
+}
 
-    ImGui::EndPopup();
+void PropPanelTab::RenderAddToFamilyItems_(const Prop& prop) {
+    const auto& userFamilies = favorites_->GetUserFamilies();
+    if (userFamilies.empty()) {
+        ImGui::TextDisabled("No families yet.");
+        ImGui::TextDisabled("Create a user-defined family in the Families tab first.");
+        return;
+    }
+    for (size_t familyIndex = 0; familyIndex < userFamilies.size(); ++familyIndex) {
+        if (ImGui::Selectable(userFamilies[familyIndex].name.c_str())) {
+            favorites_->AddPropToUserFamily(prop.instanceId.value(), familyIndex);
+            ImGui::CloseCurrentPopup();
+            break;
+        }
+    }
+}
+
+void PropPanelTab::PaintProp_(const Prop& prop) {
+    if (director_->IsPropPainting()) {
+        ReleaseImGuiInputCapture_();
+        // Keeps the current paint mode and rotation; no modal.
+        if (director_->SwitchPropPaintingTarget(prop.instanceId.value(), PropDisplayName_(prop))) {
+            return;
+        }
+    }
+    pendingPaint_.propId = prop.instanceId.value();
+    pendingPaint_.propName = PropDisplayName_(prop);
+    pendingPaint_.settings.mode = PaintMode::Direct;
+    pendingPaint_.settings.rotation = 0;
+    pendingPaint_.open = true;
+}
+
+void PropPanelTab::RenderGrid_(const std::vector<PropView>& filteredProps) {
+    if (filteredProps.empty()) {
+        ImGui::TextDisabled("No props match the current filters.");
+        return;
+    }
+
+    ThumbnailStore& store = props_->GetPropThumbnailStore();
+    const size_t visible = ThumbnailGrid::Render(filteredProps.size(), gridTileSize_, [&](const size_t index) {
+        const Prop& prop = *filteredProps[index].prop;
+        const uint64_t key = MakeGIKey(prop.groupId.value(), prop.instanceId.value());
+        const bool hasThumbnail = store.HasThumbnail(key);
+
+        const auto texture = thumbnailCache_.Get(key);
+        if (!texture && hasThumbnail) {
+            thumbnailCache_.Request(key);
+        }
+        RenderGridTile_(texture);
+        if (!hasThumbnail) {
+            ThumbnailGrid::LabelLastTile(PropDisplayName_(prop).c_str());
+        }
+        ThumbnailGrid::DecorateLastTile(key == selectedPropKey_,
+                                        favorites_->IsPropFavorite(prop.groupId.value(), prop.instanceId.value()));
+
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(PropDisplayName_(prop).c_str());
+            if (!prop.visibleName.empty()) {
+                ImGui::TextDisabled("%s", prop.exemplarName.c_str());
+            }
+            ImGui::Text("%.1f x %.1f x %.1f m", prop.width, prop.height, prop.depth);
+            RenderLargePreview_(store, key);
+            if (HasPropTooltipContent_(prop)) {
+                ImGui::Separator();
+                RenderPropTooltipBody_(prop);
+            }
+            ImGui::EndTooltip();
+        }
+
+        // Click selects (and switches the prop while painting), double-click paints.
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+            selectedPropKey_ = key;
+            if (ImGui::GetMouseClickedCount(ImGuiMouseButton_Left) >= 2 || director_->IsPropPainting()) {
+                PaintProp_(prop);
+            }
+        }
+
+        if (ImGui::BeginPopupContextItem("##PropTileMenu")) {
+            selectedPropKey_ = key;
+            if (ImGui::Selectable("Paint")) {
+                PaintProp_(prop);
+            }
+            const bool isFavorite = favorites_->IsPropFavorite(prop.groupId.value(), prop.instanceId.value());
+            if (ImGui::Selectable(isFavorite ? "Remove from favorites" : "Add to favorites")) {
+                favorites_->TogglePropFavorite(prop.groupId.value(), prop.instanceId.value());
+                filteredPropsDirty_ = filteredPropsDirty_ || filterHelper_.favoritesOnly;
+            }
+            if (ImGui::BeginMenu("Add to family")) {
+                RenderAddToFamilyItems_(prop);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Seasonal set")) {
+                RenderSeasonalSetItems_(prop);
+                ImGui::EndMenu();
+            }
+            ImGui::EndPopup();
+        }
+    });
+    thumbnailCache_.FitVisible(visible + Cache::kMaxLoadPerFrame);
+
+    thumbnailCache_.ProcessLoadQueue([this](const uint64_t key) {
+        return LoadPropTexture_(key);
+    });
 }
 
 void PropPanelTab::ApplyUserSeasonalSetsToRepository_() const {
@@ -822,7 +840,7 @@ void PropPanelTab::RenderSeasonalSetEditor_() {
 
 bool PropPanelTab::HasPropTooltipContent_(const Prop& prop) const {
     const PackCatalogRepository* catalog = director_->GetPackCatalog();
-    return (catalog && !catalog->PropRows(prop.groupId.value(), prop.instanceId.value()).empty()) ||
+    return (catalog && !catalog->ExemplarRows(prop.groupId.value(), prop.instanceId.value()).empty()) ||
         HasPropDetails_(prop);
 }
 
@@ -863,10 +881,14 @@ bool PropPanelTab::RenderPropPills_(const Prop& prop, const bool startOnNewLine)
 
 void PropPanelTab::RenderPropTooltip_(const Prop& prop) const {
     ImGui::BeginTooltip();
+    RenderPropTooltipBody_(prop);
+    ImGui::EndTooltip();
+}
 
+void PropPanelTab::RenderPropTooltipBody_(const Prop& prop) const {
     const PackCatalogRepository* catalog = director_->GetPackCatalog();
-    const auto rows = catalog ? catalog->PropRows(prop.groupId.value(), prop.instanceId.value())
-                              : std::span<const PackCatalogRepository::PropRow>{};
+    const auto rows = catalog ? catalog->ExemplarRows(prop.groupId.value(), prop.instanceId.value())
+                              : std::span<const PackCatalogRepository::ExemplarRow>{};
     if (const TexturePack* pack = rows.empty() ? nullptr : catalog->Pack(static_cast<int32_t>(rows.front()[3]))) {
         // props.cbor does not say which file a prop is loaded from, so the first pack stands for all.
         ImGui::Text("From %s by %s", pack->name.c_str(), pack->author.c_str());
@@ -978,8 +1000,6 @@ void PropPanelTab::RenderPropTooltip_(const Prop& prop) const {
 
         ImGui::Text("Spawn chance: %u%%", *prop.randomChance);
     }
-
-    ImGui::EndTooltip();
 }
 
 void PropPanelTab::RenderRotationModal_() {
@@ -1109,6 +1129,7 @@ void PropPanelTab::HandlePickedProp_(const PickedProp& picked) {
     }
 
     filterHelper_.ResetFilters();
+    packFilter_.Clear();
     filterHelper_.searchBuffer = PropDisplayName_(*prop);
     filteredPropsDirty_ = true;
 

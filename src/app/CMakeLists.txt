@@ -35,6 +35,7 @@ target_link_libraries(${APP_NAME} PRIVATE
     glfw
     unofficial::sqlite3::sqlite3
     CURL::libcurl
+    WebP::webp
 )
 
 if (WIN32)

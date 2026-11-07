@@ -48,8 +48,8 @@ namespace fs = std::filesystem;
 namespace {
     constexpr uint32_t kTypeIdExemplar = 0x6534284Au;
     constexpr uint32_t kTypeIdCohort = 0x05342861u;
-    constexpr uint32_t kMinThumbnailSize = kDefaultThumbnailSize / 2;
-    constexpr uint32_t kMaxThumbnailSize = kDefaultThumbnailSize * 4;
+    constexpr uint32_t kMinThumbnailSize = 22;
+    constexpr uint32_t kMaxThumbnailSize = 220;
 #ifdef _WIN32
     constexpr std::string_view kPathFlagsHint = "";
 #else
@@ -903,7 +903,7 @@ int main(int argc, char* argv[]) {
         args::ValueFlag<uint32_t> thumbnailSizeFlag(
             parser,
             "px",
-            "Square thumbnail size in pixels for cached thumbnails (22-176, default 44)",
+            "Square thumbnail size in pixels stored in the cache (22-220, default 132). The plugin scales them down to its ThumbnailDisplaySize",
             {"thumbnail-size"});
 
         try {

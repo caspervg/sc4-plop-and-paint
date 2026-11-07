@@ -35,7 +35,7 @@ void PlopAndPaintPanel::OnRender() {
         return;
     }
 
-    ImGui::Begin("Advanced Plopping & Painting###PlopAndPaintMain", &isOpen_, ImGuiWindowFlags_NoNavFocus);
+    ImGui::Begin("Advanced Plopping & Painting###PlopAndPaintMain", &isOpen_, ImGuiWindowFlags_NoNav);
     if (!isOpen_) {
         ImGui::End();
         return;

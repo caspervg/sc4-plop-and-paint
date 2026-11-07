@@ -292,7 +292,6 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
 
         if (imguiService_->RegisterPanel(desc)) {
             panelRegistered_ = true;
-            panelVisible_ = false;
             panel_->SetOpen(false);
             LOG_INFO("Registered ImGui panel");
         }
@@ -611,7 +610,7 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
 
     const bool reusingActivePropControl =
         propPainting_ && propPainterControl_ &&
-        pView3D_ && pView3D_->GetCurrentViewInputControl() == propPainterControl_;
+        pView3D_ && RaiseToTop_(propPainterControl_, propPainterControl_->IsActive());
 
     if (reusingActivePropControl) {
         if (propPainterControl_->HasPendingSketch()) {
@@ -640,9 +639,10 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
 
     propPainterControl_->SetPropToPaint(propId, normalizedSettings, name);
     if (!reusingActivePropControl) {
-        if (!pView3D_->SetCurrentViewInputControl(
-            propPainterControl_,
-            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        if (!RaiseToTop_(propPainterControl_, propPainterControl_->IsActive()) &&
+            !pView3D_->SetCurrentViewInputControl(
+                propPainterControl_,
+                cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
             LOG_WARN("Failed to set prop painter as current view input control");
             UpdatePaintPanels_();
             return false;
@@ -679,7 +679,7 @@ void SC4PlopAndPaintDirector::StopPropPainting() {
     }
 
     if (pView3D_ && propPainterControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == propPainterControl_) {
+        if (RaiseToTop_(propPainterControl_, propPainterControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -722,7 +722,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
 
     const bool reusingActiveFloraControl =
         floraPainting_ && floraPlacerControl_ &&
-        pView3D_ && pView3D_->GetCurrentViewInputControl() == floraPlacerControl_;
+        pView3D_ && RaiseToTop_(floraPlacerControl_, floraPlacerControl_->IsActive());
 
     if (reusingActiveFloraControl) {
         if (floraPlacerControl_->HasPendingSketch()) {
@@ -751,9 +751,10 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
 
     floraPlacerControl_->SetFloraToPaint(floraTypeId, normalizedSettings, name);
     if (!reusingActiveFloraControl) {
-        if (!pView3D_->SetCurrentViewInputControl(
-            floraPlacerControl_,
-            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        if (!RaiseToTop_(floraPlacerControl_, floraPlacerControl_->IsActive()) &&
+            !pView3D_->SetCurrentViewInputControl(
+                floraPlacerControl_,
+                cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
             LOG_WARN("Failed to set flora placer as current view input control");
             UpdatePaintPanels_();
             return false;
@@ -776,7 +777,7 @@ void SC4PlopAndPaintDirector::StopFloraPainting() {
     }
 
     if (pView3D_ && floraPlacerControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == floraPlacerControl_) {
+        if (RaiseToTop_(floraPlacerControl_, floraPlacerControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -824,9 +825,10 @@ bool SC4PlopAndPaintDirector::StartFloraStripping() {
         LOG_INFO("Stopped flora stripping");
     });
 
-    if (!pView3D_->SetCurrentViewInputControl(
-        floraStripperControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!RaiseToTop_(floraStripperControl_, floraStripperControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            floraStripperControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set flora stripper as current view input control");
         UpdatePaintPanels_();
         return false;
@@ -839,7 +841,7 @@ bool SC4PlopAndPaintDirector::StartFloraStripping() {
 
 void SC4PlopAndPaintDirector::StopFloraStripping() {
     if (pView3D_ && floraStripperControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == floraStripperControl_) {
+        if (RaiseToTop_(floraStripperControl_, floraStripperControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -886,7 +888,7 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
 
     const bool reusingActiveDecalControl =
         decalPainting_ && decalPainterControl_ &&
-        pView3D_ && pView3D_->GetCurrentViewInputControl() == decalPainterControl_;
+        pView3D_ && RaiseToTop_(decalPainterControl_, decalPainterControl_->IsActive());
 
     if (reusingActiveDecalControl) {
         if (decalPainterControl_->HasPendingSketch()) {
@@ -914,9 +916,10 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
     decalPainterControl_->SetDecalToPaint(instanceId, effectiveSettings, name);
 
     if (!reusingActiveDecalControl) {
-        if (!pView3D_->SetCurrentViewInputControl(
-            decalPainterControl_,
-            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        if (!RaiseToTop_(decalPainterControl_, decalPainterControl_->IsActive()) &&
+            !pView3D_->SetCurrentViewInputControl(
+                decalPainterControl_,
+                cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
             LOG_WARN("Failed to set decal painter as current view input control");
             UpdatePaintPanels_();
             return false;
@@ -937,7 +940,7 @@ void SC4PlopAndPaintDirector::StopDecalPainting() {
     }
 
     if (pView3D_ && decalPainterControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == decalPainterControl_) {
+        if (RaiseToTop_(decalPainterControl_, decalPainterControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -991,9 +994,10 @@ bool SC4PlopAndPaintDirector::StartDecalStripping() {
         LOG_INFO("Stopped decal stripping");
     });
 
-    if (!pView3D_->SetCurrentViewInputControl(
-        decalStripperControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!RaiseToTop_(decalStripperControl_, decalStripperControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            decalStripperControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set decal stripper as current view input control");
         UpdatePaintPanels_();
         return false;
@@ -1006,7 +1010,7 @@ bool SC4PlopAndPaintDirector::StartDecalStripping() {
 
 void SC4PlopAndPaintDirector::StopDecalStripping() {
     if (pView3D_ && decalStripperControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == decalStripperControl_) {
+        if (RaiseToTop_(decalStripperControl_, decalStripperControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -1037,7 +1041,7 @@ bool SC4PlopAndPaintDirector::StartDecalPicking(std::function<void(uint32_t)> on
 
 void SC4PlopAndPaintDirector::StopDecalPicking() {
     if (pView3D_ && scenePickerControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == scenePickerControl_) {
+        if (RaiseToTop_(scenePickerControl_, scenePickerControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -1094,9 +1098,10 @@ bool SC4PlopAndPaintDirector::StartScenePicking_(std::unique_ptr<ScenePickStrate
         LOG_INFO("Stopped scene picking");
     });
 
-    if (!pView3D_->SetCurrentViewInputControl(
-        scenePickerControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!RaiseToTop_(scenePickerControl_, scenePickerControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            scenePickerControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set scene picker as current view input control");
         return false;
     }
@@ -1124,7 +1129,7 @@ bool SC4PlopAndPaintDirector::StartPropPicking(std::function<void(const PickedPr
 
 void SC4PlopAndPaintDirector::StopPropPicking() {
     if (pView3D_ && scenePickerControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == scenePickerControl_) {
+        if (RaiseToTop_(scenePickerControl_, scenePickerControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -1214,9 +1219,10 @@ bool SC4PlopAndPaintDirector::StartPropStripping() {
         LOG_INFO("Stopped prop stripping");
     });
 
-    if (!pView3D_->SetCurrentViewInputControl(
-        propStripperControl_,
-        cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!RaiseToTop_(propStripperControl_, propStripperControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            propStripperControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set prop stripper as current view input control");
         UpdatePaintPanels_();
         return false;
@@ -1229,7 +1235,7 @@ bool SC4PlopAndPaintDirector::StartPropStripping() {
 
 void SC4PlopAndPaintDirector::StopPropStripping() {
     if (pView3D_ && propStripperControl_) {
-        if (pView3D_->GetCurrentViewInputControl() == propStripperControl_) {
+        if (RaiseToTop_(propStripperControl_, propStripperControl_->IsActive())) {
             pView3D_->RemoveCurrentViewInputControl(false);
         }
     }
@@ -1387,7 +1393,6 @@ void SC4PlopAndPaintDirector::SetLotPlopPanelVisible(const bool visible) {
         return;
     }
 
-    panelVisible_ = visible;
     panel_->SetOpen(visible);
 }
 
@@ -1448,12 +1453,26 @@ bool SC4PlopAndPaintDirector::PrepareForPaintSwitch_(BasePainterInputControl* co
 
     ApplySwitchPolicy_(control);
 
-    if (pView3D_ && pView3D_->GetCurrentViewInputControl() == control) {
+    if (pView3D_ && RaiseToTop_(control, control->IsActive())) {
         pView3D_->RemoveCurrentViewInputControl(false);
     }
 
     isPaintingFlag = false;
     return true;
+}
+
+bool SC4PlopAndPaintDirector::RaiseToTop_(cISC4ViewInputControl* const control, const bool active) {
+    if (!pView3D_ || !control) {
+        return false;
+    }
+    if (active) {
+        while (cISC4ViewInputControl* const top = pView3D_->GetCurrentViewInputControl()) {
+            if (top == control || !pView3D_->RemoveCurrentViewInputControl(false)) {
+                break;
+            }
+        }
+    }
+    return pView3D_->GetCurrentViewInputControl() == control;
 }
 
 bool SC4PlopAndPaintDirector::PrepareForExclusiveActivation_(const bool keepPropPainting,
@@ -1673,7 +1692,7 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
 }
 
 void SC4PlopAndPaintDirector::ToggleLotPlopPanel_() {
-    SetLotPlopPanelVisible(!panelVisible_);
+    SetLotPlopPanelVisible(!(panel_ && panel_->IsOpen()));
 }
 
 bool SC4PlopAndPaintDirector::RegisterLotPlopShortcut_() {
@@ -1780,8 +1799,10 @@ bool SC4PlopAndPaintDirector::StartGroundPainting(const Ground::ToolSettings& se
     groundPainterControl_->SetSettings(settings);
     groundPainterControl_->SetOnCancel([this]() { StopGroundPainting(); });
 
-    if (!pView3D_->SetCurrentViewInputControl(groundPainterControl_,
-                                              cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+    if (!RaiseToTop_(groundPainterControl_, groundPainterControl_->IsActive()) &&
+        !pView3D_->SetCurrentViewInputControl(
+            groundPainterControl_,
+            cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
         LOG_WARN("Failed to set the ground painter as current view input control");
         return false;
     }
@@ -1802,7 +1823,7 @@ void SC4PlopAndPaintDirector::StopGroundPainting() {
         return;
     }
     groundPainting_ = false;
-    if (pView3D_ && groundPainterControl_ && pView3D_->GetCurrentViewInputControl() == groundPainterControl_) {
+    if (pView3D_ && groundPainterControl_ && RaiseToTop_(groundPainterControl_, groundPainterControl_->IsActive())) {
         pView3D_->RemoveCurrentViewInputControl(false);
     }
     LOG_INFO("Stopped ground painting");

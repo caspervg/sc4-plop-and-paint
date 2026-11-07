@@ -161,6 +161,10 @@ private:
                             const char* logName);
     bool CanPrepareForPaintSwitch_(BasePainterInputControl* control, bool isPaintingFlag) const;
     bool PrepareForPaintSwitch_(BasePainterInputControl* control, bool& isPaintingFlag);
+    // Vanilla tool commands push their control on top of ours instead of replacing it, so one of
+    // ours that is still active can sit below the top. Pops whatever is above it; returns whether
+    // the control is now on top.
+    bool RaiseToTop_(cISC4ViewInputControl* control, bool active);
     bool PrepareForExclusiveActivation_(bool keepPropPainting, bool keepFloraPainting, bool keepPropStripping,
                                         bool keepFloraStripping = false,
                                         bool keepDecalPainting = false,
@@ -189,7 +193,6 @@ private:
     std::unique_ptr<DecalRepository>     decalRepository_;
 
     bool panelRegistered_{false};
-    bool panelVisible_{false};
     bool shortcutRegistered_{false};
     std::unique_ptr<PlopAndPaintPanel> panel_;
     cRZAutoRefCount<PropPainterInputControl>  propPainterControl_;

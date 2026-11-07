@@ -23,7 +23,7 @@ The window has six tabs:
 - `Prop Families`: manage built-in and custom prop families, then paint with a weighted random palette
 - `Flora`: browse individual flora items and paint one flora type at a time
 - `Flora Collections`: paint flora families and multi-stage chains built from the loaded flora data
-- `Ground`: paint areas, lines and brush strokes on the terrain, and stamp texture decals
+- `Terrain Paint`: paint areas, lines, brush strokes and road markings on the terrain, and stamp texture decals
 
 ![Main window](images/main-window-cropped.jpg)
 
@@ -95,7 +95,7 @@ Strip mode:
 - In strip mode, move the cursor over a prop within the preview radius and left-click to delete it
 - Press `B` to toggle brush mode and hold the left mouse button to strip everything inside the preview radius
 - `Ctrl+Z` restores the most recently removed city, lot, or street prop
-- `Esc` or right-click exits strip mode
+- `Esc` exits strip mode; right-drag pans the camera as usual
 
 ![Props tab](images/props-cropped.jpg)
 
@@ -143,7 +143,8 @@ This tab is for individual flora items.
 
 Filters:
 
-- `Search flora...`
+- `Search flora...`: also matches the pack a flora item comes from
+- The pack list: shows only the flora of one pack, as the [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) knows them (from `packs.cbor`). An item in several packs shows under each of them
 - `Favorites only`
 - `Clear filters`
 
@@ -183,7 +184,7 @@ Important behavior:
 - Double-clicking a collection row or pressing `Paint` opens the flora paint options for that collection
 - Selecting a collection shows its members below, including thumbnails, IDs, and favorite buttons for the individual flora entries
 
-## Ground
+## Terrain Paint
 
 This tab paints the ground: areas, lines, brush strokes and road markings in any shape, with a ground texture or a plain colour. Everything you paint stays editable and is saved with the city. It needs SC4RenderServices with terrain paint and `EnableCustomTerrainDecalRenderer=true`.
 
@@ -203,7 +204,7 @@ Tools (pick one to start, `Stop` or Esc to end):
 - `Select`: click painted ground to select it (Ctrl+click adds to the selection), drag to move it, Delete to remove it. With one area, line or marking selected, its points show: drag a point to move it, Ctrl+click its path to add a point, Alt+click a point to remove it.
 - `Stamp`: the texture decal painter described below.
 
-`Draw` chooses straight lines between clicks, a smooth curve through them, or freehand drawing (drag). Backspace removes the last point, Esc or a right click cancels the shape, and a second Esc stops the tool. The grid works as in the other painters: G shows it, Shift+S snaps points to it, Ctrl+[ and Ctrl+] change its step.
+`Draw` chooses straight lines between clicks, a smooth curve through them, or freehand drawing (drag). Backspace removes the last point, Esc cancels the shape, and a second Esc stops the tool. Right-drag pans the camera, even halfway through a shape. The grid works as in the other painters: G shows it, Shift+S snaps points to it, Ctrl+[ and Ctrl+] change its step.
 
 `Paint with`: `Copy look` (or Alt+click in the city) takes the colour or textures and finish from something already painted.
 
@@ -356,7 +357,8 @@ While paint mode is active:
 - `Ctrl+Z` or the back mouse button: undo the whole last pending placement group
 - `Ctrl+Backspace`: undo only the last prop in the current top group
 - `Enter`: place the current line or polygon batch, or commit pending placements
-- `Esc` or right-click: cancel all pending placements and leave paint mode
+- `Esc`: cancel the line or polygon being drawn; with none, cancel all pending placements and leave paint mode
+- Right-drag pans the camera as usual, also while drawing a line or polygon
 
 Flora-specific note:
 
@@ -540,7 +542,7 @@ Relevant options:
 - `EnableDrawOverlay`: disables the in-city preview (grid, outlines and placement boxes) if needed
 - `DefaultPropPreviewMode`: `outline`, `full`, or `combined`
 - `DefaultShowGridOverlay`, `DefaultSnapPointsToGrid`, `DefaultSnapPlacementsToGrid`, `DefaultGridStepMeters`: default paint popup values
-- `ThumbnailDisplaySize`: thumbnail size in the UI (`22` to `176`)
+- `ThumbnailDisplaySize`: thumbnail size in the UI (`22` to `220`). The cache stores thumbnails at the size given to the cache builder (`--thumbnail-size`, default `132`); larger ones are scaled down to this size
 - `ThumbnailBackgroundColor` and `ThumbnailBorderColor`: thumbnail slot colors shown behind transparent thumbnails
 
 Thumbnail color options accept `RRGGBB` or `RRGGBBAA`. Set either one to an empty value to make it transparent.

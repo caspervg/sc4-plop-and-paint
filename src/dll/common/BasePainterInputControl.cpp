@@ -76,6 +76,8 @@ bool BasePainterInputControl::Shutdown() {
     }
 
     CancelAllPlacements();
+    ClearDirectAbsoluteHeight_();
+    DestroyPreviewOccupant_();
     TransitionTo_(ControlState::Uninitialized, "Shutdown");
     cSC4BaseViewInputControlEx::Shutdown();
     return true;
@@ -86,15 +88,6 @@ bool BasePainterInputControl::OnMouseDownL(const int32_t x, const int32_t z, con
         return false;
     }
     return HandleActiveMouseDownL_(x, z, modifiers);
-}
-
-bool BasePainterInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
-    if (!IsActiveState_(state_) || !IsOnTop()) {
-        return false;
-    }
-    CancelAllPlacements();
-    cancelPending_ = true;
-    return true;
 }
 
 bool BasePainterInputControl::OnMouseMove(const int32_t x, const int32_t z, const uint32_t modifiers) {
@@ -144,15 +137,10 @@ void BasePainterInputControl::Activate() {
     TransitionTo_(typeToPaint_ != 0 ? ActiveStateForMode_(settings_.mode) : ControlState::ActiveNoTarget, "Activate");
 }
 
+// The game also deactivates a control it covers, e.g. with its right-drag camera pan, and does
+// not activate it again when that ends. So this only pauses: the sketch stays, Shutdown ends it.
 void BasePainterInputControl::Deactivate() {
-    ClearCollectedPoints_();
-    ClearDirectAbsoluteHeight_();
     DestroyPreviewOccupant_();
-
-    if (state_ != ControlState::Uninitialized) {
-        TransitionTo_(typeToPaint_ != 0 ? ControlState::ReadyWithTarget : ControlState::ReadyNoTarget, "Deactivate");
-    }
-
     cSC4BaseViewInputControlEx::Deactivate();
 }
 
@@ -486,6 +474,10 @@ bool BasePainterInputControl::HandleActiveMouseMove_(const int32_t x, const int3
 
 bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const uint32_t modifiers) {
     if (vkCode == VK_ESCAPE) {
+        if (HasPendingSketch()) {
+            ClearCollectedPoints_();
+            return true;
+        }
         CancelAllPlacements();
         cancelPending_ = true;
         return true;

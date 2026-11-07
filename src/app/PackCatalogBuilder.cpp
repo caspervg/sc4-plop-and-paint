@@ -157,10 +157,10 @@ namespace PackCatalogBuilder {
                 packageOfFile.try_emplace(packages.Int(0), packages.Text(1), packages.Text(2));
             }
 
-            // The catalog's TGICategories: 1 is Prop, 2 is Texture.
+            // The catalog's TGICategories: 1 is Prop, 2 is Texture, 4 is Flora.
             Query items(db, "select t.TGI, t.Category, t.FileId, f.Name, a.Name, a.Url from TGIs t "
                             "join Files f on f.Id = t.FileId left join Assets a on a.Id = f.AssetId "
-                            "where t.Category in (1, 2)");
+                            "where t.Category in (1, 2, 4)");
             ok = ok && items.Valid();
             std::map<std::string, uint32_t> packIndex;
             std::map<std::string, uint32_t> fileIndex;
@@ -202,7 +202,7 @@ namespace PackCatalogBuilder {
             // Every pack that ships an item: mods often override the same texture or prop. Sets keep
             // the rows sorted by item and drop exact repeats.
             std::set<std::array<uint32_t, 3>> textureRows;
-            std::set<std::array<uint32_t, 4>> propRows;
+            std::set<std::array<uint32_t, 4>> exemplarRows;
             while (ok && items.Next()) {
                 uint32_t type = 0;
                 uint32_t group = 0;
@@ -210,10 +210,11 @@ namespace PackCatalogBuilder {
                 if (std::sscanf(items.Text(0).c_str(), "%x, %x, %x", &type, &group, &instance) != 3) {
                     continue;
                 }
-                if (items.Int(1) == 1) {
-                    // A prop exemplar, known by its group and instance as in props.cbor.
+                if (items.Int(1) != 2) {
+                    // A prop or flora exemplar, known by its group and instance as in props.cbor and
+                    // flora.cbor.
                     if (type == kExemplarType) {
-                        propRows.insert({group, instance, fileOf(), packOf()});
+                        exemplarRows.insert({group, instance, fileOf(), packOf()});
                     }
                     continue;
                 }
@@ -225,7 +226,7 @@ namespace PackCatalogBuilder {
                 textureRows.insert({instance + 4, fileOf(), packOf()});
             }
             catalog.textures.assign(textureRows.begin(), textureRows.end());
-            catalog.props.assign(propRows.begin(), propRows.end());
+            catalog.exemplars.assign(exemplarRows.begin(), exemplarRows.end());
         }
         if (!ok) {
             logger.warn("The pack catalog {} is not in the expected form: {}", databasePath.string(), sqlite3_errmsg(db));
@@ -234,8 +235,8 @@ namespace PackCatalogBuilder {
         if (!ok) {
             return std::nullopt;
         }
-        logger.info("Pack catalog: {} textures and {} props in {} packs, updated up to {}", catalog.textures.size(),
-                    catalog.props.size(), catalog.packs.size(), catalog.catalogUpdatedAt);
+        logger.info("Pack catalog: {} textures and {} props and flora in {} packs, updated up to {}",
+                    catalog.textures.size(), catalog.exemplars.size(), catalog.packs.size(), catalog.catalogUpdatedAt);
         return catalog;
     }
 

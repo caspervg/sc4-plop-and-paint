@@ -294,7 +294,7 @@ ImGuiTexture RecentSwapPanel::LoadThumbnail_(const uint64_t key) {
     }
 
     if (props_) {
-        auto data = props_->GetPropThumbnailStore().LoadThumbnail(key);
+        auto data = props_->GetPropThumbnailStore().LoadThumbnail(key, static_cast<uint32_t>(UI::kIconSize));
         if (data.has_value()) {
             texture.Create(imguiService_, data->width, data->height, data->rgba.data());
             return texture;
@@ -302,7 +302,7 @@ ImGuiTexture RecentSwapPanel::LoadThumbnail_(const uint64_t key) {
     }
 
     if (flora_) {
-        auto data = flora_->GetFloraThumbnailStore().LoadThumbnail(key);
+        auto data = flora_->GetFloraThumbnailStore().LoadThumbnail(key, static_cast<uint32_t>(UI::kIconSize));
         if (data.has_value()) {
             texture.Create(imguiService_, data->width, data->height, data->rgba.data());
             return texture;

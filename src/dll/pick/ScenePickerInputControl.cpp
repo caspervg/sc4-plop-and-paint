@@ -31,6 +31,7 @@ bool ScenePickerInputControl::Init() {
 }
 
 bool ScenePickerInputControl::Shutdown() {
+    active_ = false;
     overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
@@ -57,17 +58,6 @@ bool ScenePickerInputControl::OnMouseDownL(const int32_t /*x*/,
     pickedResult_ = hoveredResult_;
     pickPending_ = true;
     ClearHover_();
-    return true;
-}
-
-bool ScenePickerInputControl::OnMouseDownR(const int32_t /*x*/,
-                                           const int32_t /*z*/,
-                                           const uint32_t /*modifiers*/) {
-    if (!active_ || !IsOnTop()) {
-        return false;
-    }
-    ClearHover_();
-    cancelPending_ = true;
     return true;
 }
 
@@ -119,7 +109,8 @@ void ScenePickerInputControl::Activate() {
 }
 
 void ScenePickerInputControl::Deactivate() {
-    active_ = false;
+    // The game also deactivates a control it covers, e.g. with its right-drag camera pan, and
+    // does not activate it again when that ends, so active_ stays set until Shutdown.
     ClearHover_();
     overlay_.Clear();
     cSC4BaseViewInputControl::Deactivate();

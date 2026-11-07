@@ -40,6 +40,9 @@
     "name" : "curl",
     "version>=" : "8.15.0"
   }, {
+    "name" : "libwebp",
+    "version>=" : "1.6.0#2"
+  }, {
     "name" : "pugixml",
     "version>=" : "1.15#1"
   }, {

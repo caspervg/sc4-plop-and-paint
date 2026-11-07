@@ -30,7 +30,6 @@ public:
 
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseUpL(int32_t x, int32_t z, uint32_t modifiers) override;
-    bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
     bool OnMouseDownM(int32_t x, int32_t z, uint32_t modifiers) override;
@@ -48,6 +47,8 @@ public:
     [[nodiscard]] const Ground::ToolSettings& Settings() const { return settings_; }
     void SetOnCancel(std::function<void()> onCancel);
     void ProcessPendingActions();
+    // Pushed onto the view and not shut down since; it may be below a vanilla tool.
+    [[nodiscard]] bool IsActive() const { return active_; }
 
     [[nodiscard]] bool IsDrawing() const { return !anchors_.empty() || strokeActive_; }
     // What to do next with the current tool, for the panel: one or two short sentences.

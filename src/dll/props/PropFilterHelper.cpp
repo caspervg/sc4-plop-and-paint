@@ -17,13 +17,7 @@ namespace {
 }
 
 bool PropFilterHelper::PassesFilters(const PropView& view) const {
-    // A prop shipped in several packs shows under each of them.
-    const bool inPack = packFilter == kAllPacks ||
-                        (packFilter == kNoPack ? view.packs.empty()
-                                               : std::ranges::any_of(view.packs, [&](const PackCatalogRepository::PropRow& row) {
-                                                     return static_cast<int32_t>(row[3]) == packFilter;
-                                                 }));
-    return inPack &&
+    return (!packFilter || packFilter->Passes(view.packs)) &&
            PassesTextFilter_(view) &&
            PassesSizeFilter_(view) &&
            PassesCategoryFilter_(view);
@@ -108,16 +102,12 @@ void PropFilterHelper::ResetFilters() {
     requireTimed = false;
     requireSeasonal = false;
     requireReducedChance = false;
-    packFilter = kAllPacks;
 }
 
 bool PropFilterHelper::PassesTextFilter_(const PropView& view) const {
     return ContainsCaseInsensitive(view.prop->visibleName, searchBuffer) ||
         ContainsCaseInsensitive(view.prop->exemplarName, searchBuffer) ||
-        (packs && std::ranges::any_of(view.packs, [&](const PackCatalogRepository::PropRow& row) {
-            const TexturePack* pack = packs->Pack(static_cast<int32_t>(row[3]));
-            return pack && ContainsCaseInsensitive(pack->name, searchBuffer);
-        }));
+        (packFilter && packFilter->PackNameContains(view.packs, searchBuffer));
 }
 
 bool PropFilterHelper::PassesSizeFilter_(const PropView& view) const {

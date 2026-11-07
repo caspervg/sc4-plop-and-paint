@@ -35,12 +35,12 @@ void PackCatalogRepository::Load() {
         return file >= catalog_.files.size() || pack >= catalog_.packs.size();
     };
     std::erase_if(catalog_.textures, [&](const TextureRow& row) { return outside(row[1], row[2]); });
-    std::erase_if(catalog_.props, [&](const PropRow& row) { return outside(row[2], row[3]); });
+    std::erase_if(catalog_.exemplars, [&](const ExemplarRow& row) { return outside(row[2], row[3]); });
     std::ranges::sort(catalog_.textures);
-    std::ranges::sort(catalog_.props);
+    std::ranges::sort(catalog_.exemplars);
 
     LOG_INFO("PackCatalogRepository: {} texture and {} prop rows in {} packs, catalog updated {}, fetched {}",
-             catalog_.textures.size(), catalog_.props.size(), catalog_.packs.size(), catalog_.catalogUpdatedAt,
+             catalog_.textures.size(), catalog_.exemplars.size(), catalog_.packs.size(), catalog_.catalogUpdatedAt,
              catalog_.fetchedAt);
 }
 
@@ -50,10 +50,10 @@ std::span<const PackCatalogRepository::TextureRow> PackCatalogRepository::Textur
     return {first, last};
 }
 
-std::span<const PackCatalogRepository::PropRow> PackCatalogRepository::PropRows(const uint32_t groupId,
+std::span<const PackCatalogRepository::ExemplarRow> PackCatalogRepository::ExemplarRows(const uint32_t groupId,
                                                                                 const uint32_t instanceId) const {
-    const auto [first, last] = std::ranges::equal_range(catalog_.props, std::pair{groupId, instanceId}, {},
-                                                        [](const PropRow& row) { return std::pair{row[0], row[1]}; });
+    const auto [first, last] = std::ranges::equal_range(catalog_.exemplars, std::pair{groupId, instanceId}, {},
+                                                        [](const ExemplarRow& row) { return std::pair{row[0], row[1]}; });
     return {first, last};
 }
 

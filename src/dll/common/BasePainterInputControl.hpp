@@ -25,7 +25,6 @@ public:
     bool Shutdown() override;
 
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
-    bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
     bool OnMouseDownM(int32_t x, int32_t z, uint32_t modifiers) override;
@@ -52,6 +51,8 @@ public:
     [[nodiscard]] std::vector<cS3DVector3> GetResolvedCollectedPoints() const;
     [[nodiscard]] std::vector<cS3DVector3> GetCollectedPointTerrainAnchors() const;
     void ProcessPendingActions();
+    // Pushed onto the view and not shut down since; it may be below a vanilla tool.
+    [[nodiscard]] bool IsActive() const { return IsActiveState_(state_); }
     void SetWorldDrawService(cIGZWorldDrawService* service);
 
     virtual void UndoLastPlacement();

@@ -42,6 +42,7 @@ bool FloraStripperInputControl::Init() {
 }
 
 bool FloraStripperInputControl::Shutdown() {
+    active_ = false;
     overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
@@ -76,17 +77,6 @@ bool FloraStripperInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t 
 bool FloraStripperInputControl::OnMouseUpL(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
     leftMouseDown_ = false;
     return active_ && IsOnTop();
-}
-
-bool FloraStripperInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
-    if (!active_ || !IsOnTop()) {
-        return false;
-    }
-    leftMouseDown_ = false;
-    ClearHoveredFlora_();
-    LOG_INFO("FloraStripperInputControl: RMB pressed, exiting strip mode");
-    cancelPending_ = true;
-    return true;
 }
 
 bool FloraStripperInputControl::OnMouseMove(const int32_t x, const int32_t z, const uint32_t /*modifiers*/) {
@@ -154,7 +144,8 @@ void FloraStripperInputControl::Activate() {
 }
 
 void FloraStripperInputControl::Deactivate() {
-    active_ = false;
+    // The game also deactivates a control it covers, e.g. with its right-drag camera pan, and
+    // does not activate it again when that ends, so active_ stays set until Shutdown.
     leftMouseDown_ = false;
     ProcessPendingActions();
     ClearHoveredFlora_();

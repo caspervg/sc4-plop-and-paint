@@ -70,11 +70,13 @@ bool GroundPainterInputControl::Init() {
 }
 
 bool GroundPainterInputControl::Shutdown() {
+    active_ = false;
     overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
     }
     CancelShape_();
+    overlay_.Clear();
     cSC4BaseViewInputControlEx::Shutdown();
     return true;
 }
@@ -88,16 +90,20 @@ void GroundPainterInputControl::Activate() {
     active_ = true;
 }
 
+// The game also deactivates a control it covers, e.g. with its right-drag camera pan, and does
+// not activate it again when that ends. So this only pauses: the shape stays, Shutdown ends it.
+// Gestures that hold a button down end here, since their button-up goes to the other control.
 void GroundPainterInputControl::Deactivate() {
-    active_ = false;
-    CancelShape_();
+    if (strokeActive_) {
+        CancelShape_();  // stroke tools never have anchors
+    }
     if ((dragging_ || pointDrag_) && document_) {
         document_->ShowSelectionMoved({});
     }
     dragging_ = false;
     pointDrag_.reset();
     middleDrag_ = MiddleDrag::None;
-    overlay_.Clear();
+    RefreshPreview_();
     cSC4BaseViewInputControlEx::Deactivate();
 }
 
@@ -254,19 +260,6 @@ bool GroundPainterInputControl::OnMouseUpL(const int32_t x, const int32_t z, con
         return true;
     }
     return false;
-}
-
-bool GroundPainterInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
-    if (!active_ || !IsOnTop()) {
-        return false;
-    }
-    if (IsDrawing()) {
-        CancelShape_();
-    }
-    else {
-        cancelPending_ = true;
-    }
-    return true;
 }
 
 bool GroundPainterInputControl::OnMouseMove(const int32_t x, const int32_t z, const uint32_t /*modifiers*/) {

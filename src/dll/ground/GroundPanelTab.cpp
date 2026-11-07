@@ -525,7 +525,7 @@ void GroundPanelTab::RenderStatus_() {
     if (ImGui::BeginChild("##status", ImVec2(0, height), true, ImGuiWindowFlags_NoScrollbar)) {
         ImGui::TextWrapped("%s", text.c_str());
         if (painting) {
-            ImGui::TextDisabled("Esc or the tool's button stops. Right click cancels the shape being drawn.");
+            ImGui::TextDisabled("Esc cancels the shape being drawn, then stops. Right-drag pans the camera.");
         }
     }
     ImGui::EndChild();
@@ -1227,7 +1227,11 @@ void GroundPanelTab::RenderLayers_(Document& document) {
     }
 
     constexpr ImGuiTableFlags kFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerH;
-    const float height = std::min(240.0f, ImGui::GetTextLineHeightWithSpacing() * (static_cast<float>(objects.size()) + 1.5f));
+    // As tall as its rows need, up to the rest of the panel; never fewer than about five rows, so
+    // a short panel scrolls instead of squeezing the list.
+    const float row = ImGui::GetTextLineHeightWithSpacing();
+    const float needed = row * (static_cast<float>(objects.size()) + 1.5f);
+    const float height = std::min(needed, std::max(ImGui::GetContentRegionAvail().y, row * 6.5f));
     if (!ImGui::BeginTable("##layers", 4, kFlags, ImVec2(0, height))) {
         return;
     }

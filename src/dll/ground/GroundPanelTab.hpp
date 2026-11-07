@@ -24,7 +24,7 @@ public:
                    cIGZPersistResourceManager* pRM,
                    cIGZImGuiService* imguiService);
 
-    [[nodiscard]] const char* GetTabName() const override { return "Ground"; }
+    [[nodiscard]] const char* GetTabName() const override { return "Terrain Paint"; }
     void OnRender() override;
     void OnDeviceReset(uint32_t deviceGeneration) override;
     void OnShutdown() override;

@@ -13,7 +13,7 @@ SC4 Plop and Paint is a SimCity 4 plugin that adds an in-game panel for browsing
 _Short demo clip. Click the animation to watch the full video on YouTube._
 
 
-`_SC4PlopAndPaintCacheBuilder.exe` scans your SimCity 4 plugin directories, parses exemplar and cohort data, and writes `lots.cbor`, `props.cbor`, and `flora.cbor` into your Plugins folder. It also fetches the latest [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) into `packs.cbor`, which names and groups ground textures and props by the packs they come from (`--no-packs` skips this, `--update-packs` does only this). The download is skipped while the catalog has not changed. When thumbnail rendering is enabled, it also writes `lot_thumbnails.bin`, `prop_thumbnails.bin`, and `flora_thumbnails.bin`. The DLL reads those cache files when the city loads, which is why rebuilding the cache matters whenever your plugin collection changes.
+`_SC4PlopAndPaintCacheBuilder.exe` scans your SimCity 4 plugin directories, parses exemplar and cohort data, and writes `lots.cbor`, `props.cbor`, and `flora.cbor` into your Plugins folder. It also fetches the latest [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) into `packs.cbor`, which names and groups ground textures, props and flora by the packs they come from (`--no-packs` skips this, `--update-packs` does only this). The download is skipped while the catalog has not changed. When thumbnail rendering is enabled, it also writes `lot_thumbnails.bin`, `prop_thumbnails.bin`, and `flora_thumbnails.bin`. The DLL reads those cache files when the city loads, which is why rebuilding the cache matters whenever your plugin collection changes.
 
 ## Installation
 
@@ -31,7 +31,7 @@ The installer will:
 1. Ask for your game root and Plugins directory.
 2. Verify that `SC4RenderServices.dll` is already present in your Plugins folder. If it is missing, the installer will stop and direct you to the SC4RenderServices download page.
 3. Place `SC4PlopAndPaint.dll` and `SC4PlopAndPaint.dat` in your Plugins folder.
-4. Let you choose the thumbnail size used for cache generation and apply the same size to `ThumbnailDisplaySize` in `SC4PlopAndPaint.ini`.
+4. Let you choose the thumbnail detail stored in the cache (default 132 pixels) and the thumbnail size shown in the panels (default 44 pixels, saved as `ThumbnailDisplaySize` in `SC4PlopAndPaint.ini`). The plugin scales the stored thumbnails down to the panel size.
 5. Place `_SC4PlopAndPaintCacheBuilder.exe` and a generated `Rebuild-Cache.cmd` in `Documents\SimCity 4\SC4PlopAndPaint\`.
 6. Optionally run the cache builder immediately.
 
