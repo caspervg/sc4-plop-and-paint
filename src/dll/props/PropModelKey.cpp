@@ -1,5 +1,6 @@
 #include "PropModelKey.hpp"
 
+#include <algorithm>
 #include <span>
 
 #include "GZServPtrs.h"
@@ -20,10 +21,6 @@ namespace {
     constexpr uint32_t kRkt4 = 0x27812824;
     constexpr uint32_t kRkt5 = 0x27812825;
 
-    constexpr uint32_t kZoom = 5;
-    // RKT1 and RKT5 store the zoom 1 south model, the others follow at these steps.
-    constexpr uint32_t kZoomOffset = (kZoom - 1) * 0x100;
-
     std::span<const uint32_t> Values(const cISCPropertyHolder* holder, const uint32_t id) {
         const cISCProperty* property = holder->GetProperty(id);
         const cIGZVariant* value = property ? property->GetPropertyValue() : nullptr;
@@ -33,27 +30,50 @@ namespace {
         return {value->RefUint32(), value->GetCount()};
     }
 
-    uint32_t TypeOrS3D(const uint32_t type) {
-        return type != 0 ? type : kTypeS3D;
+    PropModel Model(const uint32_t type, const uint32_t group, const bool perView) {
+        PropModel model;
+        model.type = type != 0 ? type : kTypeS3D;
+        model.group = group;
+        model.perView = perView;
+        return model;
     }
 
-    std::optional<cGZPersistResourceKey> FromHolder(const cISCPropertyHolder* holder, const uint32_t exemplarGroup) {
+    // One model for every zoom and rotation.
+    PropModel Single(const uint32_t type, const uint32_t group, const uint32_t instance) {
+        PropModel model = Model(type, group, false);
+        model.instances.fill(instance);
+        return model;
+    }
+
+    // base + zoom * 0x100 + rotation * 0x10
+    PropModel Inferred(const uint32_t type, const uint32_t group, const uint32_t base) {
+        PropModel model = Model(type, group, true);
+        for (uint32_t i = 0; i < model.instances.size(); ++i) {
+            model.instances[i] = base + (i / 4) * 0x100 + (i % 4) * 0x10;
+        }
+        return model;
+    }
+
+    std::optional<PropModel> FromHolder(const cISCPropertyHolder* holder) {
         if (const auto v = Values(holder, kRkt0); v.size() >= 3) {
-            return cGZPersistResourceKey(TypeOrS3D(v[0]), v[1], v[2]);
+            return Single(v[0], v[1], v[2]);
         }
         if (const auto v = Values(holder, kRkt1); v.size() >= 3) {
-            return cGZPersistResourceKey(TypeOrS3D(v[0]), v[1], v[2] + kZoomOffset);
+            return Inferred(v[0], v[1], v[2]);
         }
-        if (const auto v = Values(holder, kRkt5); v.size() >= 3) {
-            return cGZPersistResourceKey(TypeOrS3D(v[0]), v[1], v[2] + kZoomOffset);
+        if (const auto v = Values(holder, kRkt2); v.size() >= 22) {
+            PropModel model = Model(v[0], v[1], true);
+            std::copy_n(v.begin() + 2, 20, model.instances.begin());
+            return model;
         }
-        if (const auto v = Values(holder, kRkt3); v.size() > 2 + kZoom - 1) {
-            return cGZPersistResourceKey(TypeOrS3D(v[0]), v[1], v[2 + kZoom - 1]);
+        if (const auto v = Values(holder, kRkt3); v.size() >= 7) {
+            PropModel model = Model(v[0], v[1], false);
+            for (size_t i = 0; i < model.instances.size(); ++i) {
+                model.instances[i] = v[2 + i / 4];
+            }
+            return model;
         }
-        if (const auto v = Values(holder, kRkt2); v.size() > 2 + (kZoom - 1) * 4) {
-            return cGZPersistResourceKey(kTypeS3D, exemplarGroup, v[2 + (kZoom - 1) * 4]);
-        }
-        // Blocks of 8: state, 3 unused, resource key type, T, G, I. Timed props may only have a
+        // Records of 8: state, X, Y, Z, resource key type, T, G, I. Timed props may only have a
         // model in state 1.
         if (const auto v = Values(holder, kRkt4); !v.empty()) {
             for (const uint32_t state : {0u, 1u}) {
@@ -61,16 +81,19 @@ namespace {
                     if (v[i] != state || (v[i + 6] == 0 && v[i + 7] == 0)) {
                         continue;
                     }
-                    const uint32_t offset = v[i + 4] == 0 || v[i + 4] == kRkt1 ? kZoomOffset : 0;
-                    return cGZPersistResourceKey(TypeOrS3D(v[i + 5]), v[i + 6], v[i + 7] + offset);
+                    return v[i + 4] == kRkt0 ? Single(v[i + 5], v[i + 6], v[i + 7])
+                                             : Inferred(v[i + 5], v[i + 6], v[i + 7]);
                 }
             }
+        }
+        if (const auto v = Values(holder, kRkt5); v.size() >= 3) {
+            return Inferred(v[0], v[1], v[2]); // state 0
         }
         return std::nullopt;
     }
 }
 
-std::optional<cGZPersistResourceKey> FindPropModelKey(const uint32_t exemplarGroup, const uint32_t exemplarInstance) {
+std::optional<PropModel> FindPropModel(const uint32_t exemplarGroup, const uint32_t exemplarInstance) {
     cIGZPersistResourceManagerPtr resourceManager;
     if (!resourceManager) {
         return std::nullopt;
@@ -85,5 +108,5 @@ std::optional<cGZPersistResourceKey> FindPropModelKey(const uint32_t exemplarGro
     cRZAutoRefCount<cISCResExemplar> exemplarRef(exemplar);
 
     const cISCPropertyHolder* holder = exemplar->AsISCPropertyHolder();
-    return holder ? FromHolder(holder, exemplarGroup) : std::nullopt;
+    return holder ? FromHolder(holder) : std::nullopt;
 }

@@ -12,27 +12,26 @@
 #include "../utils/Logger.h"
 
 namespace {
-    // The network tool's cursor: one model particle, not pinned to the terrain, emitted 200 times a
-    // second with a life of 5 ms. It draws its model at size 4.
-    constexpr auto kTemplateEffect = "road_tool_inactive";
-    constexpr float kTemplateSize = 4.0f;
+    // A puzzle piece preview: one model particle emitted every 0.1 s, drawn at size 1 and alpha 0.5,
+    // pinned to the terrain.
+    constexpr auto kTemplateEffect = "preview_el_straight";
+    constexpr float kAlpha = 1.6f; // times the effect's own 0.5
 
     // ponytail: one effect per preview, each emitting 200 particles a second. Raise when that holds up.
     constexpr size_t kMaxPreviews = 512;
 
-    constexpr float kAlpha = 0.6f;
     constexpr float kValidColor[3] = {1.0f, 1.0f, 1.0f};
     constexpr float kInvalidColor[3] = {1.0f, 0.35f, 0.35f};
 
-    // Same direction as the game's own lot placement footprint. Flip the sign if previews turn
-    // the other way than placed props.
     constexpr float kQuarterTurn = std::numbers::pi_v<float> / 2.0f;
 
     using ParamType = cISC4VisualEffect::tParamType;
 
-    cS3DTransform MakeTransform(const cS3DVector3& position, const int32_t rotation) {
+    // Like cSC4ModelMaker::FindModelTransform: true 3D models turn with the prop, models made for
+    // one view turn back against the camera.
+    cS3DTransform MakeTransform(const cS3DVector3& position, const int32_t quarterTurns) {
         cS3DTransform transform(position);
-        const float angle = static_cast<float>(rotation & 3) * kQuarterTurn;
+        const float angle = -static_cast<float>(quarterTurns & 3) * kQuarterTurn;
         const float c = std::cos(angle);
         const float s = std::sin(angle);
         transform.rotation[0][0] = c;
@@ -60,16 +59,16 @@ void ModelPreview::SetCity(cISC4City* city) {
     }
 }
 
-void ModelPreview::SetModelKeyLookup(ModelKeyLookup lookup) {
-    modelKeyLookup_ = std::move(lookup);
-    models_.clear();
+void ModelPreview::SetModelLookup(ModelLookup lookup) {
+    modelLookup_ = std::move(lookup);
+    props_.clear();
 }
 
 bool ModelPreview::Available() const {
     return effectsManager_ && !templateMissing_;
 }
 
-void ModelPreview::Show(const std::vector<Item>& items) {
+void ModelPreview::Show(const std::vector<Item>& items, const View view) {
     const size_t count = std::min(items.size(), kMaxPreviews);
     if (!Available() || !GrowTo_(count)) {
         Hide();
@@ -78,7 +77,11 @@ void ModelPreview::Show(const std::vector<Item>& items) {
 
     for (size_t i = 0; i < slots_.size(); ++i) {
         Slot& slot = slots_[i];
-        cIS3DModelInstance* model = i < count ? Model_(items[i].typeID) : nullptr;
+        const PropModel* prop = i < count ? PropModel_(items[i].typeID) : nullptr;
+        // Models made for one view: the one for the prop's rotation relative to the camera, like
+        // cSC4ModelMakerUtility::GetModelInstanceID.
+        const int32_t viewSlot = prop && prop->perView ? (items[i].rotation - view.rotation) & 3 : 0;
+        cIS3DModelInstance* model = prop ? Instance_(prop->Key(std::clamp(view.zoom, 0, 4), viewSlot)) : nullptr;
         if (!model) {
             if (slot.started) {
                 slot.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
@@ -88,19 +91,22 @@ void ModelPreview::Show(const std::vector<Item>& items) {
         }
 
         const Item& item = items[i];
-        if (slot.typeID != item.typeID) {
+        if (slot.model != model) {
             void* instance = model;
             slot.effect->SetVoidParams(ParamType::Model, &instance, 1);
-            slot.typeID = item.typeID;
+            slot.model = model;
         }
         if (slot.valid != item.valid) {
             SetColor(slot.effect, item.valid);
             slot.valid = item.valid;
         }
-        slot.effect->SetEffectTransform(MakeTransform(item.position, item.rotation));
+        slot.effect->SetEffectTransform(MakeTransform(item.position, prop->perView ? view.rotation : item.rotation));
         if (!slot.started) {
-            slot.effect->Start(cISC4VisualEffect::tTransitionType::Hard);
+            slot.effect->Start(cISC4VisualEffect::tTransitionType::Soft);
             slot.started = true;
+            if (!slot.effect->IsStarted()) {
+                LOG_WARN("ModelPreview: preview effect {} did not start", i + 1);
+            }
         }
     }
 }
@@ -123,39 +129,46 @@ bool ModelPreview::GrowTo_(const size_t count) {
             return false;
         }
 
-        const float size = 1.0f / kTemplateSize;
-        effect->SetFloatParams(ParamType::Size, &size, 1);
         effect->SetFloatParams(ParamType::Alpha, &kAlpha, 1);
         SetColor(effect, true);
 
         Slot slot;
         slot.effect = cRZAutoRefCount<cISC4VisualEffect>(effect); // takes over the created reference
         slots_.push_back(std::move(slot));
+        LOG_DEBUG("ModelPreview: created preview effect {}", slots_.size());
     }
     return true;
 }
 
-cIS3DModelInstance* ModelPreview::Model_(const uint32_t typeID) {
-    if (const auto it = models_.find(typeID); it != models_.end()) {
+const PropModel* ModelPreview::PropModel_(const uint32_t typeID) {
+    auto it = props_.find(typeID);
+    if (it == props_.end()) {
+        it = props_.emplace(typeID, modelLookup_ ? modelLookup_(typeID) : std::nullopt).first;
+        if (!it->second) {
+            LOG_WARN("ModelPreview: no model for 0x{:08X}", typeID);
+        }
+    }
+    return it->second ? &*it->second : nullptr;
+}
+
+cIS3DModelInstance* ModelPreview::Instance_(const cGZPersistResourceKey& key) {
+    const uint64_t id = static_cast<uint64_t>(key.group) << 32 | key.instance;
+    if (const auto it = instances_.find(id); it != instances_.end()) {
         return it->second;
     }
 
-    cRZAutoRefCount<cIS3DModelInstance>& cached = models_[typeID];
-    const auto key = modelKeyLookup_ ? modelKeyLookup_(typeID) : std::nullopt;
+    cRZAutoRefCount<cIS3DModelInstance>& cached = instances_[id];
     cIGZPersistResourceManagerPtr resourceManager;
-    if (!key || !resourceManager) {
-        return nullptr;
-    }
-
     cRZAutoRefCount<cIS3DResModel> resModel;
-    if (!resourceManager->GetResource(*key, GZIID_cIS3DResModel, resModel.AsPPVoid(), 0, nullptr) || !resModel) {
-        LOG_WARN("ModelPreview: no model 0x{:08X}-0x{:08X}-0x{:08X} for 0x{:08X}",
-                 key->type, key->group, key->instance, typeID);
+    if (!resourceManager ||
+        !resourceManager->GetResource(key, GZIID_cIS3DResModel, resModel.AsPPVoid(), 0, nullptr) || !resModel) {
+        LOG_WARN("ModelPreview: no model 0x{:08X}-0x{:08X}-0x{:08X}", key.type, key.group, key.instance);
         return nullptr;
     }
 
     cIS3DModelInstance* instance = nullptr;
     if (!resModel->GetModelInstance(0, &instance) || !instance) {
+        LOG_WARN("ModelPreview: model 0x{:08X}-0x{:08X} has no instance", key.group, key.instance);
         return nullptr;
     }
     cached = cRZAutoRefCount<cIS3DModelInstance>(instance);
@@ -165,6 +178,7 @@ cIS3DModelInstance* ModelPreview::Model_(const uint32_t typeID) {
 void ModelPreview::Release_() {
     Hide();
     slots_.clear();
-    models_.clear();
+    props_.clear();
+    instances_.clear();
     effectsManager_.Reset();
 }

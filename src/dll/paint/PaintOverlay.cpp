@@ -272,8 +272,11 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
         EmitMarker_(pt, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 
+    // The full model preview shows the props themselves, so only the invalid ones keep an outline.
     for (const auto& placement : plannedPlacements) {
-        EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
+        if (settings.previewMode != PreviewMode::FullModel || !placement.valid) {
+            EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
+        }
     }
     Upload_();
 }
@@ -311,8 +314,11 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
         EmitMarker_(vertex, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 
+    // The full model preview shows the props themselves, so only the invalid ones keep an outline.
     for (const auto& placement : plannedPlacements) {
-        EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
+        if (settings.previewMode != PreviewMode::FullModel || !placement.valid) {
+            EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
+        }
     }
     Upload_();
 }

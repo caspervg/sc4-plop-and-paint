@@ -7,7 +7,9 @@
 #include "../utils/Logger.h"
 #include "PropModelKey.hpp"
 #include "PropRepository.hpp"
+#include "cISC43DRender.h"
 #include "cISC4Occupant.h"
+#include "cISC4View3DWin.h"
 #include "cISC4Simulator.h"
 
 namespace {
@@ -36,12 +38,12 @@ void PropPainterInputControl::SetPropToPaint(const uint32_t propID, const PropPa
 
 void PropPainterInputControl::SetPropRepository(const PropRepository* propRepository) {
     propRepository_ = propRepository;
-    const auto lookup = [this](const uint32_t propID) -> std::optional<cGZPersistResourceKey> {
+    const auto lookup = [this](const uint32_t propID) -> std::optional<PropModel> {
         const Prop* prop = propRepository_ ? propRepository_->FindPropByInstanceId(propID) : nullptr;
-        return prop ? FindPropModelKey(prop->groupId.value(), prop->instanceId.value()) : std::nullopt;
+        return prop ? FindPropModel(prop->groupId.value(), prop->instanceId.value()) : std::nullopt;
     };
-    cursorPreview_.SetModelKeyLookup(lookup);
-    plannedPreview_.SetModelKeyLookup(lookup);
+    cursorPreview_.SetModelLookup(lookup);
+    plannedPreview_.SetModelLookup(lookup);
 }
 
 // ── Virtual overrides ─────────────────────────────────────────────────────────
@@ -227,7 +229,8 @@ void PropPainterInputControl::UpdatePreviewOccupant_() {
     placement.rotation = settings_.rotation;
     placement.itemId = previewDisplayedPropID_;
     cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation,
-                          IsDirectPreviewPlacementValid_(placement)}});
+                          IsDirectPreviewPlacementValid_(placement)}},
+                        CurrentView_());
     lastPreviewPosition_ = placement.position;
     lastPreviewRotation_ = placement.rotation;
     previewPositionValid_ = true;
@@ -241,7 +244,20 @@ void PropPainterInputControl::ShowPlannedModels_(const std::vector<PaintOverlay:
         items.push_back({ResolveInSeasonPreviewProp_(placement.itemId), placement.position, placement.rotation,
                          preview.valid});
     }
-    plannedPreview_.Show(items);
+    plannedPreview_.Show(items, CurrentView_());
+}
+
+ModelPreview::View PropPainterInputControl::CurrentView_() const {
+    // ponytail: cSC4CameraControl has no SDK header; zoom and rotation are at 0x108 and 0x10C
+    // (see sc4-render-services' camera-view-input sample).
+    ModelPreview::View view;
+    cISC43DRender* renderer = view3D ? view3D->GetRenderer() : nullptr;
+    const auto* camera = renderer ? reinterpret_cast<const uint8_t*>(renderer->GetCameraControl()) : nullptr;
+    if (camera) {
+        view.zoom = *reinterpret_cast<const int32_t*>(camera + 0x108);
+        view.rotation = *reinterpret_cast<const int32_t*>(camera + 0x10C) & 3;
+    }
+    return view;
 }
 
 bool PropPainterInputControl::ShouldForceDirectOverlay_() const {
