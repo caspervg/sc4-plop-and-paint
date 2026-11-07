@@ -25,8 +25,12 @@
 #include "decals/DecalStripperInputControl.hpp"
 #include "public/TerrainDecalServiceIds.h"
 #include "decals/DecalRepository.hpp"
+#include "packs/PackCatalogRepository.hpp"
 #include "paint/DecalPaintSettings.hpp"
 #include "flora/FloraPainterInputControl.hpp"
+#include "ground/GroundPaintDocument.hpp"
+#include "ground/GroundPainterInputControl.hpp"
+#include "ground/GroundToolSettings.hpp"
 #include "flora/FloraStripperInputControl.hpp"
 #include "imgui.h"
 #include "paint/PaintStatusPanel.hpp"
@@ -49,10 +53,13 @@ class LotRepository;
 class PropRepository;
 class FavoritesRepository;
 class RecentSwapPanel;
+class cIGZTerrainPaintService;
 
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
 static constexpr uint32_t kSC4MessagePostRegionInit = 0xCBB5BB45;
+static constexpr uint32_t kSC4MessageLoad = 0x26C63341;
+static constexpr uint32_t kSC4MessageSave = 0x26C63344;
 static constexpr uint32_t kToolTickServiceID = 0xCA5000F1;
 
 class SC4PlopAndPaintDirector final : public cRZMessage2COMDirector
@@ -98,6 +105,15 @@ public:
     void StopDecalPicking();
     [[nodiscard]] bool IsDecalPicking() const;
     [[nodiscard]] bool IsDecalServiceAvailable() const;
+    // Ground paint: areas, lines and brush strokes painted on the terrain.
+    [[nodiscard]] bool IsGroundPaintAvailable() const;
+    bool StartGroundPainting(const Ground::ToolSettings& settings);
+    void UpdateGroundPainting(const Ground::ToolSettings& settings);
+    void StopGroundPainting();
+    [[nodiscard]] bool IsGroundPainting() const;
+    [[nodiscard]] Ground::GroundPaintDocument* GetGroundDocument() const;
+    [[nodiscard]] const GroundPainterInputControl* GetGroundPainter() const;
+    [[nodiscard]] GroundPainterInputControl* GetGroundPainter();
     bool StartPropPicking(std::function<void(const PickedProp& picked)> onPick);
     void StopPropPicking();
     [[nodiscard]] bool IsPropPicking() const;
@@ -119,6 +135,8 @@ public:
     [[nodiscard]] bool GetDefaultSnapPointsToGrid() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPlacementsToGrid() const noexcept;
     [[nodiscard]] float GetDefaultGridStepMeters() const noexcept;
+    // Which pack textures and props first shipped in; null before startup.
+    [[nodiscard]] const PackCatalogRepository* GetPackCatalog() const { return packCatalog_.get(); }
     [[nodiscard]] PreviewMode GetDefaultPropPreviewMode() const noexcept;
     [[nodiscard]] ImU32 GetThumbnailBackgroundColor() const noexcept;
     [[nodiscard]] ImU32 GetThumbnailBorderColor() const noexcept;
@@ -127,6 +145,8 @@ public:
 private:
     void PostCityInit_(const cIGZMessage2Standard* pStandardMsg);
     void PreCityShutdown_(cIGZMessage2Standard* pStandardMsg);
+    void LoadCity_(const cIGZMessage2Standard* pStandardMsg);
+    void SaveCity_(const cIGZMessage2Standard* pStandardMsg) const;
     void ToggleLotPlopPanel_();
     bool RegisterLotPlopShortcut_();
     void UnregisterLotPlopShortcut_();
@@ -165,6 +185,7 @@ private:
     std::unique_ptr<PropRepository>      propRepository_;
     std::unique_ptr<FloraRepository>     floraRepository_;
     std::unique_ptr<FavoritesRepository> favoritesRepository_;
+    std::unique_ptr<PackCatalogRepository> packCatalog_;
     std::unique_ptr<DecalRepository>     decalRepository_;
 
     bool panelRegistered_{false};
@@ -187,6 +208,10 @@ private:
     cRZAutoRefCount<ScenePickerInputControl>   scenePickerControl_;
     bool scenePicking_{false};
     cIGZTerrainDecalService* terrainDecalService_{nullptr};
+    cIGZTerrainPaintService* terrainPaintService_{nullptr};
+    std::unique_ptr<Ground::GroundPaintDocument> groundDocument_;
+    cRZAutoRefCount<GroundPainterInputControl> groundPainterControl_;
+    bool groundPainting_{false};
     std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};
     std::unique_ptr<ScenePickStatusPanel> pickStatusPanel_;

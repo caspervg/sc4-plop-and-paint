@@ -3,6 +3,7 @@
 #include "SC4PlopAndPaintDirector.hpp"
 
 #include <cIGZFrameWork.h>
+#include <utility>
 #include <cstdio>
 #include <wil/resource.h>
 #include <wil/win32_helpers.h>
@@ -12,6 +13,8 @@
 #include "cIGZPersistResourceManager.h"
 #include "cIGZWinKeyAccelerator.h"
 #include "cIGZWinKeyAcceleratorRes.h"
+#include "cISC4DBSegment.h"
+#include "public/cIGZTerrainPaintService.h"
 #include "cRZBaseVariant.h"
 #include "PlopAndPaintPanel.hpp"
 #include "common/Constants.hpp"
@@ -21,6 +24,7 @@
 #include "decals/DecalRepository.hpp"
 #include "decals/DecalStripperInputControl.hpp"
 #include "flora/FloraRepository.hpp"
+#include "ground/GroundPaintRecord.hpp"
 #include "lots/LotRepository.hpp"
 #include "paint/RecentSwapPanel.hpp"
 #include "pick/DecalPickStrategy.hpp"
@@ -203,6 +207,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         pMS2->AddNotification(this, kSC4MessagePostCityInit);
         pMS2->AddNotification(this, kSC4MessagePreCityShutdown);
         pMS2->AddNotification(this, kSC4MessagePostRegionInit);
+        pMS2->AddNotification(this, kSC4MessageLoad);
+        pMS2->AddNotification(this, kSC4MessageSave);
         pMS2_ = pMS2;
         LOG_INFO("Registered for city messages");
     }
@@ -238,7 +244,9 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         propRepository_      = std::make_unique<PropRepository>();
         floraRepository_     = std::make_unique<FloraRepository>();
         favoritesRepository_ = std::make_unique<FavoritesRepository>(*propRepository_);
-        decalRepository_     = std::make_unique<DecalRepository>();
+        packCatalog_         = std::make_unique<PackCatalogRepository>();
+        packCatalog_->Load();
+        decalRepository_     = std::make_unique<DecalRepository>(packCatalog_.get());
 
         if (mpFrameWork->GetSystemService(kTerrainDecalServiceID, GZIID_cIGZTerrainDecalService,
                                           reinterpret_cast<void**>(&terrainDecalService_))) {
@@ -246,6 +254,19 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         }
         else {
             LOG_WARN("Terrain decal service not available — decal painting disabled");
+        }
+
+        // Ground paint keeps its objects even without the paint service, so a city saved with
+        // them does not lose them; they are just not drawn.
+        groundDocument_ = std::make_unique<Ground::GroundPaintDocument>(Ground::kWhiteTextureInstance);
+        if (terrainDecalService_ &&
+            terrainDecalService_->QueryInterface(GZIID_cIGZTerrainPaintService,
+                                                 reinterpret_cast<void**>(&terrainPaintService_))) {
+            groundDocument_->SetPaintService(terrainPaintService_);
+            LOG_INFO("Acquired terrain paint service");
+        }
+        else {
+            LOG_WARN("Terrain paint not available (SC4RenderServices too old?) — ground painting disabled");
         }
 
         lotRepository_->Load();
@@ -346,6 +367,8 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
         pMS2_->RemoveNotification(this, kSC4MessagePostCityInit);
         pMS2_->RemoveNotification(this, kSC4MessagePreCityShutdown);
         pMS2_->RemoveNotification(this, kSC4MessagePostRegionInit);
+        pMS2_->RemoveNotification(this, kSC4MessageLoad);
+        pMS2_->RemoveNotification(this, kSC4MessageSave);
         pMS2_.Reset();
     }
 
@@ -377,6 +400,14 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
         decalPainterControl_->SetCity(nullptr);
         decalPainterControl_->Shutdown();
         decalPainterControl_.Reset();
+    }
+
+    if (groundPainterControl_) {
+        StopGroundPainting();
+        groundPainterControl_->SetCity(nullptr);
+        groundPainterControl_->SetDocument(nullptr);
+        groundPainterControl_->Shutdown();
+        groundPainterControl_.Reset();
     }
 
     if (propStripperControl_) {
@@ -440,6 +471,7 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     propRepository_.reset();
     lotRepository_.reset();
     decalRepository_.reset();
+    packCatalog_.reset();
 
     if (toolTickServiceRegistered_ && mpFrameWork) {
         mpFrameWork->RemoveFromTick(&toolTickService_);
@@ -456,6 +488,15 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     if (worldDrawService_) {
         worldDrawService_->Release();
         worldDrawService_ = nullptr;
+    }
+
+    if (groundDocument_) {
+        groundDocument_->SetPaintService(nullptr);
+        groundDocument_.reset();
+    }
+    if (terrainPaintService_) {
+        terrainPaintService_->Release();
+        terrainPaintService_ = nullptr;
     }
 
     if (terrainDecalService_) {
@@ -482,6 +523,10 @@ bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     case kSC4MessagePreCityShutdown: PreCityShutdown_(pStandardMsg);
         break;
     case kSC4MessagePostRegionInit: UpdateCheck::ShowNotice();
+        break;
+    case kSC4MessageLoad: LoadCity_(pStandardMsg);
+        break;
+    case kSC4MessageSave: SaveCity_(pStandardMsg);
         break;
     case kToggleLotPlopWindowShortcutID: ToggleLotPlopPanel_();
         break;
@@ -1328,6 +1373,9 @@ void SC4PlopAndPaintDirector::ProcessPendingToolActions_() {
     if (decalPainterControl_) {
         decalPainterControl_->ProcessPendingActions();
     }
+    if (groundPainterControl_) {
+        groundPainterControl_->ProcessPendingActions();
+    }
 }
 
 cIGZWorldDrawService* SC4PlopAndPaintDirector::GetOverlayWorldDrawService_() const {
@@ -1417,6 +1465,11 @@ bool SC4PlopAndPaintDirector::PrepareForExclusiveActivation_(const bool keepProp
                                                              const bool keepScenePicking) {
     if (!keepPropPainting && !CanPrepareForPaintSwitch_(propPainterControl_, propPainting_)) {
         return false;
+    }
+
+    // Every other tool takes over from ground painting; it restarts itself when needed.
+    if (groundPainting_) {
+        StopGroundPainting();
     }
 
     if (!keepFloraPainting && !CanPrepareForPaintSwitch_(floraPlacerControl_, floraPainting_)) {
@@ -1558,6 +1611,11 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
             }
         }
     }
+
+    // The objects came in with the save; give those whose terrain paint is missing a new one.
+    if (groundDocument_) {
+        groundDocument_->Restore();
+    }
 }
 
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
@@ -1565,6 +1623,7 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     SetLotPlopPanelVisible(false);
     StopDecalStripping();
     StopDecalPainting();
+    StopGroundPainting();
     StopFloraStripping();
     StopPropStripping();
     StopPropPicking();
@@ -1597,6 +1656,12 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     }
     if (decalRepository_) {
         decalRepository_->Clear();
+    }
+    if (groundPainterControl_) {
+        groundPainterControl_->SetCity(nullptr);
+    }
+    if (groundDocument_) {
+        groundDocument_->Reset();
     }
     pCity_ = nullptr;
     if (pView3D_) {
@@ -1679,4 +1744,127 @@ std::filesystem::path SC4PlopAndPaintDirector::GetUserPluginsPath_() {
     catch (const wil::ResultException&) {
         return {};
     }
+}
+
+bool SC4PlopAndPaintDirector::IsGroundPaintAvailable() const {
+    return terrainPaintService_ != nullptr && groundDocument_ != nullptr;
+}
+
+bool SC4PlopAndPaintDirector::StartGroundPainting(const Ground::ToolSettings& settings) {
+    if (!pCity_ || !pView3D_ || !IsGroundPaintAvailable()) {
+        LOG_WARN("Cannot start ground painting: city, view or terrain paint service not available");
+        return false;
+    }
+    if (groundPainting_) {
+        UpdateGroundPainting(settings);
+        return true;
+    }
+    if (!PrepareForExclusiveActivation_(false, false, false, false, false, false, false)) {
+        LOG_INFO("Blocked ground painting while another tool still has a sketch in progress");
+        return false;
+    }
+
+    if (!groundPainterControl_) {
+        groundPainterControl_ = new GroundPainterInputControl();
+        if (!groundPainterControl_->Init()) {
+            LOG_ERROR("Failed to initialize GroundPainterInputControl");
+            groundPainterControl_.Reset();
+            return false;
+        }
+    }
+
+    groundPainterControl_->SetCity(pCity_);
+    groundPainterControl_->SetWindow(pView3D_->AsIGZWin());
+    groundPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
+    groundPainterControl_->SetDocument(groundDocument_.get());
+    groundPainterControl_->SetSettings(settings);
+    groundPainterControl_->SetOnCancel([this]() { StopGroundPainting(); });
+
+    if (!pView3D_->SetCurrentViewInputControl(groundPainterControl_,
+                                              cISC4View3DWin::ViewInputControlStackOperation_RemoveCurrentControl)) {
+        LOG_WARN("Failed to set the ground painter as current view input control");
+        return false;
+    }
+
+    groundPainting_ = true;
+    LOG_INFO("Started ground painting");
+    return true;
+}
+
+void SC4PlopAndPaintDirector::UpdateGroundPainting(const Ground::ToolSettings& settings) {
+    if (groundPainterControl_) {
+        groundPainterControl_->SetSettings(settings);
+    }
+}
+
+void SC4PlopAndPaintDirector::StopGroundPainting() {
+    if (!groundPainting_) {
+        return;
+    }
+    groundPainting_ = false;
+    if (pView3D_ && groundPainterControl_ && pView3D_->GetCurrentViewInputControl() == groundPainterControl_) {
+        pView3D_->RemoveCurrentViewInputControl(false);
+    }
+    LOG_INFO("Stopped ground painting");
+}
+
+bool SC4PlopAndPaintDirector::IsGroundPainting() const {
+    return groundPainting_;
+}
+
+Ground::GroundPaintDocument* SC4PlopAndPaintDirector::GetGroundDocument() const {
+    return groundDocument_.get();
+}
+
+const GroundPainterInputControl* SC4PlopAndPaintDirector::GetGroundPainter() const {
+    return groundPainting_ ? static_cast<const GroundPainterInputControl*>(groundPainterControl_) : nullptr;
+}
+
+GroundPainterInputControl* SC4PlopAndPaintDirector::GetGroundPainter() {
+    return const_cast<GroundPainterInputControl*>(std::as_const(*this).GetGroundPainter());
+}
+
+namespace {
+    // The city save segment a load or save message carries, AddRef'd.
+    cISC4DBSegment* SaveSegment(const cIGZMessage2Standard* const message) {
+        auto* const unknown = message ? static_cast<cIGZUnknown*>(message->GetVoid1()) : nullptr;
+        cISC4DBSegment* segment = nullptr;
+        if (!unknown || !unknown->QueryInterface(GZIID_cISC4DBSegment, reinterpret_cast<void**>(&segment))) {
+            return nullptr;
+        }
+        return segment;
+    }
+}
+
+void SC4PlopAndPaintDirector::LoadCity_(const cIGZMessage2Standard* const pStandardMsg) {
+    if (!groundDocument_) {
+        return;
+    }
+    groundDocument_->Reset();
+    cISC4DBSegment* const segment = SaveSegment(pStandardMsg);
+    if (!segment) {
+        return;
+    }
+    if (const auto payload = Ground::SaveRecord::Read(*segment)) {
+        if (groundDocument_->Load(*payload)) {
+            LOG_INFO("Loaded {} ground paint objects", groundDocument_->Objects().size());
+        }
+        else {
+            LOG_WARN("Ground paint: could not read the objects in the save");
+        }
+    }
+    segment->Release();
+}
+
+void SC4PlopAndPaintDirector::SaveCity_(const cIGZMessage2Standard* const pStandardMsg) const {
+    if (!groundDocument_) {
+        return;
+    }
+    cISC4DBSegment* const segment = SaveSegment(pStandardMsg);
+    if (!segment) {
+        return;
+    }
+    const std::vector<char> payload = groundDocument_->Objects().empty() ? std::vector<char>{} : groundDocument_->Save();
+    Ground::SaveRecord::Write(*segment, payload);
+    segment->Release();
 }
