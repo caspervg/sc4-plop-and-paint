@@ -210,7 +210,8 @@ namespace {
         TerrainDecalState state;
         state.decalInfo.baseSize = 16.0f;
         state.opacity = 1.0f;
-        state.overlayType = cISTETerrainView::tOverlayManagerType::DynamicLand;
+        // With the ground paints, so they sort together and live shadows fall on both.
+        state.overlayType = cISTETerrainView::tOverlayManagerType::StaticLand;
         state.uvWindow.mode = TerrainDecalUvMode::ClipSubrect;
         return state;
     }
