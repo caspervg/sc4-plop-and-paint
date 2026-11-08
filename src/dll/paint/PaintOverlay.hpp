@@ -71,7 +71,8 @@ public:
 
     // Above the terrain by enough that the outline draws stilts.
     [[nodiscard]] static bool IsRaised(const cS3DVector3& position, cISTETerrain* terrain);
-    // The full model preview shows only the model, unless the outline adds something it cannot show.
+    // The full model preview shows the model and its footprint, unless the outline adds something
+    // they cannot show.
     [[nodiscard]] static bool NeedsOutline(const PreviewPlacement& preview, const PropPaintSettings& settings,
                                            cISTETerrain* terrain);
 

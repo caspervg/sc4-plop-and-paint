@@ -185,11 +185,10 @@ void FloraPainterInputControl::UpdatePreviewOccupant_() {
     placement.rotation = settings_.rotation;
     placement.itemId = previewOccupantTypeID_;
     const bool valid = IsDirectPreviewPlacementValid_(placement);
-    cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation, valid}},
+    cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation, valid, DirectFootprint_(placement)}},
                         ModelPreview::CurrentView(view3D));
     const bool hasModel = cursorPreview_.HasModel(placement.itemId);
     cursorPreview_.SetArrow(ShowsDirectionArrow_(valid) && hasModel, placement.position, placement.rotation);
-    cursorPreview_.SetFootprint(ShowsFootprint_() && hasModel, placement.position, DirectFootprint_(placement), valid);
     lastPreviewPosition_ = placement.position;
     lastPreviewRotation_ = placement.rotation;
     previewPositionValid_ = true;
@@ -200,7 +199,7 @@ void FloraPainterInputControl::ShowPlannedModels_(const std::vector<PaintOverlay
     items.reserve(placements.size());
     for (const auto& preview : placements) {
         const PlannedPaint& placement = preview.placement;
-        items.push_back({placement.itemId, placement.position, placement.rotation, preview.valid});
+        items.push_back({placement.itemId, placement.position, placement.rotation, preview.valid, FootprintFor_(preview)});
     }
     plannedPreview_.Show(items, ModelPreview::CurrentView(view3D));
 }

@@ -939,7 +939,7 @@ bool BasePainterInputControl::PlaceTypeAt_(const int32_t screenX, const int32_t 
 
     const bool placed = PlaceAtWorld_(targetPosition, settings_.rotation, CurrentDirectTypeID_());
     if (placed) {
-        OnDirectPlaced_(targetPosition);
+        OnPlaced_(targetPosition, settings_.rotation, CurrentDirectTypeID_());
         AdvanceDirectPaintType_();
         SyncPreviewForState_();
     }
@@ -950,7 +950,12 @@ std::array<float, 4> BasePainterInputControl::DirectFootprint_(const PlannedPain
     PaintOverlay::PreviewPlacement preview;
     preview.placement = placement;
     PopulatePreviewBounds_(preview, placement.itemId);
-    return PaintOverlay::WorldFootprint(preview);
+    return FootprintFor_(preview);
+}
+
+std::array<float, 4> BasePainterInputControl::FootprintFor_(const PaintOverlay::PreviewPlacement& preview) const {
+    return PaintOverlay::NeedsOutline(preview, settings_, GetTerrain_()) ? std::array<float, 4>{}
+                                                                         : PaintOverlay::WorldFootprint(preview);
 }
 
 float BasePainterInputControl::ItemSize_(const uint32_t typeID) const {
@@ -996,6 +1001,7 @@ void BasePainterInputControl::ExecuteLinePlacement_() {
         placement.position.fY += GetActiveVerticalOffset_();
         SnapPlacementToGrid_(placement);
         if (PlaceAtWorld_(placement.position, placement.rotation, placement.itemId)) {
+            OnPlaced_(placement.position, placement.rotation, placement.itemId);
             ++placedCount;
         }
     }
@@ -1051,6 +1057,7 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
         placement.position.fY += GetActiveVerticalOffset_();
         SnapPlacementToGrid_(placement);
         if (PlaceAtWorld_(placement.position, placement.rotation, placement.itemId)) {
+            OnPlaced_(placement.position, placement.rotation, placement.itemId);
             ++placedCount;
         }
     }
@@ -1112,9 +1119,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
             previewPlacement.valid = IsDirectPreviewPlacementValid_(previewPlacement.placement);
         }
 
-        // The blue or red footprint already shows the placement, also when it is invalid.
-        const bool drawPlacement = !(ShowsFootprint_() && previewPlacement.hasModel) &&
-            PaintOverlay::NeedsOutline(previewPlacement, settings_, GetTerrain_());
+        const bool drawPlacement = PaintOverlay::NeedsOutline(previewPlacement, settings_, GetTerrain_());
         overlay_.BuildDirectPreview(hasOverlayCursor, overlayCursor, GetTerrain_(), settings_, previewPlacement,
                                     drawPlacement);
         return;

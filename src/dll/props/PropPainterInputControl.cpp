@@ -230,11 +230,10 @@ void PropPainterInputControl::UpdatePreviewOccupant_() {
     placement.rotation = settings_.rotation;
     placement.itemId = previewDisplayedPropID_;
     const bool valid = IsDirectPreviewPlacementValid_(placement);
-    cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation, valid}},
+    cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation, valid, DirectFootprint_(placement)}},
                         ModelPreview::CurrentView(view3D));
     const bool hasModel = cursorPreview_.HasModel(placement.itemId);
     cursorPreview_.SetArrow(ShowsDirectionArrow_(valid) && hasModel, placement.position, placement.rotation);
-    cursorPreview_.SetFootprint(ShowsFootprint_() && hasModel, placement.position, DirectFootprint_(placement), valid);
     lastPreviewPosition_ = placement.position;
     lastPreviewRotation_ = placement.rotation;
     previewPositionValid_ = true;
@@ -246,7 +245,7 @@ void PropPainterInputControl::ShowPlannedModels_(const std::vector<PaintOverlay:
     for (const auto& preview : placements) {
         const PlannedPaint& placement = preview.placement;
         items.push_back({ResolveInSeasonPreviewProp_(placement.itemId), placement.position, placement.rotation,
-                         preview.valid});
+                         preview.valid, FootprintFor_(preview)});
     }
     plannedPreview_.Show(items, ModelPreview::CurrentView(view3D));
 }

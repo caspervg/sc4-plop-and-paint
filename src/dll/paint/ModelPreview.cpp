@@ -106,12 +106,12 @@ bool ModelPreview::HasModel(const uint32_t typeID) const {
     return prop && Instance_(prop->Key(4, 0));
 }
 
-void ModelPreview::SetFootprint(const bool visible, const cS3DVector3& position, const std::array<float, 4>& rect,
-                                const bool valid) {
+void ModelPreview::UpdateFootprint_(Slot& slot, const cS3DVector3& position, const std::array<float, 4>& rect,
+                                    const bool valid) {
     const bool hasArea = rect[2] > rect[0] && rect[3] > rect[1];
-    for (size_t i = 0; i < footprints_.size(); ++i) {
-        Footprint& footprint = footprints_[i];
-        if (!visible || !hasArea || !Available() || i != (valid ? 0u : 1u)) {
+    for (size_t i = 0; i < slot.footprints.size(); ++i) {
+        Footprint& footprint = slot.footprints[i];
+        if (!hasArea || !Available() || i != (valid ? 0u : 1u)) {
             if (footprint.started) {
                 footprint.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
                 footprint.started = false;
@@ -170,26 +170,21 @@ void ModelPreview::Pop(const uint32_t typeID, const cS3DVector3& position, const
         return;
     }
 
-    PopSlot& pop = pops_[nextPop_];
-    nextPop_ = (nextPop_ + 1) % pops_.size();
-    if (pop.effect && pop.effect->IsStarted()) {
-        pop.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
-    }
-    if (pop.name != name) {
-        pop.effect.Reset();
-        pop.name = nullptr;
+    auto pop = std::ranges::find_if(pops_, [name](PopSlot& slot) { return slot.name == name && !slot.effect->IsStarted(); });
+    if (pop == pops_.end()) {
         cISC4VisualEffect* effect = nullptr;
-        if (!effectsManager_->CreateVisualEffect(name, &effect) || !effect) {
+        if (pops_.size() >= kMaxPreviews || !effectsManager_->CreateVisualEffect(name, &effect) || !effect) {
             return;
         }
-        pop.effect = cRZAutoRefCount<cISC4VisualEffect>(effect); // takes over the created reference
-        pop.name = name;
+        // takes over the created reference
+        pops_.push_back({cRZAutoRefCount<cISC4VisualEffect>(effect), name});
+        pop = std::prev(pops_.end());
     }
 
     void* instance = model;
-    pop.effect->SetVoidParams(ParamType::Model, &instance, 1);
-    pop.effect->SetEffectTransform(MakeTransform(position, ModelTurns(*prop, rotation, view)));
-    pop.effect->Start(cISC4VisualEffect::tTransitionType::Soft);
+    pop->effect->SetVoidParams(ParamType::Model, &instance, 1);
+    pop->effect->SetEffectTransform(MakeTransform(position, ModelTurns(*prop, rotation, view)));
+    pop->effect->Start(cISC4VisualEffect::tTransitionType::Soft);
 }
 
 void ModelPreview::Show(const std::vector<Item>& items, const View view) {
@@ -208,6 +203,7 @@ void ModelPreview::Show(const std::vector<Item>& items, const View view) {
                 slot.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
                 slot.started = false;
             }
+            UpdateFootprint_(slot, {}, {}, true);
             continue;
         }
 
@@ -222,6 +218,7 @@ void ModelPreview::Show(const std::vector<Item>& items, const View view) {
             slot.valid = item.valid;
         }
         slot.effect->SetEffectTransform(MakeTransform(item.position, ModelTurns(*prop, item.rotation, view)));
+        UpdateFootprint_(slot, item.position, item.footprint, item.valid);
         if (!slot.started) {
             slot.effect->Start(cISC4VisualEffect::tTransitionType::Soft);
             slot.started = true;
@@ -238,9 +235,9 @@ void ModelPreview::Hide() {
             slot.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
             slot.started = false;
         }
+        UpdateFootprint_(slot, {}, {}, true);
     }
     SetArrow(false, {}, 0);
-    SetFootprint(false, {}, {}, true);
 }
 
 bool ModelPreview::GrowTo_(const size_t count) {
@@ -308,16 +305,12 @@ cIS3DModelInstance* ModelPreview::Instance_(const cGZPersistResourceKey& key) co
 void ModelPreview::Release_() {
     Hide();
     arrow_.Reset();
-    for (Footprint& footprint : footprints_) {
-        footprint.effect.Reset();
-    }
     for (PopSlot& pop : pops_) {
-        if (pop.effect && pop.effect->IsStarted()) {
+        if (pop.effect->IsStarted()) {
             pop.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
         }
-        pop.effect.Reset();
-        pop.name = nullptr;
     }
+    pops_.clear();
     slots_.clear();
     props_.clear();
     instances_.clear();

@@ -233,12 +233,19 @@ void PaintOverlay::AddRectOutline(const float minX, const float minZ, const floa
 }
 
 bool PaintOverlay::IsRaised(const cS3DVector3& position, cISTETerrain* terrain) {
-    return terrain && position.fY - SampleStableTerrainHeight(terrain, position.fX, position.fZ) > kStiltGapThreshold;
+    if (!terrain) {
+        return false;
+    }
+    // The cursor sits on the rendered mesh and snapped points on the bilinear height. On slopes
+    // these differ by more than the threshold, so only count what is above both.
+    const float ground = std::max(terrain->GetAltitude(position.fX, position.fZ),
+                                  SampleStableTerrainHeight(terrain, position.fX, position.fZ));
+    return position.fY - ground > kStiltGapThreshold;
 }
 
 bool PaintOverlay::NeedsOutline(const PreviewPlacement& preview, const PropPaintSettings& settings,
                                 cISTETerrain* terrain) {
-    return settings.previewMode != PreviewMode::FullModel || !preview.valid || !preview.hasModel ||
+    return settings.previewMode != PreviewMode::FullModel || !preview.hasModel ||
         IsRaised(preview.placement.position, terrain);
 }
 
@@ -339,7 +346,13 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
 
     if (vertices.size() >= 3) {
         EmitScreenLine_({vertices.back(), vertices.front()}, kPolygonCloseWidthPx, kLineColor, false, kLayerShape);
-        EmitFilledPolygon_(vertices, kPolygonFillColor, kLayerShape);
+        // Footprints already mark the area, and the fill would tint them.
+        const bool hasFootprints = std::ranges::any_of(plannedPlacements, [&](const PreviewPlacement& placement) {
+            return !NeedsOutline(placement, settings, terrain);
+        });
+        if (!hasFootprints) {
+            EmitFilledPolygon_(vertices, kPolygonFillColor, kLayerShape);
+        }
     }
 
     for (const auto& vertex : vertices) {

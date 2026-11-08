@@ -27,6 +27,7 @@ public:
         cS3DVector3 position{};
         int32_t rotation = 0; // quarter turns
         bool valid = true;
+        std::array<float, 4> footprint{}; // x1, z1, x2, z2 in meters. Empty: no footprint on the ground.
     };
 
     // The camera's zoom (0-4) and rotation (0-3), which pick the model of non-3D props.
@@ -60,9 +61,6 @@ public:
     // The game's lot direction arrow on the ground, turned like the item. Hide stops it too.
     void SetArrow(bool visible, const cS3DVector3& position, int32_t rotation);
 
-    // The game's blue or red building footprint on the ground. rect is x1, z1, x2, z2 in meters.
-    void SetFootprint(bool visible, const cS3DVector3& position, const std::array<float, 4>& rect, bool valid);
-
     // Draws models with pnp_preview_model from SC4PlopAndPaint.dat when the game has it. That
     // effect keeps the item's height. Set before the first Show.
     void UseUnpinnedModels() { unpinnedModels_ = true; }
@@ -71,12 +69,20 @@ public:
     void Pop(uint32_t typeID, const cS3DVector3& position, int32_t rotation, float meters, View view);
 
 private:
+    struct Footprint {
+        cRZAutoRefCount<cISC4VisualEffect> effect;
+        bool started = false;
+    };
+
     struct Slot {
         cRZAutoRefCount<cISC4VisualEffect> effect;
         cIS3DModelInstance* model = nullptr;
         bool valid = true;
         bool started = false;
+        std::array<Footprint, 2> footprints; // valid, invalid
     };
+
+    void UpdateFootprint_(Slot& slot, const cS3DVector3& position, const std::array<float, 4>& rect, bool valid);
 
     const PropModel* PropModel_(uint32_t typeID) const;
     cIS3DModelInstance* Instance_(const cGZPersistResourceKey& key) const;
@@ -89,18 +95,12 @@ private:
     std::vector<Slot> slots_;
     cRZAutoRefCount<cISC4VisualEffect> arrow_;
     bool arrowStarted_ = false;
-    struct Footprint {
-        cRZAutoRefCount<cISC4VisualEffect> effect;
-        bool started = false;
-    };
-    std::array<Footprint, 2> footprints_; // valid, invalid
     bool unpinnedModels_ = false;
     struct PopSlot {
         cRZAutoRefCount<cISC4VisualEffect> effect;
         const char* name = nullptr;
     };
-    std::array<PopSlot, 8> pops_; // reused in turn, for fast clicks
-    size_t nextPop_ = 0;
+    std::vector<PopSlot> pops_; // grows to the most pops played at once
     mutable std::unordered_map<uint32_t, std::optional<PropModel>> props_;
     mutable std::unordered_map<uint64_t, cRZAutoRefCount<cIS3DModelInstance>> instances_; // null: no model
     bool templateMissing_ = false;
