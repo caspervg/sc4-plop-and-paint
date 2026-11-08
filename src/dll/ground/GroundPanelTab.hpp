@@ -4,10 +4,12 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include "../common/PanelTab.hpp"
 #include "../decals/DecalPanelTab.hpp"
 #include "../decals/DecalRepository.hpp"
+#include "../decals/TextureKindFilter.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
 #include "GroundToolSettings.hpp"
 
@@ -47,6 +49,8 @@ private:
     // followsLine: the shape is a line, whose texture can follow it.
     void RenderLookEditor_(Ground::Look& look, bool followsLine, LookEditorState& state, bool& changed, bool& committed);
     void RenderChosenTextures_(Ground::Look& look, bool& changed, bool& committed);
+    // Tint, size, turn and shift on one line; only the repeat length when the texture follows a line.
+    void RenderTextureLayout_(Ground::Look& look, bool following, bool& changed, bool& committed);
     void RenderTextureLibrary_(Ground::Look& look, bool& committed);
     // A texture tile: its thumbnail, outlined when in use. True when clicked.
     bool TextureTile_(uint32_t instanceId, float size, bool inUse);
@@ -74,6 +78,8 @@ private:
     void FlushSettings_();
     // Shape settings of the tool in use, without the grid.
     void SelectTool_(Ground::Tool tool);
+    // Puts a texture picked in the city in the look it was picked for and takes up the tool again.
+    void FinishTexturePick_();
 
     DecalRepository* decals_;
     cIGZPersistResourceManager* pRM_;
@@ -109,6 +115,7 @@ private:
 
     char textureFilter_[64]{};
     bool favouriteTexturesOnly_ = false;
+    TextureKindFilter kindFilter_{};
     std::vector<uint32_t> shownTextures_{};
     std::string shownFilter_{};
     bool shownFavouritesOnly_ = false;
@@ -139,4 +146,12 @@ private:
     LookEditorState toolLook_{};
     uint32_t lookPickCount_ = 0;
     LookEditorState selectionLook_{};
+
+    // Opened before: the first time starts the Area tool.
+    bool opened_ = false;
+    // Picking a texture in the city, for the selection or for the tool, which resumes after.
+    bool pickingTexture_ = false;
+    bool pickForSelection_ = false;
+    Ground::Tool pickResumeTool_ = Ground::Tool::Area;
+    std::optional<uint32_t> pickedTexture_{};
 };

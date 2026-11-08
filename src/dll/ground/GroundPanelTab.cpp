@@ -191,6 +191,19 @@ namespace {
         return clicked;
     }
 
+    // The width of each of count controls sharing what is left of the line.
+    float ShareOfLine(const int count) {
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        return std::max(1.0f, (ImGui::GetContentRegionAvail().x - spacing * static_cast<float>(count - 1)) /
+                                  static_cast<float>(count));
+    }
+
+    void Tooltip(const char* text) {
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", text);
+        }
+    }
+
     std::string ObjectLabel(const PaintObject& object) {
         if (!object.name.empty()) {
             return object.name;
@@ -406,6 +419,40 @@ void GroundPanelTab::SelectTool_(const Tool tool) {
     director_->StartGroundPainting(settings_);
 }
 
+void GroundPanelTab::FinishTexturePick_() {
+    const std::optional<uint32_t> picked = std::exchange(pickedTexture_, std::nullopt);
+    // Paints with it, from Colour too, whose colour is kept for going back.
+    const auto use = [&](Look& look, LookEditorState& state) {
+        if (look.textures.empty() && !state.wantsTexture) {
+            state.plainColour = look.color;
+            look.color = {1.0f, 1.0f, 1.0f};
+        }
+        state.wantsTexture = true;
+        bool committed = false;
+        UseTexture_(look, *picked, false, committed);
+        // As the Stamp picker does: the library shows its family, the base or overlay ID without
+        // the wealth, state and zoom variants.
+        std::snprintf(textureFilter_, sizeof(textureFilter_), "%04X", *picked >> 16);
+        packFilter_ = kAllPacks;
+        favouriteTexturesOnly_ = false;
+        kindFilter_ = {};
+    };
+    if (picked && pickForSelection_) {
+        Document* const document = director_->GetGroundDocument();
+        if (document && editingId_ != 0 && document->Find(editingId_)) {
+            use(editing_.look, selectionLook_);
+            document->Update({editing_});
+        }
+    }
+    else if (picked) {
+        use(settings_.look, toolLook_);
+    }
+    // Not when something else was started instead.
+    if (!stamping_ && !director_->IsAnyToolActive()) {
+        SelectTool_(pickResumeTool_);
+    }
+}
+
 void GroundPanelTab::OnRender() {
     const GroundPainterInputControl* painter = director_->GetGroundPainter();
     if (painter && director_->IsGroundPainting() && !settingsDirty_) {
@@ -425,6 +472,18 @@ void GroundPanelTab::OnRender() {
             toolLook_.wantsTexture = !settings_.look.textures.empty();
         }
         lookPickCount_ = painter->LookPickCount();
+    }
+    if (pickingTexture_ && !director_->IsDecalPicking()) {
+        pickingTexture_ = false;
+        FinishTexturePick_();
+    }
+    if (!opened_) {
+        opened_ = true;
+        // The first time: start with Area, so the tab shows what painting takes. Not over another
+        // tool in use.
+        if (director_->IsGroundPaintAvailable() && director_->GetGroundDocument() && !director_->IsAnyToolActive()) {
+            SelectTool_(Tool::Area);
+        }
     }
     ImGui::PushID("tools");
     RenderToolRow_();
@@ -537,9 +596,12 @@ void GroundPanelTab::RenderToolRow_() {
 void GroundPanelTab::RenderStatus_() {
     const GroundPainterInputControl* painter = director_->GetGroundPainter();
     const bool painting = painter && director_->IsGroundPainting();
-    const std::string text = painting ? painter->StatusText()
-                                      : "Pick a tool above. Area, Line, Brush and Marking paint the ground; Select "
-                                        "changes what was painted; Erase rubs it out.";
+    const std::string text =
+        painting          ? painter->StatusText()
+        : pickingTexture_ ? "Click a texture in the city: a decal, or a lot's base or overlay texture. Alt+scroll "
+                            "picks among those on top of each other; Esc cancels."
+                          : "Pick a tool above. Area, Line, Brush and Marking paint the ground; Select changes what "
+                            "was painted; Erase rubs it out.";
 
     static const std::string kNoMeasure;
     const std::string& measure = painting ? painter->MeasureText() : kNoMeasure;
@@ -662,11 +724,6 @@ void GroundPanelTab::RenderShapeSettings_() {
         break;
     }
 
-    if (tool == Tool::Area || tool == Tool::Line || (tool == Tool::Erase && !settings_.eraseWithBrush)) {
-        int style = static_cast<int>(settings_.drawStyle);
-        changed |= ImGui::Combo("Draw", &style, "Straight lines between clicks\0Curve through clicks\0Freehand (drag)\0");
-        settings_.drawStyle = static_cast<DrawStyle>(style);
-    }
     if (tool == Tool::Marking) {
         bool committed = false;
         MarkingEditor(settings_.marking, changed, committed);
@@ -677,32 +734,60 @@ void GroundPanelTab::RenderShapeSettings_() {
             settings_.drawStyle = curve ? DrawStyle::Curve : DrawStyle::Clicks;
         }
     }
-    if (tool == Tool::Area) {
-        changed |= ImGui::DragFloat("Round corners", &settings_.cornerRadius, 0.05f, 0.0f, 50.0f,
-                                    settings_.cornerRadius > 0.0f ? "%.2f m" : "no");
-    }
-    if (tool == Tool::Line) {
-        changed |= ImGui::DragFloat("Width", &settings_.lineWidth, 0.01f, 0.02f, 50.0f, "%.2f m");
-        int ends = static_cast<int>(settings_.lineEnds);
-        changed |= ImGui::Combo("Ends", &ends, "Flat\0Round\0");
-        settings_.lineEnds = static_cast<LineEnds>(ends);
-        changed |= ImGui::DragFloat("Dashes", &settings_.dashLength, 0.05f, 0.0f, 50.0f,
-                                    settings_.dashLength > 0.0f ? "%.2f m long" : "none (solid)");
-        if (settings_.dashLength > 0.0f) {
-            changed |= ImGui::DragFloat("Gaps", &settings_.gapLength, 0.05f, 0.0f, 50.0f, "%.2f m");
+    else {
+        // The rest on one line: switches first, then the values sharing what is left.
+        const bool brush = tool == Tool::Brush || (tool == Tool::Erase && settings_.eraseWithBrush);
+        if (tool == Tool::Erase) {
+            changed |= ImGui::Checkbox("Brush", &settings_.eraseWithBrush);
+            Tooltip("Rub out with a round brush instead of a shape.");
+            ImGui::SameLine();
         }
-    }
-    if (tool == Tool::Erase) {
-        changed |= ImGui::Checkbox("Erase with a brush", &settings_.eraseWithBrush);
-    }
-    if (tool == Tool::Brush || (tool == Tool::Erase && settings_.eraseWithBrush)) {
-        changed |= ImGui::DragFloat("Brush size ([ ])", &settings_.brushRadius, 0.05f, 0.25f, 64.0f, "%.2f m radius");
-    }
-    if (tool == Tool::Brush) {
-        changed |= ImGui::Checkbox("Join overlapping strokes", &settings_.joinBrushStrokes);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("A stroke over one painted the same way becomes part of it,\n"
-                              "so a patch of ground stays one object in the list.");
+        if (tool == Tool::Brush) {
+            changed |= ImGui::Checkbox("Join", &settings_.joinBrushStrokes);
+            Tooltip("A stroke over one painted the same way becomes part of it,\n"
+                    "so a patch of ground stays one object in the list.");
+            ImGui::SameLine();
+        }
+        const int count =
+            1 + (tool == Tool::Area ? 1 : 0) + (tool == Tool::Line ? (settings_.dashLength > 0.0f ? 4 : 3) : 0);
+        const float width = ShareOfLine(count);
+        ImGui::SetNextItemWidth(width);
+        if (brush) {
+            changed |= ImGui::DragFloat("##brush", &settings_.brushRadius, 0.05f, 0.25f, 64.0f, "Brush %.2f m radius");
+            Tooltip("Brush size ([ and ]).");
+        }
+        else {
+            int style = static_cast<int>(settings_.drawStyle);
+            changed |= ImGui::Combo("##draw", &style, "Straight lines\0Curves\0Freehand\0");
+            settings_.drawStyle = static_cast<DrawStyle>(style);
+            Tooltip("Straight lines between the clicks, a curve through them, or freehand while dragging.");
+        }
+        if (tool == Tool::Area) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(width);
+            changed |= ImGui::DragFloat("##corners", &settings_.cornerRadius, 0.05f, 0.0f, 50.0f,
+                                        settings_.cornerRadius > 0.0f ? "Round corners %.2f m" : "Sharp corners");
+            Tooltip("Drag to the right to round the corners.");
+        }
+        if (tool == Tool::Line) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(width);
+            changed |= ImGui::DragFloat("##width", &settings_.lineWidth, 0.01f, 0.02f, 50.0f, "Width %.2f m");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(width);
+            int ends = static_cast<int>(settings_.lineEnds);
+            changed |= ImGui::Combo("##ends", &ends, "Flat ends\0Round ends\0");
+            settings_.lineEnds = static_cast<LineEnds>(ends);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(width);
+            changed |= ImGui::DragFloat("##dashes", &settings_.dashLength, 0.05f, 0.0f, 50.0f,
+                                        settings_.dashLength > 0.0f ? "Dashes %.2f m" : "Solid");
+            Tooltip("Drag to the right for a dashed line.");
+            if (settings_.dashLength > 0.0f) {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(width);
+                changed |= ImGui::DragFloat("##gaps", &settings_.gapLength, 0.05f, 0.0f, 50.0f, "Gaps %.2f m");
+            }
         }
     }
 
@@ -728,6 +813,24 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
         state.wantsTexture = true;
         committed = true;
     }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Pick texture")) {
+        pickForSelection_ = &look == &editing_.look;
+        pickResumeTool_ = settings_.tool;
+        pickedTexture_.reset();
+        ReleaseImGuiInputCapture_();
+        pickingTexture_ = director_->StartDecalPicking([this](const uint32_t id) { pickedTexture_ = id; });
+    }
+    Tooltip("Click a decal or a lot's base or overlay texture in the city to paint with it.\n"
+            "Alt+scroll picks among those on top of each other; Esc cancels.\n"
+            "To paint like ground painted here, use Copy look.");
+
+    if (textured && followsLine) {
+        ImGui::SameLine();
+        ImGui::Checkbox("Follow the line", &look.followPath);
+        Track(changed, committed);
+        Tooltip("The texture runs along the line and spans its width, like a track or a kerb.");
+    }
 
     if (!textured) {
         for (size_t i = 0; i < std::size(kSwatches); ++i) {
@@ -745,60 +848,70 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
         ImGui::SameLine();
         ImGui::ColorEdit3("Other colour##paint", look.color.data(), ImGuiColorEditFlags_NoInputs);
         Track(changed, committed);
+        return;
     }
-    else {
-        RenderChosenTextures_(look, changed, committed);
-        RenderTextureLibrary_(look, committed);
-        if (!look.textures.empty()) {
-            ImGui::ColorEdit3("Tint", look.color.data(), ImGuiColorEditFlags_NoInputs);
-            Track(changed, committed);
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("White leaves the texture as it is.");
+
+    RenderChosenTextures_(look, changed, committed);
+    if (!look.textures.empty()) {
+        RenderTextureLayout_(look, followsLine && look.followPath, changed, committed);
+        if (look.textures.size() > 1) {
+            const bool patches = look.mix == TextureMix::Patches;
+            const float width = ShareOfLine(patches ? 3 : 1);
+            ImGui::SetNextItemWidth(width);
+            int mix = static_cast<int>(look.mix);
+            if (ImGui::Combo("##mix", &mix, "Mix by 16 m square\0Mix in soft patches\0")) {
+                look.mix = static_cast<TextureMix>(mix);
+                committed = true;
             }
-            if (followsLine) {
-                ImGui::Checkbox("Follow the line", &look.followPath);
+            Tooltip("In soft patches: the first texture covers the shape and the others lie on it\n"
+                    "in natural, blended patches, each by its share.");
+            if (patches) {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(width);
+                ImGui::DragFloat("##patchSize", &look.patchSizeMeters, 0.1f, 2.0f, 200.0f, "Patches %.1f m");
                 Track(changed, committed);
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("The texture runs along the line and spans its width, like a track or a kerb.");
-                }
-            }
-            const bool following = followsLine && look.followPath;
-            ImGui::DragFloat(following ? "Repeats every" : "Texture size", &look.textureSizeMeters, 0.1f, 0.5f, 256.0f,
-                             "%.1f m");
-            Track(changed, committed);
-            if (!following) {
-                ImGui::DragFloat("Texture turn", &look.textureRotationDegrees, 0.5f, -360.0f, 360.0f, "%.0f°");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(width);
+                ImGui::DragFloat("##patchBlend", &look.patchBlendMeters, 0.05f, 0.0f, 32.0f,
+                                 look.patchBlendMeters > 0.0f ? "Blend %.2f m" : "Sharp patches");
                 Track(changed, committed);
-                ImGui::DragFloat2("Texture shift", look.textureOffset.data(), 0.05f, -256.0f, 256.0f, "%.2f m");
-                Track(changed, committed);
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Moves the texture, to line it up with a kerb or a lot.\n"
-                                      "With Select, Shift+drag the painted ground in the city to move its texture.");
-                }
-            }
-            if (look.textures.size() > 1) {
-                int mix = static_cast<int>(look.mix);
-                if (ImGui::Combo("Mix", &mix, "By 16 m square\0In soft patches\0")) {
-                    look.mix = static_cast<TextureMix>(mix);
-                    committed = true;
-                }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("In soft patches: the first texture covers the shape and the others lie on it\n"
-                                      "in natural, blended patches, each by its share.");
-                }
-                if (look.mix == TextureMix::Patches) {
-                    ImGui::DragFloat("Patch size", &look.patchSizeMeters, 0.1f, 2.0f, 200.0f, "%.1f m");
-                    Track(changed, committed);
-                    ImGui::DragFloat("Patch blend", &look.patchBlendMeters, 0.05f, 0.0f, 32.0f,
-                                     look.patchBlendMeters > 0.0f ? "%.2f m" : "sharp");
-                    Track(changed, committed);
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("How far the edge of each patch fades into what lies under it.");
-                    }
-                }
+                Tooltip("How far the edge of each patch fades into what lies under it.");
             }
         }
     }
+    RenderTextureLibrary_(look, committed);
+}
+
+void GroundPanelTab::RenderTextureLayout_(Look& look, const bool following, bool& changed, bool& committed) {
+    ImGui::ColorEdit3("##tint", look.color.data(), ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+    Track(changed, committed);
+    Tooltip("Tint. White leaves the texture as it is.");
+    ImGui::SameLine();
+    const float width = ShareOfLine(following ? 1 : 4);
+    ImGui::SetNextItemWidth(width);
+    ImGui::DragFloat("##size", &look.textureSizeMeters, 0.1f, 0.5f, 256.0f,
+                     following ? "Repeats every %.1f m" : "Size %.1f m");
+    Track(changed, committed);
+    Tooltip(following ? "How long one repeat of the texture is along the line." : "How big one copy of the texture is.");
+    if (following) {
+        return;
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(width);
+    ImGui::DragFloat("##turn", &look.textureRotationDegrees, 0.5f, -360.0f, 360.0f, "Turn %.0f°");
+    Track(changed, committed);
+    constexpr const char* kShiftTip = "Moves the texture, to line it up with a kerb or a lot.\n"
+                                      "With Select, Shift+drag the painted ground in the city to move its texture.";
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(width);
+    ImGui::DragFloat("##shiftX", &look.textureOffset[0], 0.05f, -256.0f, 256.0f, "Shift x %.2f m");
+    Track(changed, committed);
+    Tooltip(kShiftTip);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(width);
+    ImGui::DragFloat("##shiftZ", &look.textureOffset[1], 0.05f, -256.0f, 256.0f, "Shift z %.2f m");
+    Track(changed, committed);
+    Tooltip(kShiftTip);
 }
 
 void GroundPanelTab::RenderChosenTextures_(Look& look, bool& changed, bool& committed) {
@@ -971,6 +1084,7 @@ const std::vector<uint32_t>& GroundPanelTab::ShownTextures_() {
                                                     : std::ranges::find(entry.packs, packFilter_) != entry.packs.end());
         if (!inPack ||
             (favouriteTexturesOnly_ && (!favourites || !favourites->contains(entry.id))) ||
+            !kindFilter_.Allows(*decals_, entry.id) ||
             (!filter.empty() && entry.searchText.find(filter) == std::string::npos)) {
             continue;
         }
@@ -1084,16 +1198,24 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
     }
 
     RenderPackFilter_();
-    ImGui::SetNextItemWidth(200.0f);
+    ImGui::SetNextItemWidth(std::min(200.0f, ShareOfLine(2)));
     ImGui::InputTextWithHint("##filter", "Search name, pack or ID", textureFilter_, sizeof(textureFilter_));
     ImGui::SameLine();
-    ImGui::Checkbox("Favourites only", &favouriteTexturesOnly_);
+    ImGui::Checkbox("Favourites", &favouriteTexturesOnly_);
+    ImGui::SameLine();
+    if (kindFilter_.Render(*decals_)) {
+        shownValid_ = false;
+    }
 
     const std::vector<uint32_t>& shown = ShownTextures_();
     ImGui::TextDisabled("%zu textures. Click to paint with one, Ctrl+click to mix several, right-click for a favourite.",
                         shown.size());
 
-    if (ImGui::BeginChild("##textures", ImVec2(0, 240.0f), true)) {
+    // About seven rows; drag its bottom edge for more or fewer.
+    const ImGuiStyle& gridStyle = ImGui::GetStyle();
+    const float gridHeight = 7.0f * (kPickerThumbSize + gridStyle.FramePadding.y * 2.0f + gridStyle.ItemSpacing.y) +
+                             gridStyle.WindowPadding.y * 2.0f;
+    if (ImGui::BeginChild("##textures", ImVec2(0, gridHeight), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY)) {
         const ImGuiStyle& style = ImGui::GetStyle();
         const float tile = kPickerThumbSize + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
         const int columns = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / tile));
@@ -1182,16 +1304,23 @@ void GroundPanelTab::RenderSelection_(Document& document) {
         ImGui::DragFloat("Round corners", &shape.cornerRadius, 0.05f, 0.0f, 50.0f, shape.cornerRadius > 0.0f ? "%.2f m" : "no");
         Track(changed, committed);
         break;
-    case ShapeKind::Line:
-        ImGui::DragFloat("Width", &shape.width, 0.01f, 0.02f, 50.0f, "%.2f m");
+    case ShapeKind::Line: {
+        const float width = ShareOfLine(shape.dashLength > 0.0f ? 3 : 2);
+        ImGui::SetNextItemWidth(width);
+        ImGui::DragFloat("##width", &shape.width, 0.01f, 0.02f, 50.0f, "Width %.2f m");
         Track(changed, committed);
-        ImGui::DragFloat("Dashes", &shape.dashLength, 0.05f, 0.0f, 50.0f, shape.dashLength > 0.0f ? "%.2f m long" : "none (solid)");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(width);
+        ImGui::DragFloat("##dashes", &shape.dashLength, 0.05f, 0.0f, 50.0f, shape.dashLength > 0.0f ? "Dashes %.2f m" : "Solid");
         Track(changed, committed);
         if (shape.dashLength > 0.0f) {
-            ImGui::DragFloat("Gaps", &shape.gapLength, 0.05f, 0.0f, 50.0f, "%.2f m");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(width);
+            ImGui::DragFloat("##gaps", &shape.gapLength, 0.05f, 0.0f, 50.0f, "Gaps %.2f m");
             Track(changed, committed);
         }
         break;
+    }
     case ShapeKind::Brush:
         ImGui::DragFloat(shape.outline.empty() ? "Brush size" : "Brush size (last stroke)", &shape.brushRadius, 0.05f,
                          0.25f, 64.0f, "%.2f m radius");
