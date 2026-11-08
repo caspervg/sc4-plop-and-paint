@@ -1,6 +1,6 @@
 [submodule "vendor/gzcom-dll"]
 	path = vendor/gzcom-dll
-	url = https://github.com/caspervg/gzcom-dll.git
+	url = https://github.com/nsgomez/gzcom-dll.git
 [submodule "vendor/DBPFKit"]
 	path = vendor/DBPFKit
 	url = https://github.com/caspervg/DBPFKit.git
