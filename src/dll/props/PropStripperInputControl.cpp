@@ -1,12 +1,12 @@
 #include "PropStripperInputControl.hpp"
 
 #include <cmath>
-#include <limits>
 #include <unordered_set>
 #include <windows.h>
 
 #include "cISC4PropOccupant.h"
 #include "cISTETerrain.h"
+#include "PropHit.hpp"
 #include "PropRepository.hpp"
 #include "SC4List.h"
 #include "SC4Rect.h"
@@ -426,20 +426,17 @@ void PropStripperInputControl::PickNearestProp_() {
     CollectCandidateProps_(candidates);
 
     cISC4Occupant* nearestOccupant = nullptr;
-    float nearestDistSq = std::numeric_limits<float>::max();
+    PropHit nearestHit{};
 
     for (const auto& candidate : candidates) {
-        const float dx = candidate.position.fX - currentCursorWorld_.fX;
-        const float dz = candidate.position.fZ - currentCursorWorld_.fZ;
-        const float distSq = dx * dx + dz * dz;
-
-        if (distSq < nearestDistSq) {
-            nearestDistSq = distSq;
+        const PropHit hit = MeasurePropHit(*candidate.occupant, candidate.position, currentCursorWorld_);
+        if (hit.distance <= kPickRadiusMeters && (!nearestOccupant || hit < nearestHit)) {
+            nearestHit = hit;
             nearestOccupant = candidate.occupant;
         }
     }
 
-    if (nearestDistSq <= (kPickRadiusMeters * kPickRadiusMeters)) {
+    if (nearestOccupant) {
         SetHoveredProp_(nearestOccupant);
     }
     else {

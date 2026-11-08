@@ -1,10 +1,10 @@
 #include "PropPickStrategy.hpp"
 
 #include <cmath>
-#include <limits>
 #include <unordered_set>
 
 #include "../../shared/SeasonalSetDetector.hpp"
+#include "../props/PropHit.hpp"
 #include "../props/PropRepository.hpp"
 #include "../props/PropStripperInputControl.hpp"
 #include "../utils/Logger.h"
@@ -195,21 +195,19 @@ std::optional<PickedProp> PropPickStrategy::PickNearestProp_(const ScenePickCont
     }
 
     const CollectedProp* nearest = nullptr;
-    float nearestDistSq = std::numeric_limits<float>::max();
+    PropHit nearestHit{};
     for (const auto& candidate : candidates) {
         if (IsOutOfSeason_(candidate.propType, dayOfYear)) {
             continue;
         }
-        const float dx = candidate.position.fX - context.cursorWorld.fX;
-        const float dz = candidate.position.fZ - context.cursorWorld.fZ;
-        const float distSq = dx * dx + dz * dz;
-        if (distSq < nearestDistSq) {
-            nearestDistSq = distSq;
+        const PropHit hit = MeasurePropHit(*candidate.occupant, candidate.position, context.cursorWorld);
+        if (hit.distance <= kPickRadiusMeters && (!nearest || hit < nearestHit)) {
+            nearestHit = hit;
             nearest = &candidate;
         }
     }
 
-    if (!nearest || nearestDistSq > (kPickRadiusMeters * kPickRadiusMeters)) {
+    if (!nearest) {
         return std::nullopt;
     }
 
