@@ -344,6 +344,7 @@ void DecalPanelTab::OnRender() {
                 wealthFilter_ = 0;
                 dilapidationFilter_ = 0;
                 favoritesOnly_ = false;
+                kindFilter_ = {};
             });
         }
         if (ImGui::IsItemHovered()) {
@@ -456,11 +457,14 @@ void DecalPanelTab::RenderFilterBar_() {
     ImGui::SameLine();
     ImGui::Checkbox("Only favorites##decalFavoritesOnly", &favoritesOnly_);
     ImGui::SameLine();
+    kindFilter_.Render(*decals_);
+    ImGui::SameLine();
     if (ImGui::Button("Clear filters")) {
         iidFilterBuf_[0] = '\0';
         wealthFilter_ = 0;
         dilapidationFilter_ = 0;
         favoritesOnly_ = false;
+        kindFilter_ = {};
     }
 }
 
@@ -483,6 +487,9 @@ void DecalPanelTab::BuildFilteredIndices_(std::vector<size_t>& out) const {
             continue;
         }
         if (!MatchesDilapidationFilter(instanceId, dilapidationFilter_)) {
+            continue;
+        }
+        if (!kindFilter_.Allows(*decals_, instanceId)) {
             continue;
         }
         out.push_back(i);

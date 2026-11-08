@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -7,6 +8,7 @@
 #include <vector>
 
 #include "../packs/PackCatalogRepository.hpp"
+#include "DecalTextureLoader.hpp"
 
 class cIGZPersistResourceManager;
 
@@ -43,10 +45,20 @@ public:
     [[nodiscard]] int32_t PackIndexOf(uint32_t instanceId) const;
     [[nodiscard]] const std::vector<TexturePack>& Packs() const;
 
+    // Base (opaque) or overlay (has transparency); Unknown until ClassifySome got to it.
+    [[nodiscard]] decals::TextureKind KindOf(uint32_t instanceId) const;
+    // Reads textures not classified yet for up to the budget, in ID order. True when all are done.
+    // Every texture is read from its file, so this is spread over frames, and only done on demand.
+    bool ClassifySome(std::chrono::microseconds budget);
+    [[nodiscard]] size_t ClassifiedCount() const { return classified_; }
+
 private:
     [[nodiscard]] const PackCatalogRepository::TextureRow* Preferred_(uint32_t instanceId) const;
 
     std::vector<uint32_t> instanceIds_;
+    // By the place of the texture in instanceIds_.
+    std::vector<decals::TextureKind> kinds_;
+    size_t classified_ = 0;
     const PackCatalogRepository* packs_ = nullptr;
     cIGZPersistResourceManager* pRM_ = nullptr;
     // The chosen candidate of textures with several, by its place among them, once looked up.
