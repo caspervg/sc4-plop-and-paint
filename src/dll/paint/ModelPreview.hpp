@@ -53,6 +53,12 @@ public:
     // False without a city or when the game has no template effect.
     [[nodiscard]] bool Available() const;
 
+    // False when Show would draw nothing for this item.
+    [[nodiscard]] bool HasModel(uint32_t typeID) const;
+
+    // The game's lot direction arrow on the ground, turned like the item. Hide stops it too.
+    void SetArrow(bool visible, const cS3DVector3& position, int32_t rotation);
+
 private:
     struct Slot {
         cRZAutoRefCount<cISC4VisualEffect> effect;
@@ -61,15 +67,17 @@ private:
         bool started = false;
     };
 
-    const PropModel* PropModel_(uint32_t typeID);
-    cIS3DModelInstance* Instance_(const cGZPersistResourceKey& key);
+    const PropModel* PropModel_(uint32_t typeID) const;
+    cIS3DModelInstance* Instance_(const cGZPersistResourceKey& key) const;
     bool GrowTo_(size_t count);
     void Release_();
 
     cRZAutoRefCount<cISC4EffectsManager> effectsManager_;
     ModelLookup modelLookup_;
     std::vector<Slot> slots_;
-    std::unordered_map<uint32_t, std::optional<PropModel>> props_;
-    std::unordered_map<uint64_t, cRZAutoRefCount<cIS3DModelInstance>> instances_; // null: no model
+    cRZAutoRefCount<cISC4VisualEffect> arrow_;
+    bool arrowStarted_ = false;
+    mutable std::unordered_map<uint32_t, std::optional<PropModel>> props_;
+    mutable std::unordered_map<uint64_t, cRZAutoRefCount<cIS3DModelInstance>> instances_; // null: no model
     bool templateMissing_ = false;
 };

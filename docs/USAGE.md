@@ -555,7 +555,7 @@ The packaged `SC4PlopAndPaint.ini` controls several runtime defaults.
 Relevant options:
 
 - `EnableDrawOverlay`: disables the in-city preview (grid, outlines and placement boxes) if needed
-- `DefaultPropPreviewMode`: `outline`, `full`, or `combined`
+- `DefaultPropPreviewMode`: `outline`, `full`, or `combined`. The default is `full`, which shows the models. An outline still shows for items without a model.
 - `DefaultShowGridOverlay`, `DefaultSnapPointsToGrid`, `DefaultSnapPlacementsToGrid`, `DefaultGridStepMeters`: default paint popup values
 - `ThumbnailDisplaySize`: thumbnail size in the UI (`22` to `220`). The cache stores thumbnails at the size given to the cache builder (`--thumbnail-size`, default `132`); larger ones are scaled down to this size
 - `ThumbnailBackgroundColor` and `ThumbnailBorderColor`: thumbnail slot colors shown behind transparent thumbnails

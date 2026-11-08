@@ -26,6 +26,7 @@ public:
     struct PreviewPlacement {
         PlannedPaint placement{};
         bool valid = true;
+        bool hasModel = true; // false: a full model preview has nothing to show for it
         bool hasContinuousRotation = false;
         float continuousRotationRadians = 0.0f;
         float width = 0.0f;
@@ -67,6 +68,12 @@ public:
     // (does not Clear); used to highlight a picked lot texture's footprint.
     void AddRectOutline(float minX, float minZ, float maxX, float maxZ,
                         cISTETerrain* terrain, uint32_t color);
+
+    // Above the terrain by enough that the outline draws stilts.
+    [[nodiscard]] static bool IsRaised(const cS3DVector3& position, cISTETerrain* terrain);
+    // The full model preview shows only the model, unless the outline adds something it cannot show.
+    [[nodiscard]] static bool NeedsOutline(const PreviewPlacement& preview, const PropPaintSettings& settings,
+                                           cISTETerrain* terrain);
 
     void BuildDirectPreview(bool cursorValid,
                             const cS3DVector3& cursorPos,

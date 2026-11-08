@@ -183,9 +183,11 @@ void FloraPainterInputControl::UpdatePreviewOccupant_() {
     placement.position = ResolveDirectPosition_(currentCursorWorld_);
     placement.rotation = settings_.rotation;
     placement.itemId = previewOccupantTypeID_;
-    cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation,
-                          IsDirectPreviewPlacementValid_(placement)}},
+    const bool valid = IsDirectPreviewPlacementValid_(placement);
+    cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation, valid}},
                         ModelPreview::CurrentView(view3D));
+    cursorPreview_.SetArrow(ShowsDirectionArrow_(valid) && cursorPreview_.HasModel(placement.itemId),
+                            placement.position, placement.rotation);
     lastPreviewPosition_ = placement.position;
     lastPreviewRotation_ = placement.rotation;
     previewPositionValid_ = true;
@@ -206,12 +208,13 @@ bool FloraPainterInputControl::IsDirectPreviewPlacementValid_(const PlannedPaint
 }
 
 bool FloraPainterInputControl::ShouldForceDirectOverlay_() const {
-    // Without the effects there is no model, so keep the outline.
-    return !cursorPreview_.Available();
+    // Without a model to show, keep the outline.
+    return !cursorPreview_.HasModel(CurrentDirectTypeID_());
 }
 
 void FloraPainterInputControl::PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement,
                                                       const uint32_t typeID) const {
+    placement.hasModel = cursorPreview_.HasModel(typeID);
     if (!floraRepository_) {
         return;
     }

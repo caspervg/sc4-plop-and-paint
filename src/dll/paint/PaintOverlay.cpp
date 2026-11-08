@@ -232,6 +232,16 @@ void PaintOverlay::AddRectOutline(const float minX, const float minZ, const floa
     Upload_();
 }
 
+bool PaintOverlay::IsRaised(const cS3DVector3& position, cISTETerrain* terrain) {
+    return terrain && position.fY - SampleStableTerrainHeight(terrain, position.fX, position.fZ) > kStiltGapThreshold;
+}
+
+bool PaintOverlay::NeedsOutline(const PreviewPlacement& preview, const PropPaintSettings& settings,
+                                cISTETerrain* terrain) {
+    return settings.previewMode != PreviewMode::FullModel || !preview.valid || !preview.hasModel ||
+        IsRaised(preview.placement.position, terrain);
+}
+
 void PaintOverlay::BuildDirectPreview(const bool cursorValid,
                                           const cS3DVector3& cursorPos,
                                           cISTETerrain* terrain,
@@ -272,9 +282,8 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
         EmitMarker_(pt, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 
-    // The full model preview shows the props themselves, so only the invalid ones keep an outline.
     for (const auto& placement : plannedPlacements) {
-        if (settings.previewMode != PreviewMode::FullModel || !placement.valid) {
+        if (NeedsOutline(placement, settings, terrain)) {
             EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
         }
     }
@@ -314,9 +323,8 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
         EmitMarker_(vertex, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 
-    // The full model preview shows the props themselves, so only the invalid ones keep an outline.
     for (const auto& placement : plannedPlacements) {
-        if (settings.previewMode != PreviewMode::FullModel || !placement.valid) {
+        if (NeedsOutline(placement, settings, terrain)) {
             EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
         }
     }

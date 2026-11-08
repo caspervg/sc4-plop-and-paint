@@ -19,6 +19,11 @@ namespace {
     constexpr auto kTemplateEffect = "preview_el_straight";
     constexpr float kAlpha = 1.6f; // times the effect's own 0.5
 
+    constexpr auto kArrowEffect = "lot_direction_arrow";
+    // ponytail: which way the arrow texture points at rotation 0 is not checked yet. Compare with
+    // the outline's arrow in game and change this if they differ.
+    constexpr int32_t kArrowQuarterTurns = 0;
+
     // ponytail: one effect per preview, each emitting 200 particles a second. Raise when that holds up.
     constexpr size_t kMaxPreviews = 512;
 
@@ -50,7 +55,7 @@ namespace {
 }
 
 ModelPreview::View ModelPreview::CurrentView(cISC4View3DWin* view3D) {
-    // ponytail: cSC4CameraControl has no SDK header; zoom and rotation are at 0x108 and 0x10C
+    // ponytail: cSC4CameraControl has no SDK header. Zoom and rotation are at 0x108 and 0x10C
     // (see sc4-render-services' camera-view-input sample).
     View view;
     cISC43DRender* renderer = view3D ? view3D->GetRenderer() : nullptr;
@@ -81,6 +86,35 @@ void ModelPreview::SetModelLookup(ModelLookup lookup) {
 
 bool ModelPreview::Available() const {
     return effectsManager_ && !templateMissing_;
+}
+
+bool ModelPreview::HasModel(const uint32_t typeID) const {
+    const PropModel* prop = Available() ? PropModel_(typeID) : nullptr;
+    return prop && Instance_(prop->Key(4, 0));
+}
+
+void ModelPreview::SetArrow(const bool visible, const cS3DVector3& position, const int32_t rotation) {
+    if (!visible || !Available()) {
+        if (arrowStarted_) {
+            arrow_->Stop(cISC4VisualEffect::tTransitionType::Hard);
+            arrowStarted_ = false;
+        }
+        return;
+    }
+
+    if (!arrow_) {
+        cISC4VisualEffect* effect = nullptr;
+        if (!effectsManager_->CreateVisualEffect(kArrowEffect, &effect) || !effect) {
+            return;
+        }
+        arrow_ = cRZAutoRefCount<cISC4VisualEffect>(effect); // takes over the created reference
+    }
+
+    arrow_->SetEffectTransform(MakeTransform(position, rotation + kArrowQuarterTurns));
+    if (!arrowStarted_) {
+        arrow_->Start(cISC4VisualEffect::tTransitionType::Soft);
+        arrowStarted_ = true;
+    }
 }
 
 void ModelPreview::Show(const std::vector<Item>& items, const View view) {
@@ -133,6 +167,7 @@ void ModelPreview::Hide() {
             slot.started = false;
         }
     }
+    SetArrow(false, {}, 0);
 }
 
 bool ModelPreview::GrowTo_(const size_t count) {
@@ -155,7 +190,7 @@ bool ModelPreview::GrowTo_(const size_t count) {
     return true;
 }
 
-const PropModel* ModelPreview::PropModel_(const uint32_t typeID) {
+const PropModel* ModelPreview::PropModel_(const uint32_t typeID) const {
     auto it = props_.find(typeID);
     if (it == props_.end()) {
         it = props_.emplace(typeID, modelLookup_ ? modelLookup_(typeID) : std::nullopt).first;
@@ -166,7 +201,7 @@ const PropModel* ModelPreview::PropModel_(const uint32_t typeID) {
     return it->second ? &*it->second : nullptr;
 }
 
-cIS3DModelInstance* ModelPreview::Instance_(const cGZPersistResourceKey& key) {
+cIS3DModelInstance* ModelPreview::Instance_(const cGZPersistResourceKey& key) const {
     const uint64_t id = static_cast<uint64_t>(key.group) << 32 | key.instance;
     if (const auto it = instances_.find(id); it != instances_.end()) {
         return it->second;
@@ -192,6 +227,7 @@ cIS3DModelInstance* ModelPreview::Instance_(const cGZPersistResourceKey& key) {
 
 void ModelPreview::Release_() {
     Hide();
+    arrow_.Reset();
     slots_.clear();
     props_.clear();
     instances_.clear();

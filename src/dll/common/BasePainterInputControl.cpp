@@ -1053,9 +1053,14 @@ bool BasePainterInputControl::ShouldShowOutlinePreview_() const {
         return false;
     }
     if (state_ == ControlState::ActiveDirect) {
-        return settings_.showGrid || settings_.previewMode != PreviewMode::FullModel || ShouldForceDirectOverlay_();
+        return settings_.showGrid || settings_.previewMode != PreviewMode::FullModel || ShouldForceDirectOverlay_() ||
+            IsDirectPreviewRaised_();
     }
     return state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon;
+}
+
+bool BasePainterInputControl::IsDirectPreviewRaised_() const {
+    return cursorValid_ && PaintOverlay::IsRaised(ResolveDirectPosition_(currentCursorWorld_), GetTerrain_());
 }
 
 void BasePainterInputControl::ClearOverlay_() {
@@ -1093,7 +1098,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
             previewPlacement.valid = IsDirectPreviewPlacementValid_(previewPlacement.placement);
         }
 
-        const bool drawPlacement = settings_.previewMode != PreviewMode::FullModel || !previewPlacement.valid;
+        const bool drawPlacement = PaintOverlay::NeedsOutline(previewPlacement, settings_, GetTerrain_());
         overlay_.BuildDirectPreview(hasOverlayCursor, overlayCursor, GetTerrain_(), settings_, previewPlacement,
                                     drawPlacement);
         return;

@@ -124,8 +124,16 @@ protected:
     virtual void PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement,
                                         uint32_t typeID) const {}
 
-    // Shows models for the planned Line and Polygon placements; empty hides them.
+    // Shows models for the planned Line and Polygon placements. Empty hides them.
     virtual void ShowPlannedModels_(const std::vector<PaintOverlay::PreviewPlacement>& placements) {}
+
+    // The full model preview has no outline with an arrow, so it shows the game's arrow instead.
+    [[nodiscard]] bool ShowsDirectionArrow_(const bool valid) const {
+        return settings_.previewMode == PreviewMode::FullModel && valid && !settings_.randomRotation &&
+            !IsDirectPreviewRaised_();
+    }
+    // Raised items keep their outline, for its height stilts.
+    [[nodiscard]] bool IsDirectPreviewRaised_() const;
 
     // Returns whether the current direct preview position is valid for placement.
     [[nodiscard]] virtual bool IsDirectPreviewPlacementValid_(const PlannedPaint& placement) const { return true; }
