@@ -150,13 +150,6 @@ bool LotFilterHelper::PassesBuildingStyleFilter_(const LotView& view, const Buil
         return true;
     }
 
-    if (context.useAllStylesAtOnce) {
-        if (!context.availableStyleIds.empty()) {
-            return BuildingStyleResolver::SupportsAnyStyle(building, context.availableStyleIds, context);
-        }
-        return true;
-    }
-
     return BuildingStyleResolver::SupportsAnyStyle(building, context.activeStyleIds, context);
 }
 

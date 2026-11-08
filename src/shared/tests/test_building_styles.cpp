@@ -75,3 +75,15 @@ TEST_CASE("unavailable-only explicit styles fall back to legacy behavior", "[bui
     REQUIRE(BuildingStyleResolver::SupportsStyle(building, 0x2000, context));
     REQUIRE_FALSE(BuildingStyleResolver::SupportsStyle(building, 0x20A0, context));
 }
+
+TEST_CASE("explicit styles are ignored without the More Building Styles DLL", "[building-styles]") {
+    auto building = MakeBuilding();
+    building.occupantGroups = {0x2000};
+    building.buildingStyles = std::vector<uint32_t>{0x20A0};
+
+    BuildingStyleContext context;
+    context.explicitStylesIgnored = true;
+
+    REQUIRE(BuildingStyleResolver::SupportsStyle(building, 0x2000, context));
+    REQUIRE_FALSE(BuildingStyleResolver::SupportsStyle(building, 0x20A0, context));
+}

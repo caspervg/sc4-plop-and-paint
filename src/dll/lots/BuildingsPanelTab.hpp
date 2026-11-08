@@ -37,7 +37,6 @@ private:
     void HandlePickedLot_(const PickedLot& picked);
 
     void ApplyFilters_();
-    void InitializeFallbackBuildingStyles_();
     [[nodiscard]] const std::vector<BuildingStyleEntry>& GetBuildingStyles_() const;
     [[nodiscard]] const BuildingStyleContext& GetBuildingStyleContext_() const;
 
@@ -50,8 +49,8 @@ private:
 
     LotFilterHelper filter_;
     BuildingStyleService* buildingStyleService_ = nullptr;
-    std::vector<BuildingStyleEntry> fallbackBuildingStyles_;
-    BuildingStyleContext fallbackBuildingStyleContext_;
+    // The cache was built before the building style data existed.
+    bool cacheNeedsRebuild_ = false;
 
     // Sorting
     bool sortDescending_ = false;

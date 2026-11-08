@@ -24,11 +24,12 @@ bool BuildingStyleService::Acquire(cIGZCOM* com) {
 
     RefreshWallToWallGroups_();
 
+    context_.explicitStylesIgnored = GetStyleInfo_() == nullptr;
     if (GetStyleInfo_()) {
         LOG_INFO("Acquired More Building Styles information API");
     }
     else {
-        LOG_INFO("More Building Styles information API not available; using cache-derived style labels");
+        LOG_INFO("More Building Styles DLL not found. Only the Maxis styles are available.");
     }
 
     return GetStyleInfo_() != nullptr || wallToWallInfo_ != nullptr;
@@ -42,7 +43,6 @@ void BuildingStyleService::RefreshForCity(cISC4City* city) {
 void BuildingStyleService::RefreshActiveStyles(cISC4City* city) {
     context_.activeStyleIds.clear();
     context_.activeStylesKnown = false;
-    context_.useAllStylesAtOnce = false;
 
     if (!city) {
         return;
@@ -51,7 +51,6 @@ void BuildingStyleService::RefreshActiveStyles(cISC4City* city) {
     if (const auto* tractDeveloper = city->GetTractDeveloper()) {
         const auto& activeStyles = tractDeveloper->GetActiveStyles();
         context_.activeStyleIds.insert(activeStyles.begin(), activeStyles.end());
-        context_.useAllStylesAtOnce = tractDeveloper->IsUsingAllStylesAtOnce();
         context_.activeStylesKnown = true;
     }
 }
@@ -61,7 +60,6 @@ void BuildingStyleService::ClearCityState() {
     context_.availabilityKnown = false;
     context_.activeStyleIds.clear();
     context_.activeStylesKnown = false;
-    context_.useAllStylesAtOnce = false;
     availableStyles_.clear();
 }
 

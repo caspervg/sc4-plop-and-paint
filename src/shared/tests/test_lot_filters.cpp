@@ -63,3 +63,34 @@ TEST_CASE("active style filter follows active style context", "[lot-filter][buil
     context.activeStyleIds.insert(0x20A0);
     REQUIRE(filter.PassesFilters(item.View(), context));
 }
+
+TEST_CASE("active style filter skips unchecked styles when all styles build at once", "[lot-filter][building-styles]") {
+    TestLotView item;
+    item.building.buildingStyles = std::vector<uint32_t>{0x20A0};
+
+    LotFilterHelper filter;
+    filter.activeStylesOnly = true;
+
+    // The game goes through the checked styles only, also in this mode.
+    BuildingStyleContext context;
+    context.availabilityKnown = true;
+    context.availableStyleIds = {0x2000, 0x20A0};
+    context.activeStylesKnown = true;
+    context.activeStyleIds = {0x2000};
+    REQUIRE_FALSE(filter.PassesFilters(item.View(), context));
+
+    context.activeStyleIds.insert(0x20A0);
+    REQUIRE(filter.PassesFilters(item.View(), context));
+}
+
+TEST_CASE("active style filter hides everything when no style is checked", "[lot-filter][building-styles]") {
+    TestLotView item;
+    item.building.buildingStyles = std::vector<uint32_t>{0x20A0};
+
+    LotFilterHelper filter;
+    filter.activeStylesOnly = true;
+
+    BuildingStyleContext context;
+    context.activeStylesKnown = true;
+    REQUIRE_FALSE(filter.PassesFilters(item.View(), context));
+}

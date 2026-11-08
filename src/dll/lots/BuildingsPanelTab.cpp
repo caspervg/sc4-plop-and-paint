@@ -1,5 +1,6 @@
 #include "BuildingsPanelTab.hpp"
 
+#include <algorithm>
 #include <format>
 
 #include "OccupantGroups.hpp"
@@ -39,7 +40,10 @@ BuildingsPanelTab::BuildingsPanelTab(
     cIGZImGuiService* imguiService)
     : PanelTab(director, lots, props, favorites, imguiService),
       buildingStyleService_(buildingStyleService) {
-    InitializeFallbackBuildingStyles_();
+    const auto& buildings = lots_->GetBuildings();
+    cacheNeedsRebuild_ = !buildings.empty() && std::ranges::none_of(buildings, [](const Building& building) {
+        return building.purposeType.has_value();
+    });
 }
 
 const char* BuildingsPanelTab::GetTabName() const {
@@ -475,14 +479,12 @@ void BuildingsPanelTab::RenderBuildingStyleFilter_() {
     const auto& styles = GetBuildingStyles_();
     const auto& context = GetBuildingStyleContext_();
 
-    std::unordered_set<uint32_t> visibleStyleIds;
-    visibleStyleIds.reserve(styles.size());
-    for (const auto& style : styles) {
-        visibleStyleIds.insert(style.id);
+    // The list of styles is only final in a city. Keep what was selected until then.
+    if (context.availabilityKnown) {
+        std::erase_if(filter_.selectedBuildingStyles, [&](const uint32_t styleId) {
+            return !context.availableStyleIds.contains(styleId);
+        });
     }
-    std::erase_if(filter_.selectedBuildingStyles, [&](const uint32_t styleId) {
-        return !visibleStyleIds.contains(styleId);
-    });
 
     std::string preview = filter_.selectedBuildingStyles.empty()
         ? "All building styles"
@@ -491,27 +493,32 @@ void BuildingsPanelTab::RenderBuildingStyleFilter_() {
     if (ImGui::CollapsingHeader("Building Styles")) {
         ImGui::TextUnformatted(preview.c_str());
 
-        const bool styleApiAvailable = buildingStyleService_ && buildingStyleService_->HasStyleInfoApi();
+        const bool styleApiAvailable = buildingStyleService_->HasStyleInfoApi();
         const bool runtimeCatalogReady = styleApiAvailable && !buildingStyleService_->GetAvailableStyles().empty();
 
+        if (cacheNeedsRebuild_) {
+            ImGui::TextDisabled("Rebuild the plugin cache to get the style data of your buildings.");
+        }
+
         if (!styleApiAvailable) {
-            ImGui::TextDisabled("Custom style names unavailable; showing cached style IDs.");
+            ImGui::TextDisabled("Only the Maxis styles show. The More Building Styles DLL is not installed.");
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip(
-                    "Install and enable SC4MoreBuildingStyles.dll plus the Building Style Control and style "
-                    "definition files used by your setup to display custom style names.");
+                ImGui::SetTooltip("To use custom styles, install SC4MoreBuildingStyles.dll.\n"
+                                  "Also install the Building Style Control and the style definition files for your setup.");
             }
         }
         else {
             if (!runtimeCatalogReady) {
-                ImGui::TextDisabled("Load a city to resolve runtime style names and active styles.");
+                ImGui::TextDisabled("Load a city to see the custom styles and the active styles.");
             }
 
             ImGui::BeginDisabled(!context.activeStylesKnown);
             ImGui::Checkbox("Compatible with active styles", &filter_.activeStylesOnly);
             ImGui::EndDisabled();
-            if (!context.activeStylesKnown && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Active styles are available after a city has loaded.");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("%s", context.activeStylesKnown
+                                            ? "Show only buildings with a style that is checked in the Building Style Control."
+                                            : "Load a city to use this filter.");
             }
         }
 
@@ -585,47 +592,17 @@ void BuildingsPanelTab::ApplyFilters_() {
     }
 }
 
-void BuildingsPanelTab::InitializeFallbackBuildingStyles_() {
-    std::unordered_set<uint32_t> ids{0x2000, 0x2001, 0x2002, 0x2003};
-    for (const auto& building : lots_->GetBuildings()) {
-        if (building.buildingStyles.has_value()) {
-            for (const uint32_t styleId : *building.buildingStyles) {
-                if (!BuildingStyleResolver::IsReservedStyleId(styleId)) {
-                    ids.insert(styleId);
-                }
-            }
-        }
-    }
-
-    fallbackBuildingStyles_.reserve(ids.size());
-    for (const uint32_t id : ids) {
-        std::string name;
-        switch (id) {
-        case 0x2000: name = "Chicago 1890"; break;
-        case 0x2001: name = "New York 1940"; break;
-        case 0x2002: name = "Houston 1990"; break;
-        case 0x2003: name = "Euro-Contemporary"; break;
-        default: name = std::format("Style 0x{:X}", id); break;
-        }
-        fallbackBuildingStyles_.push_back({id, std::move(name)});
-        fallbackBuildingStyleContext_.availableStyleIds.insert(id);
-    }
-
-    std::ranges::sort(fallbackBuildingStyles_, [](const BuildingStyleEntry& lhs, const BuildingStyleEntry& rhs) {
-        return lhs.name < rhs.name;
-    });
-}
-
 const std::vector<BuildingStyleEntry>& BuildingsPanelTab::GetBuildingStyles_() const {
-    if (buildingStyleService_ && !buildingStyleService_->GetAvailableStyles().empty()) {
-        return buildingStyleService_->GetAvailableStyles();
-    }
-    return fallbackBuildingStyles_;
+    static const std::vector<BuildingStyleEntry> kMaxisStyles{
+        {0x2000, "Chicago 1890"},
+        {0x2003, "Euro-Contemporary"},
+        {0x2002, "Houston 1990"},
+        {0x2001, "New York 1940"},
+    };
+    const auto& available = buildingStyleService_->GetAvailableStyles();
+    return available.empty() ? kMaxisStyles : available;
 }
 
 const BuildingStyleContext& BuildingsPanelTab::GetBuildingStyleContext_() const {
-    if (buildingStyleService_) {
-        return buildingStyleService_->GetContext();
-    }
-    return fallbackBuildingStyleContext_;
+    return buildingStyleService_->GetContext();
 }

@@ -13,7 +13,8 @@ struct BuildingStyleContext {
     std::unordered_set<uint32_t> activeStyleIds;
     bool availabilityKnown = false;
     bool activeStylesKnown = false;
-    bool useAllStylesAtOnce = false;
+    // The More Building Styles DLL is missing, so the game does not read the Building Styles property.
+    bool explicitStylesIgnored = false;
 };
 
 class BuildingStyleResolver {
@@ -59,7 +60,8 @@ public:
     }
 
     [[nodiscard]] static bool UsesExplicitStyles(const Building& building, const BuildingStyleContext& context = {}) {
-        if (!building.buildingStyles.has_value() || IsOldPimxStylePlaceholder(building)) {
+        if (context.explicitStylesIgnored || !building.buildingStyles.has_value() ||
+            IsOldPimxStylePlaceholder(building)) {
             return false;
         }
 

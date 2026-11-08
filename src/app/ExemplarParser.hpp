@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BuildingStyleExemplar.hpp"
 #include "DBPFReader.h"
 #include "ExemplarReader.h"
 #include "PropertyMapper.hpp"
@@ -26,11 +27,6 @@ constexpr auto kItemDescriptionKey = "Item Description Key";
 constexpr auto kItemDescription = "Item Description";
 constexpr auto kExemplarId = "Exemplar ID";
 constexpr auto kOccupantGroups = "OccupantGroups";
-constexpr auto kBuildingStylesPropertyId = 0xAA1DD400u;
-constexpr auto kBuildingIsWallToWallPropertyId = 0xAA1DD401u;
-constexpr auto kBuildingStylesPimxTemplateMarkerPropertyId = 0xAA1DD402u;
-constexpr auto kBuildingPurposePropertyId = 0x27812833u;
-constexpr auto kExemplarCategoryPropertyId = 0x2C8F8746u;
 constexpr auto kLotConfigSize = "LotConfigPropertySize";
 constexpr auto kLotConfigObject = "LotConfigPropertyLotObject";
 constexpr auto kLotConfigZoneType = "LotConfigPropertyZoneTypes";
@@ -83,11 +79,7 @@ struct ParsedBuildingExemplar {
     std::string name;
     std::string description;
     std::vector<uint32_t> occupantGroups;
-    std::optional<std::vector<uint32_t>> buildingStyles;
-    std::optional<bool> buildingIsWallToWall;
-    std::optional<uint8_t> purposeType;
-    std::optional<uint32_t> exemplarCategory;
-    std::optional<bool> buildingStylesPimxTemplateMarker;
+    BuildingStyleExemplarData styleData;
     std::vector<uint32_t> familyIds; // Building/prop Family values
     std::optional<DBPF::Tgi> iconTgi;
     std::optional<DBPF::Tgi> modelTgi;
