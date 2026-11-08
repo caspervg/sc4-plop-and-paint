@@ -45,7 +45,7 @@ public:
     [[nodiscard]] int32_t PackIndexOf(uint32_t instanceId) const;
     [[nodiscard]] const std::vector<TexturePack>& Packs() const;
 
-    // Base (opaque) or overlay (has transparency); Unknown until ClassifySome got to it.
+    // Base (opaque) or overlay (has transparency). Unknown until ClassifySome got to it.
     [[nodiscard]] decals::TextureKind KindOf(uint32_t instanceId) const;
     // Reads textures not classified yet for up to the budget, in ID order. True when all are done.
     // Every texture is read from its file, so this is spread over frames, and only done on demand.

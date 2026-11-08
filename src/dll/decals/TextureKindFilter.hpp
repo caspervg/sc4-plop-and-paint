@@ -27,15 +27,15 @@ struct TextureKindFilter {
         const size_t before = decals.ClassifiedCount();
         bool changed = ImGui::Checkbox("Base", &base);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Opaque textures, that cover the ground.");
+            ImGui::SetTooltip("Show solid textures. These fully cover the ground.");
         }
         ImGui::SameLine();
         changed |= ImGui::Checkbox("Overlay", &overlay);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Textures with transparent parts, that lie over others: markings, cracks, dirt.");
+            ImGui::SetTooltip("Show textures with transparent parts. These go on top of other textures, for example markings and dirt.");
         }
         if (Active() && !decals.ClassifySome(std::chrono::milliseconds(6))) {
-            ImGui::TextDisabled("Sorting textures into base and overlay: %zu of %zu", decals.ClassifiedCount(),
+            ImGui::TextDisabled("Textures sorted into base and overlay: %zu of %zu", decals.ClassifiedCount(),
                                 decals.Count());
         }
         return changed || decals.ClassifiedCount() != before;

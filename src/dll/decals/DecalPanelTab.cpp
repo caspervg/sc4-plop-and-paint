@@ -660,7 +660,7 @@ void DecalPanelTab::RenderSettingsModal_() {
         state.uvWindow.mode = TerrainDecalUvMode::ClipSubrect;
     }
     if (uvPickerSourceSize_.x > 0.0f && uvPickerSourceSize_.y > 0.0f) {
-        ImGui::TextDisabled("Texture %.0f x %.0f px. Drag to select; bounds snap to pixels.",
+        ImGui::TextDisabled("Texture %.0f x %.0f px. Drag to select an area. The edges snap to the pixels.",
                             uvPickerSourceSize_.x,
                             uvPickerSourceSize_.y);
     }

@@ -1227,7 +1227,7 @@ std::string GroundPainterInputControl::StatusText() const {
         if (points == 0) {
             return area ? "Click in the city to place the first corner." : "Click in the city where the line starts.";
         }
-        return count() + (area ? "Click to add corners; click the first one again or press Enter to finish. "
+        return count() + (area ? "Click to add corners. To finish, click the first corner again or press Enter. "
                                : "Click to continue the line. ") +
                finish;
     }
@@ -1248,7 +1248,7 @@ std::string GroundPainterInputControl::StatusText() const {
             return points == 0 ? "Click where the lines start." : count() + "Click to continue the lines. " + finish;
         case MarkingKind::Hatching:
             return points == 0 ? "Click the first corner of the area to hatch. The stripes run at an angle to its first side."
-                               : count() + "Click to add corners; click the first one again or press Enter to finish.";
+                               : count() + "Click to add corners. To finish, click the first corner again or press Enter.";
         case MarkingKind::Text:
             if (settings_.marking.text.empty()) {
                 return "Type the text in the panel first.";

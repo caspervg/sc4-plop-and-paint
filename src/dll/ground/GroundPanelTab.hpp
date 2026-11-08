@@ -49,7 +49,7 @@ private:
     // followsLine: the shape is a line, whose texture can follow it.
     void RenderLookEditor_(Ground::Look& look, bool followsLine, LookEditorState& state, bool& changed, bool& committed);
     void RenderChosenTextures_(Ground::Look& look, bool& changed, bool& committed);
-    // Tint, size, turn and shift on one line; only the repeat length when the texture follows a line.
+    // Tint, size, turn and shift on one line. Only the repeat length when the texture follows a line.
     void RenderTextureLayout_(Ground::Look& look, bool following, bool& changed, bool& committed);
     void RenderTextureLibrary_(Ground::Look& look, bool& committed);
     // A texture tile: its thumbnail, outlined when in use. True when clicked.

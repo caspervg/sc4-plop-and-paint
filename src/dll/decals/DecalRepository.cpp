@@ -147,7 +147,7 @@ decals::TextureKind DecalRepository::KindOf(const uint32_t instanceId) const {
 }
 
 bool DecalRepository::ClassifySome(const std::chrono::microseconds budget) {
-    // ponytail: classified again every session (a few seconds for thousands of textures); keep them
+    // ponytail: classified again every session (a few seconds for thousands of textures). Keep them
     // in a cache file if that gets slow.
     const auto end = std::chrono::steady_clock::now() + budget;
     while (classified_ < instanceIds_.size() && std::chrono::steady_clock::now() < end) {

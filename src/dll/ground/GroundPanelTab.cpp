@@ -598,10 +598,10 @@ void GroundPanelTab::RenderStatus_() {
     const bool painting = painter && director_->IsGroundPainting();
     const std::string text =
         painting          ? painter->StatusText()
-        : pickingTexture_ ? "Click a texture in the city: a decal, or a lot's base or overlay texture. Alt+scroll "
-                            "picks among those on top of each other; Esc cancels."
-                          : "Pick a tool above. Area, Line, Brush and Marking paint the ground; Select changes what "
-                            "was painted; Erase rubs it out.";
+        : pickingTexture_ ? "Click a texture in the city. You can click a decal, or the base or overlay texture of a "
+                            "lot. If textures overlap, hold Alt and scroll to change between them. Press Esc to cancel."
+                          : "Click a tool above. Use Area, Line, Brush or Marking to paint the ground. Use Select to "
+                            "change the paint. Use Erase to remove it.";
 
     static const std::string kNoMeasure;
     const std::string& measure = painting ? painter->MeasureText() : kNoMeasure;
@@ -739,13 +739,13 @@ void GroundPanelTab::RenderShapeSettings_() {
         const bool brush = tool == Tool::Brush || (tool == Tool::Erase && settings_.eraseWithBrush);
         if (tool == Tool::Erase) {
             changed |= ImGui::Checkbox("Brush", &settings_.eraseWithBrush);
-            Tooltip("Rub out with a round brush instead of a shape.");
+            Tooltip("Remove paint with a round brush, not with a shape.");
             ImGui::SameLine();
         }
         if (tool == Tool::Brush) {
             changed |= ImGui::Checkbox("Join", &settings_.joinBrushStrokes);
-            Tooltip("A stroke over one painted the same way becomes part of it,\n"
-                    "so a patch of ground stays one object in the list.");
+            Tooltip("When a new stroke touches a stroke with the same look, the two become one.\n"
+                    "The list then shows one object for that area.");
             ImGui::SameLine();
         }
         const int count =
@@ -754,13 +754,13 @@ void GroundPanelTab::RenderShapeSettings_() {
         ImGui::SetNextItemWidth(width);
         if (brush) {
             changed |= ImGui::DragFloat("##brush", &settings_.brushRadius, 0.05f, 0.25f, 64.0f, "Brush %.2f m radius");
-            Tooltip("Brush size ([ and ]).");
+            Tooltip("The brush size. Press [ or ] to change it.");
         }
         else {
             int style = static_cast<int>(settings_.drawStyle);
             changed |= ImGui::Combo("##draw", &style, "Straight lines\0Curves\0Freehand\0");
             settings_.drawStyle = static_cast<DrawStyle>(style);
-            Tooltip("Straight lines between the clicks, a curve through them, or freehand while dragging.");
+            Tooltip("Draw straight lines between your clicks, a curve through your clicks, or a freehand line.");
         }
         if (tool == Tool::Area) {
             ImGui::SameLine();
@@ -782,7 +782,7 @@ void GroundPanelTab::RenderShapeSettings_() {
             ImGui::SetNextItemWidth(width);
             changed |= ImGui::DragFloat("##dashes", &settings_.dashLength, 0.05f, 0.0f, 50.0f,
                                         settings_.dashLength > 0.0f ? "Dashes %.2f m" : "Solid");
-            Tooltip("Drag to the right for a dashed line.");
+            Tooltip("Drag to the right to make a dashed line.");
             if (settings_.dashLength > 0.0f) {
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(width);
@@ -821,15 +821,17 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
         ReleaseImGuiInputCapture_();
         pickingTexture_ = director_->StartDecalPicking([this](const uint32_t id) { pickedTexture_ = id; });
     }
-    Tooltip("Click a decal or a lot's base or overlay texture in the city to paint with it.\n"
-            "Alt+scroll picks among those on top of each other; Esc cancels.\n"
-            "To paint like ground painted here, use Copy look.");
+    Tooltip("Click a texture in the city to paint with it.\n"
+            "You can click a decal, or the base or overlay texture of a lot.\n"
+            "If textures overlap, hold Alt and scroll to change between them.\n"
+            "Press Esc to cancel.\n"
+            "To copy the look of ground that you painted, use Copy look.");
 
     if (textured && followsLine) {
         ImGui::SameLine();
         ImGui::Checkbox("Follow the line", &look.followPath);
         Track(changed, committed);
-        Tooltip("The texture runs along the line and spans its width, like a track or a kerb.");
+        Tooltip("The texture goes along the line and fills its width. Use this for a track or a kerb.");
     }
 
     if (!textured) {
@@ -863,8 +865,9 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
                 look.mix = static_cast<TextureMix>(mix);
                 committed = true;
             }
-            Tooltip("In soft patches: the first texture covers the shape and the others lie on it\n"
-                    "in natural, blended patches, each by its share.");
+            Tooltip("With soft patches, the first texture covers the shape.\n"
+                    "The other textures show on top in natural patches.\n"
+                    "The share of each texture sets its area.");
             if (patches) {
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(width);
@@ -875,7 +878,7 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
                 ImGui::DragFloat("##patchBlend", &look.patchBlendMeters, 0.05f, 0.0f, 32.0f,
                                  look.patchBlendMeters > 0.0f ? "Blend %.2f m" : "Sharp patches");
                 Track(changed, committed);
-                Tooltip("How far the edge of each patch fades into what lies under it.");
+                Tooltip("The distance over which the edge of each patch fades into the ground below it.");
             }
         }
     }
@@ -885,14 +888,14 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
 void GroundPanelTab::RenderTextureLayout_(Look& look, const bool following, bool& changed, bool& committed) {
     ImGui::ColorEdit3("##tint", look.color.data(), ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
     Track(changed, committed);
-    Tooltip("Tint. White leaves the texture as it is.");
+    Tooltip("The tint. White does not change the texture.");
     ImGui::SameLine();
     const float width = ShareOfLine(following ? 1 : 4);
     ImGui::SetNextItemWidth(width);
     ImGui::DragFloat("##size", &look.textureSizeMeters, 0.1f, 0.5f, 256.0f,
                      following ? "Repeats every %.1f m" : "Size %.1f m");
     Track(changed, committed);
-    Tooltip(following ? "How long one repeat of the texture is along the line." : "How big one copy of the texture is.");
+    Tooltip(following ? "The length of one repeat of the texture along the line." : "The size of one copy of the texture.");
     if (following) {
         return;
     }
@@ -900,8 +903,8 @@ void GroundPanelTab::RenderTextureLayout_(Look& look, const bool following, bool
     ImGui::SetNextItemWidth(width);
     ImGui::DragFloat("##turn", &look.textureRotationDegrees, 0.5f, -360.0f, 360.0f, "Turn %.0f°");
     Track(changed, committed);
-    constexpr const char* kShiftTip = "Moves the texture, to line it up with a kerb or a lot.\n"
-                                      "With Select, Shift+drag the painted ground in the city to move its texture.";
+    constexpr const char* kShiftTip = "Move the texture to align it with a kerb or a lot.\n"
+                                      "You can also use the Select tool. Hold Shift and drag the painted ground in the city.";
     ImGui::SameLine();
     ImGui::SetNextItemWidth(width);
     ImGui::DragFloat("##shiftX", &look.textureOffset[0], 0.05f, -256.0f, 256.0f, "Shift x %.2f m");
@@ -1211,7 +1214,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
     ImGui::TextDisabled("%zu textures. Click to paint with one, Ctrl+click to mix several, right-click for a favourite.",
                         shown.size());
 
-    // About seven rows; drag its bottom edge for more or fewer.
+    // About seven rows. Drag its bottom edge for more or fewer.
     const ImGuiStyle& gridStyle = ImGui::GetStyle();
     const float gridHeight = 7.0f * (kPickerThumbSize + gridStyle.FramePadding.y * 2.0f + gridStyle.ItemSpacing.y) +
                              gridStyle.WindowPadding.y * 2.0f;
@@ -1415,16 +1418,16 @@ void GroundPanelTab::RenderPlanting_(const uint32_t objectId) {
         director_->PlantOnGround(objectId, false);
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Its painter opens in Polygon mode with this shape as the sketch; holes stay empty.\n"
-                          "- and + change the density, Enter places them.");
+        ImGui::SetTooltip("The painter opens in Polygon mode and uses this shape as the sketch.\n"
+                          "Holes stay empty. Press - or + to change the density. Press Enter to place the items.");
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Plant along it")) {
         director_->PlantOnGround(objectId, true);
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Its painter opens in Line mode along this line, or round the edge of this shape.\n"
-                          "- and + change the spacing, Enter places them.");
+        ImGui::SetTooltip("The painter opens in Line mode along this line, or around the edge of this shape.\n"
+                          "Press - or + to change the spacing. Press Enter to place the items.");
     }
     ImGui::TextDisabled("In the Line and Polygon modes of the prop and flora painters, F over painted ground does the same.");
     ImGui::PopID();
@@ -1458,7 +1461,7 @@ void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uin
     }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("A new shape along the edge, such as a kerb, a gravel edge or a beach.\n"
-                          "It starts painted the same way; pick its own look next.");
+                          "It starts with the same look. You can then give it a different look.");
     }
 
     ImGui::SetNextItemWidth(110.0f);
