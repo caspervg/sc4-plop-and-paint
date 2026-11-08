@@ -111,6 +111,8 @@ public:
     void UpdateGroundPainting(const Ground::ToolSettings& settings);
     void StopGroundPainting();
     [[nodiscard]] bool IsGroundPainting() const;
+    // One of this plugin's painters, strippers or pickers has the city's mouse.
+    [[nodiscard]] bool IsAnyToolActive() const;
     [[nodiscard]] Ground::GroundPaintDocument* GetGroundDocument() const;
     [[nodiscard]] const GroundPainterInputControl* GetGroundPainter() const;
     [[nodiscard]] GroundPainterInputControl* GetGroundPainter();

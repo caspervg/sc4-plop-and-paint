@@ -1835,6 +1835,11 @@ bool SC4PlopAndPaintDirector::IsGroundPainting() const {
     return groundPainting_;
 }
 
+bool SC4PlopAndPaintDirector::IsAnyToolActive() const {
+    return propPainting_ || floraPainting_ || floraStripping_ || decalPainting_ || decalStripping_ || propStripping_ ||
+           groundPainting_ || scenePicking_;
+}
+
 Ground::GroundPaintDocument* SC4PlopAndPaintDirector::GetGroundDocument() const {
     return groundDocument_.get();
 }

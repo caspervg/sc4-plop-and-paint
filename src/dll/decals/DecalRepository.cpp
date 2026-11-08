@@ -21,6 +21,8 @@ namespace {
 void DecalRepository::Populate(cIGZPersistResourceManager* pRM) {
     instanceIds_.clear();
     preferred_.clear();
+    kinds_.clear();
+    classified_ = 0;
     pRM_ = pRM;
     if (!pRM) {
         LOG_WARN("DecalRepository::Populate called with null resource manager");
@@ -57,12 +59,15 @@ void DecalRepository::Populate(cIGZPersistResourceManager* pRM) {
         LOG_INFO("DecalRepository: deduplicated {} duplicate zoom-4 decal texture entries", duplicateCount);
     }
 
+    kinds_.assign(instanceIds_.size(), decals::TextureKind::Unknown);
     LOG_INFO("DecalRepository: found {} unique zoom-4 decal textures", instanceIds_.size());
 }
 
 void DecalRepository::Clear() {
     instanceIds_.clear();
     preferred_.clear();
+    kinds_.clear();
+    classified_ = 0;
     pRM_ = nullptr;
 }
 
@@ -133,4 +138,21 @@ int32_t DecalRepository::PackIndexOf(const uint32_t instanceId) const {
 const std::vector<TexturePack>& DecalRepository::Packs() const {
     static const std::vector<TexturePack> kNone;
     return packs_ ? packs_->Packs() : kNone;
+}
+
+decals::TextureKind DecalRepository::KindOf(const uint32_t instanceId) const {
+    const auto it = std::lower_bound(instanceIds_.begin(), instanceIds_.end(), instanceId);
+    return it != instanceIds_.end() && *it == instanceId ? kinds_[static_cast<size_t>(it - instanceIds_.begin())]
+                                                         : decals::TextureKind::Unknown;
+}
+
+bool DecalRepository::ClassifySome(const std::chrono::microseconds budget) {
+    // ponytail: classified again every session (a few seconds for thousands of textures). Keep them
+    // in a cache file if that gets slow.
+    const auto end = std::chrono::steady_clock::now() + budget;
+    while (classified_ < instanceIds_.size() && std::chrono::steady_clock::now() < end) {
+        kinds_[classified_] = decals::ClassifyDecalTexture(pRM_, instanceIds_[classified_]);
+        ++classified_;
+    }
+    return classified_ == instanceIds_.size();
 }

@@ -67,7 +67,7 @@ void PropPanelTab::OnRender() {
     const auto& props = props_->GetProps();
 
     if (props.empty()) {
-        ImGui::TextUnformatted("No props loaded. Please ensure props.cbor exists in the Plugins directory.");
+        ImGui::TextUnformatted("No props loaded. Make sure that props.cbor is in the Plugins folder.");
         return;
     }
 
@@ -113,7 +113,7 @@ void PropPanelTab::OnRender() {
             ImGui::EndDisabled();
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click an existing city, lot, or street prop to select it here.");
+            ImGui::SetTooltip("Click a city, lot or street prop to select it here.");
         }
     }
 
@@ -712,8 +712,8 @@ void PropPanelTab::RenderSeasonalSetEditor_() {
         return;
     }
 
-    ImGui::TextWrapped("Custom seasonal sets are painted and stripped as one stack. "
-                       "A custom set overrides any auto-detected set that shares a member.");
+    ImGui::TextWrapped("You paint and remove a custom seasonal set as one stack. "
+                       "A custom set replaces any automatic set that has a member in common.");
     ImGui::InputTextWithHint("##NewSetName", "New set name", newSeasonalSetName_, sizeof(newSeasonalSetName_));
     ImGui::SameLine();
     if (ImGui::Button("Create") && newSeasonalSetName_[0] != '\0') {
@@ -1059,9 +1059,9 @@ void PropPanelTab::RenderRotationModal_() {
                     : SketchHeightMode::Terrain;
             }
         }
-        ImGui::TextDisabled("Use [ ] +/-1.0m, Shift+[ ] +/-5.0m, Shift+Alt+[ ] +/-0.1m.");
+        ImGui::TextDisabled("Press [ to lower or ] to raise by 1.0 m. Hold Shift for 5.0 m, or Shift+Alt for 0.1 m.");
         if (pendingPaint_.settings.mode == PaintMode::Direct) {
-            ImGui::TextDisabled("Press H in-game to capture the absolute reference height.");
+            ImGui::TextDisabled("Press H in the city to set the absolute reference height.");
         }
         static constexpr const char* kPreviewModeLabels[] = {
             "Outline only",
@@ -1072,7 +1072,7 @@ void PropPanelTab::RenderRotationModal_() {
         ImGui::Combo("Direct preview", &previewMode, kPreviewModeLabels, IM_ARRAYSIZE(kPreviewModeLabels));
         pendingPaint_.settings.previewMode = static_cast<PreviewMode>(previewMode);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Used only for direct paint mode. Line and polygon previews always use the outline overlay.");
+            ImGui::SetTooltip("This applies only to direct paint mode. Line and polygon previews always show the outline.");
         }
 
         if (pendingPaint_.settings.mode == PaintMode::Line) {
@@ -1081,27 +1081,27 @@ void PropPanelTab::RenderRotationModal_() {
             ImGui::Checkbox("Align to path direction", &pendingPaint_.settings.alignToPath);
             ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
             ImGui::SliderFloat("Lateral jitter (m)", &pendingPaint_.settings.randomOffset, 0.0f, 5.0f, "%.1f");
-            ImGui::TextWrapped("Click to add line points. Enter places props. Backspace removes the last point.");
+            ImGui::TextWrapped("Click to add line points. Press Enter to place the props. Press Backspace to remove the last point.");
         }
         else if (pendingPaint_.settings.mode == PaintMode::Polygon) {
             ImGui::Separator();
             ImGui::SliderFloat("Density (/100 m^2)", &pendingPaint_.settings.densityPer100Sqm, 0.1f, 10.0f, "%.2f");
             ImGui::SliderFloat("Density variation", &pendingPaint_.settings.densityVariation, 0.0f, 1.0f, "%.2f");
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("0 = uniform fill, 1 = patchier clusters and gaps.");
+                ImGui::SetTooltip("0 gives an even fill. 1 gives more clusters and gaps.");
             }
             ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
-            ImGui::TextWrapped("Click to add polygon vertices. Enter fills with props. Backspace removes the last vertex.");
+            ImGui::TextWrapped("Click to add polygon corners. Press Enter to fill the polygon with props. Press Backspace to remove the last corner.");
         }
         else {
-            ImGui::TextWrapped("Click to place props directly. Enter commits placed props.");
+            ImGui::TextWrapped("Click to place props. Press Enter to keep the props that you placed.");
         }
 
         if (const SeasonalSet* set = props_ ? props_->FindSeasonalSetForProp(pendingPaint_.propId) : nullptr) {
             ImGui::Separator();
             ImGui::Checkbox("Paint full seasonal set", &pendingPaint_.settings.paintSeasonalSets);
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Places all %zu members of '%s' at the same spot so the model follows the seasons.",
+                ImGui::SetTooltip("Place all %zu members of '%s' at the same location. The model then changes with the seasons.",
                                   set->members.size(), set->name.c_str());
             }
         }

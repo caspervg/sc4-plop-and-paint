@@ -66,7 +66,7 @@ bool PackFilter::Render(const char* const id, const char* const itemsName) {
     ImGui::SetNextItemWidth(-1);
     if (!ImGui::BeginCombo(id, label(selected_).c_str(), ImGuiComboFlags_HeightLarge)) {
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Show only %s from one pack, as the SC4 Prop Texture Catalog knows them.", itemsName);
+            ImGui::SetTooltip("Show only %s from one pack. The pack data comes from the SC4 Prop Texture Catalog.", itemsName);
         }
         return false;
     }
