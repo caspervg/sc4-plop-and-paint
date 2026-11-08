@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BuildingStyleExemplar.hpp"
 #include "DBPFReader.h"
 #include "ExemplarReader.h"
 #include "PropertyMapper.hpp"
@@ -78,6 +79,7 @@ struct ParsedBuildingExemplar {
     std::string name;
     std::string description;
     std::vector<uint32_t> occupantGroups;
+    BuildingStyleExemplarData styleData;
     std::vector<uint32_t> familyIds; // Building/prop Family values
     std::optional<DBPF::Tgi> iconTgi;
     std::optional<DBPF::Tgi> modelTgi;

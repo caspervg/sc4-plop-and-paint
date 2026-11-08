@@ -37,6 +37,11 @@ inline bool operator==(const Building& lhs, const Building& rhs) {
            lhs.name == rhs.name &&
            lhs.description == rhs.description &&
            lhs.occupantGroups == rhs.occupantGroups &&
+           lhs.buildingStyles == rhs.buildingStyles &&
+           lhs.buildingIsWallToWall == rhs.buildingIsWallToWall &&
+           lhs.purposeType == rhs.purposeType &&
+           lhs.exemplarCategory == rhs.exemplarCategory &&
+           lhs.buildingStylesPimxTemplateMarker == rhs.buildingStylesPimxTemplateMarker &&
            lhs.thumbnail == rhs.thumbnail &&
            lhs.lots == rhs.lots;
 }
@@ -255,6 +260,11 @@ TEST_CASE("Building CBOR serialization and deserialization", "[cbor][building]")
         .name = "Test Building",
         .description = "A test building for CBOR serialization",
         .occupantGroups = {0xDEADBEEF, 0xCAFEBABE},
+        .buildingStyles = std::vector<uint32_t>{0x2000, 0x20A0},
+        .buildingIsWallToWall = true,
+        .purposeType = 2,
+        .exemplarCategory = 0x12345678,
+        .buildingStylesPimxTemplateMarker = true,
         .thumbnail = Thumbnail{Icon{
             .data = rfl::Bytestring(std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}}),
             .width = 256,
@@ -281,6 +291,36 @@ TEST_CASE("Building CBOR serialization and deserialization", "[cbor][building]")
     auto deserialized = rfl::cbor::read<Building>(cbor_bytes);
     REQUIRE(deserialized);
     REQUIRE(*deserialized == original);
+}
+
+TEST_CASE("Building CBOR accepts caches created before building-style fields", "[cbor][building][compatibility]") {
+    struct LegacyBuilding {
+        rfl::Hex<uint32_t> instanceId;
+        rfl::Hex<uint32_t> groupId;
+        std::string name;
+        std::string description;
+        std::unordered_set<uint32_t> occupantGroups;
+        std::optional<Thumbnail> thumbnail;
+        std::vector<Lot> lots;
+    };
+
+    LegacyBuilding legacy{
+        .instanceId = rfl::Hex<uint32_t>(0x12345678),
+        .groupId = rfl::Hex<uint32_t>(0x87654321),
+        .name = "Legacy building",
+        .description = "No More Building Styles fields",
+        .occupantGroups = {0x2000},
+        .thumbnail = std::nullopt,
+        .lots = {}
+    };
+
+    const auto cborBytes = rfl::cbor::write(legacy);
+    const auto deserialized = rfl::cbor::read<Building>(cborBytes);
+
+    REQUIRE(deserialized);
+    REQUIRE_FALSE(deserialized->buildingStyles.has_value());
+    REQUIRE_FALSE(deserialized->buildingIsWallToWall.has_value());
+    REQUIRE_FALSE(deserialized->buildingStylesPimxTemplateMarker.has_value());
 }
 
 TEST_CASE("Lot CBOR serialization and deserialization", "[cbor][lot]") {

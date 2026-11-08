@@ -39,8 +39,10 @@ Filters:
 - Zone: `Any zone`, `Residential (R)`, `Commercial (C)`, `Industrial (I)`, `Plopped`, `None`, `Other`
 - Wealth: `Any wealth`, `$`, `$$`, `$$$`
 - Growth stage: `Any stage`, `Plopped (255)`, `0` through `15`
+- Wall-to-wall: `Any W2W`, `W2W only`, `Non-W2W only`
 - `Favorites only`
 - `Width` and `Depth` min/max sliders
+- `Building Styles`: expandable list of styles with `Clear styles`
 - `Occupant Groups`: expandable tree filter with `Clear OGs`
 - `Clear filters`: resets all of the above
 
@@ -50,6 +52,15 @@ Important behavior:
 - The upper table lists buildings. Single-click selects one.
 - Double-clicking a building row auto-plops only when that building has exactly one lot.
 - The lower table shows the selected building's lots.
+
+Building styles and wall-to-wall buildings:
+
+- Select one or more styles to show the buildings that can use any of them.
+- `Compatible with active styles` shows only the buildings with a style that is checked in the game's Building Style Control. Load a city to use this filter.
+- A `W2W` pill shows on wall-to-wall buildings.
+- Custom styles need the [More Building Styles](https://github.com/0xC0000054/sc4-more-building-styles) DLL. Without this DLL, only the four Maxis styles show, because the game does not read the Building Styles property.
+- Industrial buildings without a Building Styles property can use all styles.
+- If you built your cache with an older version, run the cache builder again. Until you do, the style and wall-to-wall data is not complete.
 
 Lot actions:
 

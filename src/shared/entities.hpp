@@ -48,6 +48,14 @@ struct Building {
 
     std::unordered_set<uint32_t> occupantGroups;
 
+    // More Building Styles exemplar data. Optional values preserve the
+    // distinction between an absent property and an explicit empty/false one.
+    std::optional<std::vector<uint32_t>> buildingStyles;
+    std::optional<bool> buildingIsWallToWall;
+    std::optional<uint8_t> purposeType; // Purpose (0x27812833)
+    std::optional<uint32_t> exemplarCategory; // Exemplar Category (0x2C8F8746)
+    std::optional<bool> buildingStylesPimxTemplateMarker;
+
     std::optional<Thumbnail> thumbnail;
 
     std::vector<Lot> lots;

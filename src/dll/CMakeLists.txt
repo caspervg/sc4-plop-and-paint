@@ -46,6 +46,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/vendor/mINI/src
     ${SC4RS_ROOT}/src
     ${CMAKE_SOURCE_DIR}/vendor/DBPFKit/src
+    ${CMAKE_SOURCE_DIR}/vendor/sc4-more-building-styles/src/public/include
 )
 
 find_package(Clipper2 CONFIG REQUIRED)
