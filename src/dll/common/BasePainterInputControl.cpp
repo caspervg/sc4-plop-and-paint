@@ -1230,8 +1230,12 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
         polygonPreviewDirty_ = false;
     }
 
-    std::vector<PaintOverlay::PreviewPlacement> polygonPlacements = cachedPolygonPlacements_;
-    if (points.empty() && cursorValid_) {
+    // Until there is an area to fill, preview the item under the cursor.
+    std::vector<PaintOverlay::PreviewPlacement> polygonPlacements;
+    if (points.size() >= 3) {
+        polygonPlacements = cachedPolygonPlacements_;
+    }
+    else if (cursorValid_) {
         PaintOverlay::PreviewPlacement pp;
         pp.placement.position = ResolveCursorSketchPoint_();
         pp.placement.position.fY += GetActiveVerticalOffset_();
