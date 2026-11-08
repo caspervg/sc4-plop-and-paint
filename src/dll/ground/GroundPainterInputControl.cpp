@@ -1210,7 +1210,7 @@ std::string GroundPainterInputControl::StatusText() const {
     }
     const size_t points = anchors_.size();
     const auto count = [&] { return std::to_string(points) + (points == 1 ? " point. " : " points. "); };
-    const std::string finish = "Enter or a middle click finishes, Backspace removes the last point.";
+    const std::string finish = "Press Enter or middle-click to finish. Press Backspace to remove the last point.";
 
     switch (settings_.tool) {
     case Tool::Area:
@@ -1218,10 +1218,10 @@ std::string GroundPainterInputControl::StatusText() const {
     case Tool::Erase: {
         const bool area = settings_.tool != Tool::Line;
         if (settings_.tool == Tool::Erase && settings_.eraseWithBrush) {
-            return "Hold the left button and drag over painted ground to rub it out. [ and ] change the size.";
+            return "Hold the left button and drag over painted ground to remove it. Press [ or ] to change the size.";
         }
         if (settings_.drawStyle == DrawStyle::Freehand) {
-            return strokeActive_ ? "Let go to finish." : area ? "Hold the left button and draw round the area."
+            return strokeActive_ ? "Release the button to finish." : area ? "Hold the left button and draw around the area."
                                                               : "Hold the left button and draw the line.";
         }
         if (points == 0) {
@@ -1232,13 +1232,13 @@ std::string GroundPainterInputControl::StatusText() const {
                finish;
     }
     case Tool::Brush:
-        return strokeActive_ ? "Let go to finish the stroke."
-                             : "Hold the left button and drag to paint. [ and ] or a middle-drag change the size.";
+        return strokeActive_ ? "Release the button to finish the stroke."
+                             : "Hold the left button and drag to paint. Press [ or ], or middle-drag, to change the size.";
     case Tool::Marking:
         switch (settings_.marking.kind) {
         case MarkingKind::ParkingRow:
         case MarkingKind::CarPark:
-            return points == 0 ? "Click where the front of the row starts. The bays go on the left of the direction you click in."
+            return points == 0 ? "Click where the front of the row starts. The bays go to the left of your click direction."
                                : count() + "Click along the front of the row. " + finish;
         case MarkingKind::Zebra:
             return points == 0 ? "Click one kerb, where the crossing starts." : "Now click the other kerb.";
@@ -1253,22 +1253,22 @@ std::string GroundPainterInputControl::StatusText() const {
             if (settings_.marking.text.empty()) {
                 return "Type the text in the panel first.";
             }
-            return points == 0 ? "Click where the text starts." : "Now click which way it runs.";
+            return points == 0 ? "Click where the text starts." : "Now click to set its direction.";
         }
         break;
     case Tool::Select: {
         const size_t selected = document_ ? document_->Selection().size() : 0;
         if (selected == 0) {
-            return "Click painted ground to select it. Ctrl+click adds to the selection.";
+            return "Click painted ground to select it. Ctrl+click to add to the selection.";
         }
         if (textureDrag_) {
-            return "Let go to leave the texture here.";
+            return "Release the button to keep the texture here.";
         }
         if (PointEditTarget_()) {
-            return "Drag it to move it, or drag its points. Ctrl+click its outline adds a point, Alt+click a point removes it. "
-                   "Shift+drag moves its texture. Delete removes it.";
+            return "Drag the shape or its points to move them. Ctrl+click its outline to add a point. Alt+click a point to remove it. "
+                   "Shift+drag to move its texture. Press Delete to remove the shape.";
         }
-        return "Drag to move, Shift+drag to move the texture. , and . turn, - and = scale, Ctrl+D copies, Delete removes.";
+        return "Drag to move. Shift+drag to move the texture. Press , or . to turn. Press - or = to scale. Press Ctrl+D to copy. Press Delete to remove.";
     }
     }
     return {};

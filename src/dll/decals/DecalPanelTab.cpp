@@ -285,8 +285,8 @@ void DecalPanelTab::OnRender() {
     }
 
     if (!director_->IsDecalServiceAvailable()) {
-        ImGui::TextWrapped("Terrain decal service not available. Ensure you are running SC4 1.1.641 "
-                           "with EnableTerrainDecalService=true in SC4PlopAndPaint.ini.");
+        ImGui::TextWrapped("The terrain decal service is not available. Make sure that you use SC4 1.1.641 "
+                           "and set EnableTerrainDecalService=true in SC4PlopAndPaint.ini.");
         return;
     }
 
@@ -314,14 +314,14 @@ void DecalPanelTab::OnRender() {
         QueuePaintForDecal_(selectedInstanceId_);
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Open the paint settings for the selected decal.\nYou can also press Enter after selecting a texture.");
+        ImGui::SetTooltip("Open the paint settings for the selected decal.\nYou can also select a texture and press Enter.");
     }
     ImGui::SameLine();
     if (ImGui::Button("Paint now", ImVec2(kActionButtonWidth, 0.0f))) {
         StartPaintingDecal_(selectedInstanceId_);
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Start painting immediately with the current decal settings.");
+        ImGui::SetTooltip("Start to paint now with the current decal settings.");
     }
     if (!hasSelection) {
         ImGui::EndDisabled();
@@ -349,7 +349,7 @@ void DecalPanelTab::OnRender() {
             });
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click a placed decal or a lot base/overlay texture\nto select it in the list.\nAlt+scroll to cycle overlapping textures.\nESC to cancel.");
+            ImGui::SetTooltip("Click a decal, or the base or overlay texture of a lot,\nto select it in the list.\nIf textures overlap, hold Alt and scroll to change between them.\nPress Esc to cancel.");
         }
     }
 
@@ -365,7 +365,7 @@ void DecalPanelTab::OnRender() {
             director_->StartDecalStripping();
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click decals to remove them.\nPress B for brush mode.\nCtrl+Z to undo.\nESC to stop.");
+            ImGui::SetTooltip("Click a decal to remove it.\nPress B for brush mode.\nPress Ctrl+Z to undo.\nPress Esc to stop.");
         }
     }
 
@@ -442,7 +442,7 @@ void DecalPanelTab::RenderFilterBar_() {
     ImGui::SetNextItemWidth(UI::iidFilterWidth());
     ImGui::InputTextWithHint("##DecalIID", "IID prefix...", iidFilterBuf_, sizeof(iidFilterBuf_));
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Filter by hex instance ID prefix (e.g. '25A7')");
+        ImGui::SetTooltip("Type the start of a hex instance ID, for example 25A7.");
     }
     ImGui::SameLine();
     static constexpr const char* kWealthFilterLabels[] = {"Any wealth", "None", "$", "$$", "$$$", "Other"};
@@ -665,7 +665,7 @@ void DecalPanelTab::RenderSettingsModal_() {
                             uvPickerSourceSize_.y);
     }
     else {
-        ImGui::TextDisabled("Drag on the texture to define the UV sub-rect.");
+        ImGui::TextDisabled("Drag on the texture to select the UV area.");
     }
     RenderUvPicker_(state);
     ImGui::BeginDisabled(!state.hasUvWindow);

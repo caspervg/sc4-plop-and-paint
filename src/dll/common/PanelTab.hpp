@@ -106,10 +106,10 @@ protected:
             }
             if (ImGui::IsItemHovered()) {
                 if (hasAnySource) {
-                    ImGui::SetTooltip("Click props to remove them one by one.\nPress B to toggle brush mode.\nHold left mouse in brush mode to strip within the preview radius.\nCtrl+Z restores removed city, lot, and street props.\nESC stops stripping.");
+                    ImGui::SetTooltip("Click a prop to remove it.\nPress B to turn brush mode on or off.\nIn brush mode, hold the left mouse button to remove all props in the circle.\nPress Ctrl+Z to put back city, lot and street props.\nPress Esc to stop.");
                 }
                 else {
-                    ImGui::SetTooltip("Enable at least one prop source to start stripping.");
+                    ImGui::SetTooltip("Turn on at least one prop source before you start.");
                 }
             }
         }
@@ -133,7 +133,7 @@ protected:
                 director_->StartFloraStripping();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Click flora in the city to remove it one by one.\nPress B to toggle brush mode.\nHold left mouse in brush mode to strip within the preview radius.\nCtrl+Z to undo, ESC to stop.");
+                ImGui::SetTooltip("Click flora in the city to remove it.\nPress B to turn brush mode on or off.\nIn brush mode, hold the left mouse button to remove all flora in the circle.\nPress Ctrl+Z to undo.\nPress Esc to stop.");
             }
         }
     }
@@ -194,7 +194,7 @@ protected:
         ImGui::SameLine();
         changed |= ImGui::Checkbox("Grid", &gridView_);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Show thumbnails only. Hover for details, double-click to paint, right-click for more.");
+            ImGui::SetTooltip("Show only the thumbnails.\nMove the mouse over a thumbnail to see its details.\nDouble-click a thumbnail to paint with it.\nRight-click a thumbnail for more options.");
         }
         if (gridView_) {
             ImGui::SameLine();

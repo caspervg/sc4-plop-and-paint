@@ -35,7 +35,7 @@ void BuildingsPanelTab::OnRender() {
     const auto& buildings = lots_->GetBuildings();
 
     if (buildings.empty()) {
-        ImGui::TextUnformatted("No buildings loaded. Please ensure lots.cbor exists in the Plugins directory.");
+        ImGui::TextUnformatted("No buildings loaded. Make sure that lots.cbor is in the Plugins folder.");
         return;
     }
 
@@ -123,7 +123,7 @@ void BuildingsPanelTab::RenderFilterUI_() {
             });
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click a plopped lot in the city to select it in the list.\nESC to cancel.");
+            ImGui::SetTooltip("Click a plopped lot in the city to select it in the list.\nPress Esc to cancel.");
         }
     }
 
