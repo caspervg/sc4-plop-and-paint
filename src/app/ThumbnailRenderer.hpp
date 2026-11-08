@@ -27,6 +27,10 @@ namespace thumb {
 
         ParseExpected<RenderedImage> renderModel(const DBPF::Tgi& tgi, uint32_t size);
 
+        // False once creating the OpenGL window has failed. Anything else that needs raylib's GPU state
+        // (such as loading fonts) must be skipped then, or it calls into a missing OpenGL context.
+        [[nodiscard]] bool isAvailable() const { return !initializationFailed_; }
+
     private:
         bool ensureInitialized_();
         ParseExpected<std::shared_ptr<LoadedModelHandle>> loadModel_(const DBPF::Tgi& tgi);
@@ -39,5 +43,6 @@ namespace thumb {
         // and report the original cause.
         std::unordered_map<DBPF::Tgi, std::string, DBPF::TgiHash> failedModels_;
         bool initialized_ = false;
+        bool initializationFailed_ = false;
     };
 } // namespace thumb

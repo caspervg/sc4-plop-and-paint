@@ -24,7 +24,10 @@ public:
 
     [[nodiscard]] const char* GetTabName() const override;
     void OnRender() override;
-    void OnShutdown() override { thumbnailCache_.Clear(); }
+    void OnShutdown() override {
+        thumbnailCache_.Clear();
+        previewCache_.Clear();
+    }
     void OnDeviceReset(uint32_t deviceGeneration) override;
 
 private:
@@ -39,12 +42,19 @@ private:
                               const std::unordered_set<uint64_t>& favorites);
 
     [[nodiscard]] bool HasPropTooltipContent_(const Prop& prop) const;
+    // Families, day and night, dates and chance: the tooltip's details besides the pack.
+    [[nodiscard]] static bool HasPropDetails_(const Prop& prop);
     [[nodiscard]] bool RenderPropPills_(const Prop& prop, bool startOnNewLine) const;
     void RenderPropTooltip_(const Prop& prop) const;
+    void RenderPropTooltipBody_(const Prop& prop) const;
     void RenderFavButton_(const Prop& prop) const;
     void RenderRotationModal_();
     void HandlePickedProp_(const PickedProp& picked);
     void RenderSeasonalSetRowActions_(const Prop& prop);
+    void RenderSeasonalSetItems_(const Prop& prop);
+    void RenderAddToFamilyItems_(const Prop& prop);
+    void PaintProp_(const Prop& prop);
+    void RenderGrid_(const std::vector<PropView>& filteredProps);
     void RenderSeasonalSetEditor_();
     void ApplyUserSeasonalSetsToRepository_() const;
     void AddPropToNewSeasonalSet_(const Prop& prop);
@@ -76,5 +86,8 @@ private:
     std::vector<PropView> allPropViewsCache_{};
     std::vector<PropView> filteredPropsCache_{};
     size_t cachedPropCount_{0};
+    // Counted with the views, so once per props.cbor.
+    PackFilter packFilter_{};
     bool filteredPropsDirty_{true};
+    uint64_t selectedPropKey_{0};
 };

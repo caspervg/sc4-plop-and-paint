@@ -1,6 +1,7 @@
 #pragma once
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -18,6 +19,10 @@ public:
     void Save() const;
     [[nodiscard]] const std::vector<RecentPaintEntryData>& GetRecentPaintsData() const;
     void SetRecentPaintsData(std::vector<RecentPaintEntryData> data);
+
+    // List or grid view per panel tab. SetTabView saves right away.
+    [[nodiscard]] const TabViewSettings* GetTabView(std::string_view tab) const;
+    void SetTabView(TabViewSettings settings);
 
     // Lot favorites
     [[nodiscard]] bool IsLotFavorite(uint32_t lotInstanceId) const;
@@ -84,5 +89,6 @@ private:
     std::vector<PropFamily> userFamilies_;
     std::vector<SeasonalSet> userSeasonalSets_;
     std::vector<RecentPaintEntryData> recentPaintsCache_;
+    std::vector<TabViewSettings> tabViews_;
     size_t activeUserFamilyIndex_{0};
 };

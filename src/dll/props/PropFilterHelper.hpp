@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <vector>
 #include "shared/entities.hpp"
+#include "../packs/PackFilter.hpp"
 
 namespace PropSize {
     constexpr auto kMinSize = 0.0f;
@@ -12,6 +13,8 @@ namespace PropSize {
 
 struct PropView {
     const Prop* prop = nullptr;
+    // Every pack and file the catalog has the prop in; empty when it does not know it.
+    std::span<const PackCatalogRepository::ExemplarRow> packs{};
 };
 
 class PropFilterHelper {
@@ -38,6 +41,8 @@ public:
     bool requireTimed = false;
     bool requireSeasonal = false;
     bool requireReducedChance = false;
+    // The tab's pack filter, also for searching by pack name; may be null.
+    const PackFilter* packFilter = nullptr;
 
     [[nodiscard]] bool PassesFilters(const PropView& view) const;
     [[nodiscard]] std::vector<PropView> ApplyFiltersAndSort(

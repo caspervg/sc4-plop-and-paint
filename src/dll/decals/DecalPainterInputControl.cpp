@@ -7,6 +7,7 @@
 #include "cGZPersistResourceKey.h"
 #include "../paint/PaintOverlay.hpp"
 #include "../utils/Logger.h"
+#include "FractionalAngles.hpp"
 
 namespace {
     constexpr auto kDecalPainterControlID = 0x5D4C3B2Au;
@@ -43,6 +44,12 @@ bool DecalPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t mo
         const bool shiftHeld = (modifiers & MOD_SHIFT) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         const float deltaDegrees = shiftHeld ? 5.0f : 45.0f;
         AdjustRotationDegrees_(deltaDegrees);
+        return true;
+    }
+
+    if (vkCode == 'F' && IsOnTop()) {
+        const bool shiftHeld = (modifiers & MOD_SHIFT) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        AdjustRotationFaSnap_(shiftHeld ? -1 : 1);
         return true;
     }
 
@@ -226,6 +233,32 @@ void DecalPainterInputControl::AdjustRotationDegrees_(const float deltaDegrees) 
     RefreshPreviewOverlay_();
     LOG_DEBUG("DecalPainterInputControl: rotation adjusted to {:.2f} degrees",
               stateTemplate_.decalInfo.rotationTurns * kDegreesPerTurn);
+}
+
+float DecalPainterInputControl::GetRotationDegrees() const {
+    return NormalizeTurns(stateTemplate_.decalInfo.rotationTurns) * kDegreesPerTurn;
+}
+
+void DecalPainterInputControl::AdjustRotationFaSnap_(const int direction) {
+    const float currentDegrees = NormalizeTurns(stateTemplate_.decalInfo.rotationTurns) * kDegreesPerTurn;
+
+    int nearestIdx = 0;
+    float bestDiff = 360.0f;
+    for (int i = 0; i < static_cast<int>(fa_angles::kFullCircleDegrees.size()); ++i) {
+        const float diff = std::fabs(fa_angles::kFullCircleDegrees[i] - currentDegrees);
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            nearestIdx = i;
+        }
+    }
+
+    const int count = static_cast<int>(fa_angles::kFullCircleDegrees.size());
+    const int newIdx = ((nearestIdx + direction) % count + count) % count;
+    stateTemplate_.decalInfo.rotationTurns = NormalizeTurns(fa_angles::kFullCircleDegrees[newIdx] / kDegreesPerTurn);
+    RefreshPreviewDecal_();
+    RefreshPreviewOverlay_();
+    LOG_DEBUG("DecalPainterInputControl: FA-snapped rotation to {:.1f} degrees",
+              fa_angles::kFullCircleDegrees[newIdx]);
 }
 
 void DecalPainterInputControl::ToggleMirror_() {

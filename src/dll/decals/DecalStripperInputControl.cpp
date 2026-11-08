@@ -26,6 +26,8 @@ bool DecalStripperInputControl::Init() {
 }
 
 bool DecalStripperInputControl::Shutdown() {
+    active_ = false;
+    overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
     }
@@ -59,17 +61,6 @@ bool DecalStripperInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t 
 bool DecalStripperInputControl::OnMouseUpL(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
     leftMouseDown_ = false;
     return active_ && IsOnTop();
-}
-
-bool DecalStripperInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
-    if (!active_ || !IsOnTop()) {
-        return false;
-    }
-    leftMouseDown_ = false;
-    ClearHoveredDecal_();
-    LOG_INFO("DecalStripperInputControl: RMB pressed, exiting strip mode");
-    cancelPending_ = true;
-    return true;
 }
 
 bool DecalStripperInputControl::OnMouseMove(const int32_t x, const int32_t z, const uint32_t /*modifiers*/) {
@@ -137,7 +128,8 @@ void DecalStripperInputControl::Activate() {
 }
 
 void DecalStripperInputControl::Deactivate() {
-    active_ = false;
+    // The game also deactivates a control it covers, e.g. with its right-drag camera pan, and
+    // does not activate it again when that ends, so active_ stays set until Shutdown.
     leftMouseDown_ = false;
     ProcessPendingActions();
     ClearHoveredDecal_();
@@ -348,11 +340,8 @@ void DecalStripperInputControl::DeleteHoveredDecal_() {
     hoveredDecalId_  = {};
 }
 
-void DecalStripperInputControl::DrawOverlay(IDirect3DDevice7* device) {
-    if (!device) {
-        return;
-    }
-    overlay_.Draw(device, false);
+void DecalStripperInputControl::SetWorldDrawService(cIGZWorldDrawService* service) {
+    overlay_.SetWorldDrawService(service);
 }
 
 void DecalStripperInputControl::BuildOverlay_() {

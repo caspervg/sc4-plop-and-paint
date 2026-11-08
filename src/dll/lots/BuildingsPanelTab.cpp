@@ -75,6 +75,7 @@ void BuildingsPanelTab::OnRender() {
 void BuildingsPanelTab::OnDeviceReset(uint32_t deviceGeneration) {
     if (deviceGeneration != lastDeviceGeneration_) {
         thumbnailCache_.OnDeviceReset();
+        previewCache_.OnDeviceReset();
         lastDeviceGeneration_ = deviceGeneration;
     }
 }
@@ -99,7 +100,7 @@ ImGuiTexture BuildingsPanelTab::LoadBuildingTexture_(uint64_t buildingKey) {
         return texture;
     }
 
-    auto data = lots_->GetBuildingThumbnailStore().LoadThumbnail(buildingKey);
+    auto data = lots_->GetBuildingThumbnailStore().LoadThumbnail(buildingKey, static_cast<uint32_t>(UI::kIconSize));
     if (!data.has_value()) {
         LOG_WARN("Building thumbnail not found in store for key 0x{:016X}", buildingKey);
         return texture;
@@ -137,7 +138,7 @@ void BuildingsPanelTab::RenderFilterUI_() {
             });
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click a plopped lot in the city to select it in the list.\nESC or RMB to cancel.");
+            ImGui::SetTooltip("Click a plopped lot in the city to select it in the list.\nESC to cancel.");
         }
     }
 
@@ -359,7 +360,7 @@ void BuildingsPanelTab::RenderBuildingRow_(const Building& building, const bool 
     }
     ImGui::SameLine();
     auto thumbTextureId = thumbnailCache_.Get(key);
-    RenderThumbnail_(thumbTextureId);
+    RenderThumbnailWithPreview_(thumbTextureId, lots_->GetBuildingThumbnailStore(), key);
 
     // Name column
     ImGui::TableNextColumn();

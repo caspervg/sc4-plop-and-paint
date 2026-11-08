@@ -47,7 +47,8 @@ void ScenePickStatusPanel::OnRender() {
         ImGuiWindowFlags_AlwaysAutoResize |
         ImGuiWindowFlags_NoFocusOnAppearing |
         ImGuiWindowFlags_NoNav |
-        ImGuiWindowFlags_NoInputs;
+        ImGuiWindowFlags_NoInputs |
+        ImGuiWindowFlags_NoDocking;
 
     if (!ImGui::Begin("##ScenePickStatus", nullptr, kFlags)) {
         ImGui::End();
@@ -151,7 +152,7 @@ void ScenePickStatusPanel::RenderHoveredThumbnail_(const ScenePickResult& hovere
                 : kind == ThumbnailKind::Flora
                     ? flora_->GetFloraThumbnailStore()
                     : lots_->GetBuildingThumbnailStore();
-            if (const auto data = store.LoadThumbnail(key)) {
+            if (const auto data = store.LoadThumbnail(key, static_cast<uint32_t>(kThumbnailMaxSize))) {
                 thumbnailValid_ = thumbnail_.Create(imguiService_, data->width, data->height, data->rgba.data());
                 thumbnailSourceSize_ = ImVec2(static_cast<float>(data->width), static_cast<float>(data->height));
             }

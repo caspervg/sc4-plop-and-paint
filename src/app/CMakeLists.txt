@@ -7,6 +7,10 @@ file(GLOB APP_SOURCES CONFIGURE_DEPENDS
 
 add_executable(${APP_NAME} ${APP_SOURCES})
 
+# Fetching and reading the SC4 Prop Texture Catalog (PackCatalogBuilder).
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(CURL REQUIRED)
+
 target_compile_definitions(${APP_NAME} PRIVATE NOMINMAX)
 target_compile_definitions(${APP_NAME}
     PRIVATE
@@ -29,6 +33,9 @@ target_link_libraries(${APP_NAME} PRIVATE
     jsoncons::jsoncons
     raylib
     glfw
+    unofficial::sqlite3::sqlite3
+    CURL::libcurl
+    WebP::webp
 )
 
 if (WIN32)
@@ -48,6 +55,11 @@ if (WIN32)
     )
 
     target_link_libraries(${APP_NAME} PRIVATE winmm opengl32 gdi32 user32)
+endif()
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Bundle the GCC runtime so the binary runs on distributions with an older libstdc++ than the build machine.
+    target_link_options(${APP_NAME} PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
 # Copy DLLs to output directory for execution (only for dynamic triplets)

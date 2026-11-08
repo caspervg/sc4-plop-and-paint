@@ -10,8 +10,30 @@
 #include "S3DStructures.h"
 #include "spdlog/spdlog.h"
 
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+
 namespace thumb {
     namespace {
+        // raylib's InitWindow keeps going when GLFW cannot create a window and then crashes calling into the
+        // missing OpenGL context, so check up front that a hidden OpenGL 3.3 window (raylib's default) works.
+        bool CanCreateOpenGLWindow() {
+            if (glfwInit() != GLFW_TRUE) {
+                return false;
+            }
+            glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+            GLFWwindow* window = glfwCreateWindow(1, 1, "SC4ThumbnailRendererProbe", nullptr, nullptr);
+            const bool created = window != nullptr;
+            if (window) {
+                glfwDestroyWindow(window);
+            }
+            glfwTerminate();
+            return created;
+        }
+
         constexpr auto kTypeIdS3D = 0x5AD0E817u;
         constexpr auto kTypeIdFSH = 0x7AB50E44u;
         constexpr auto kTypeIdATC = 0x29A5D1ECu;
@@ -291,11 +313,6 @@ namespace thumb {
         rendered.pixels.resize(size * size * 4);
         if (finalImage.data) {
             std::memcpy(rendered.pixels.data(), finalImage.data, rendered.pixels.size());
-            for (size_t i = 0; i + 3 < rendered.pixels.size(); i += 4) {
-                std::byte tmp = rendered.pixels[i];
-                rendered.pixels[i] = rendered.pixels[i + 2];
-                rendered.pixels[i + 2] = tmp;
-            }
         }
 
         UnloadImage(finalImage);
@@ -314,11 +331,22 @@ namespace thumb {
         if (initialized_) {
             return true;
         }
+        // Don't retry for every model: without a display or OpenGL driver it will keep failing.
+        if (initializationFailed_) {
+            return false;
+        }
 
         SetTraceLogLevel(LOG_WARNING);
-        SetConfigFlags(FLAG_WINDOW_HIDDEN);
-        InitWindow(1, 1, "SC4ThumbnailRenderer");
-        initialized_ = IsWindowReady();
+        if (CanCreateOpenGLWindow()) {
+            SetConfigFlags(FLAG_WINDOW_HIDDEN);
+            InitWindow(1, 1, "SC4ThumbnailRenderer");
+            initialized_ = IsWindowReady();
+        }
+        if (!initialized_) {
+            initializationFailed_ = true;
+            spdlog::warn("3D thumbnail rendering is unavailable: could not create an OpenGL 3.3 window "
+                         "(no display or OpenGL driver?). Continuing without rendered thumbnails.");
+        }
         return initialized_;
     }
 

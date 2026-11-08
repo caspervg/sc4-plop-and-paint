@@ -1,13 +1,19 @@
 #pragma once
 #include <algorithm>
 #include <cstdint>
+#include <span>
+#include <string>
+#include <unordered_map>
 #include <vector>
+
+#include "../packs/PackCatalogRepository.hpp"
 
 class cIGZPersistResourceManager;
 
 class DecalRepository {
 public:
-    DecalRepository() = default;
+    // packs: where textures first shipped; may be null.
+    explicit DecalRepository(const PackCatalogRepository* packs = nullptr) : packs_(packs) {}
 
     // Discovers all zoom-level-4 texture instances of type 0x7AB50E44 / group 0x0986135E.
     // Call on PostCityInit when the PersistResourceManager is fully populated.
@@ -23,6 +29,26 @@ public:
         return std::binary_search(instanceIds_.begin(), instanceIds_.end(), instanceId);
     }
 
+    // Every pack and file the catalog has the texture in: rows of instance, index into files, index
+    // into Packs(). Cheap; no file lookups.
+    [[nodiscard]] std::span<const PackCatalogRepository::TextureRow> PackCandidates(uint32_t instanceId) const;
+
+    // Where a texture shipped, from the candidate that matches the file the game loads it from
+    // (an sc4pac folder or the original file name), else the first; nullptr when the catalog does
+    // not know it. With several candidates the first call looks the file up, so call these for
+    // textures on screen, not for the whole library at once.
+    [[nodiscard]] const std::string* OriginalFile(uint32_t instanceId) const;
+    [[nodiscard]] const TexturePack* PackOf(uint32_t instanceId) const;
+    // Index into Packs(), or -1.
+    [[nodiscard]] int32_t PackIndexOf(uint32_t instanceId) const;
+    [[nodiscard]] const std::vector<TexturePack>& Packs() const;
+
 private:
+    [[nodiscard]] const PackCatalogRepository::TextureRow* Preferred_(uint32_t instanceId) const;
+
     std::vector<uint32_t> instanceIds_;
+    const PackCatalogRepository* packs_ = nullptr;
+    cIGZPersistResourceManager* pRM_ = nullptr;
+    // The chosen candidate of textures with several, by its place among them, once looked up.
+    mutable std::unordered_map<uint32_t, uint32_t> preferred_;
 };

@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # Enable vcpkg manifest mode BEFORE project()
 set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/vendor/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 set(VCPKG_MANIFEST_MODE ON CACHE BOOL "Enable vcpkg manifest mode")
+set(VCPKG_MANIFEST_INSTALL OFF CACHE BOOL "Install vcpkg dependencies during configure")
 set(VCPKG_MANIFEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}" CACHE STRING "vcpkg manifest directory")
 set(VCPKG_INSTALLED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed" CACHE STRING "vcpkg installed directory")
 
@@ -45,7 +46,8 @@ if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
             set(SC4_PLOP_AND_PAINT_APP_VERSION "${SC4_PLOP_AND_PAINT_GIT_DESCRIBE}")
         endif()
 
-        string(REGEX REPLACE "^v" "" SC4_PLOP_AND_PAINT_PROJECT_VERSION "${SC4_PLOP_AND_PAINT_GIT_TAG}")
+        # project(VERSION) only takes numeric parts, so drop the "v" and any prerelease suffix ("-rc.1").
+        string(REGEX REPLACE "^v([0-9]+\\.[0-9]+\\.[0-9]+).*$" "\\1" SC4_PLOP_AND_PAINT_PROJECT_VERSION "${SC4_PLOP_AND_PAINT_GIT_TAG}")
     endif()
 endif()
 
@@ -68,7 +70,17 @@ if(MSVC)
     # Enable debugging in release builds
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
     set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
+
+    # Static-CRT triplets (x64-windows-static, used for the cache builder) link the C++ runtime into the exe,
+    # so it runs without the VC++ redistributable, including under Wine without vcrun2022.
+    if(VCPKG_TARGET_TRIPLET MATCHES "-static$")
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
 endif()
+
+# Keep libsquish (fetched by DBPFKit) from linking OpenMP: its parallel loops gain nothing on SC4's small
+# textures and would add a vcomp140.dll / libgomp runtime dependency to the cache builder.
+set(LIBSQUISH_USE_OPENMP OFF)
 
 find_package(spdlog CONFIG REQUIRED)
 find_package(args CONFIG REQUIRED)
@@ -78,6 +90,7 @@ find_package(jsoncons CONFIG REQUIRED)
 find_package(raylib CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(utf8cpp CONFIG REQUIRED)
+find_package(WebP CONFIG REQUIRED)
 add_subdirectory(vendor/DBPFKit)
 add_subdirectory(src/shared)
 add_subdirectory(src/dll)

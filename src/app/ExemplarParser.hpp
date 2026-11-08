@@ -69,7 +69,7 @@ constexpr auto kPropRandomChance = "Prop Random Chance";
 constexpr auto kLotObjectIndexType = 0; // Rep 1: Object type (0 = building, 1 = prop, etc.)
 constexpr auto kLotObjectIndexObjectID = 11; // Rep 12: ObjectID (0xABBBBCCC format)
 constexpr auto kLotObjectIndexIID = 12; // Rep 13: IID (building exemplar) or Family ID (for growables)
-constexpr auto kDefaultThumbnailSize = 44u;
+constexpr auto kDefaultThumbnailSize = 132u;
 
 enum class ExemplarType {
     Building, // Exemplar Type 0x02
@@ -195,7 +195,6 @@ private:
     [[nodiscard]] std::optional<DBPF::Tgi> resolveModelTgi_(const Exemplar::Record& exemplar,
                                                             const DBPF::Tgi& exemplarTgi) const;
     [[nodiscard]] std::optional<std::array<float, 6>> loadModelBounds_(const DBPF::Tgi& modelTgi) const;
-    static std::vector<std::byte> convertBgraToRgba_(const std::vector<std::byte>& pixels);
 
     const PropertyMapper& propertyMapper_;
     const DbpfIndexService* indexService_;

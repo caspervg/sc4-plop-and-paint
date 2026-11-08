@@ -23,7 +23,6 @@ public:
     bool Shutdown() override;
 
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
-    bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseWheel(int32_t x, int32_t z, uint32_t modifiers, int32_t wheelDelta) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
@@ -41,7 +40,7 @@ public:
     void SetOnPick(std::function<void(const ScenePickResult&)> onPick);
     void SetOnCancel(std::function<void()> onCancel);
     void ProcessPendingActions();
-    void DrawOverlay(IDirect3DDevice7* device);
+    void SetWorldDrawService(cIGZWorldDrawService* service);
 
 private:
     bool UpdateCursorWorldFromScreen_(int32_t screenX, int32_t screenZ);

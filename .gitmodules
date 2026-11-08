@@ -7,9 +7,6 @@
 [submodule "vendor/sc4-render-services"]
 	path = vendor/sc4-render-services
 	url = https://github.com/caspervg/sc4-render-services.git
-[submodule "vendor/D3D7Imgui"]
-	path = vendor/D3D7Imgui
-	url = https://github.com/caspervg/D3D7Imgui.git
 [submodule "vendor/new-properties"]
 	path = vendor/sc4-properties
 	url = https://github.com/NAMTeam/New_Properties.xml.git

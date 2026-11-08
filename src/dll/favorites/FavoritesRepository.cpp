@@ -52,6 +52,7 @@ void FavoritesRepository::Load() {
     userFamilies_.clear();
     userSeasonalSets_.clear();
     recentPaintsCache_.clear();
+    tabViews_.clear();
     activeUserFamilyIndex_ = 0;
 
     try {
@@ -118,6 +119,9 @@ void FavoritesRepository::Load() {
             }
             if (result->recentPaints) {
                 recentPaintsCache_ = *result->recentPaints;
+            }
+            if (result->tabViews) {
+                tabViews_ = *result->tabViews;
             }
 
             LOG_INFO("Loaded {} favorite lots, {} favorite decals, {} user families from {}",
@@ -191,6 +195,7 @@ void FavoritesRepository::Save() const {
         allFavorites.recentPaints = recentPaintsCache_.empty()
             ? std::nullopt
             : std::make_optional(recentPaintsCache_);
+        allFavorites.tabViews = tabViews_.empty() ? std::nullopt : std::make_optional(tabViews_);
 
         if (const auto saveResult = rfl::cbor::save(cborPath.string(), allFavorites)) {
             LOG_INFO("Saved {} favorite lots, {} favorite decals, {} user families to {}",
@@ -211,6 +216,22 @@ const std::vector<RecentPaintEntryData>& FavoritesRepository::GetRecentPaintsDat
 
 void FavoritesRepository::SetRecentPaintsData(std::vector<RecentPaintEntryData> data) {
     recentPaintsCache_ = std::move(data);
+}
+
+const TabViewSettings* FavoritesRepository::GetTabView(const std::string_view tab) const {
+    const auto it = std::ranges::find(tabViews_, tab, &TabViewSettings::tab);
+    return it != tabViews_.end() ? &*it : nullptr;
+}
+
+void FavoritesRepository::SetTabView(TabViewSettings settings) {
+    const auto it = std::ranges::find(tabViews_, settings.tab, &TabViewSettings::tab);
+    if (it != tabViews_.end()) {
+        *it = std::move(settings);
+    }
+    else {
+        tabViews_.push_back(std::move(settings));
+    }
+    Save();
 }
 
 bool FavoritesRepository::IsLotFavorite(const uint32_t lotInstanceId) const {

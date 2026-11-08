@@ -18,7 +18,10 @@ public:
     [[nodiscard]] const char* GetTabName() const override;
     void OnRender() override;
     void OnDeviceReset(uint32_t deviceGeneration) override;
-    void OnShutdown() override { thumbnailCache_.Clear(); }
+    void OnShutdown() override {
+        thumbnailCache_.Clear();
+        previewCache_.Clear();
+    }
 
 private:
     ImGuiTexture LoadBuildingTexture_(uint64_t buildingKey);

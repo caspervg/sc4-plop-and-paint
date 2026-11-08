@@ -11,6 +11,7 @@
             "cacheVariables": {
                 "CMAKE_GENERATOR_PLATFORM": "Win32",
                 "CMAKE_BUILD_TYPE": "Debug",
+                "VCPKG_MANIFEST_INSTALL": false,
                 "VCPKG_TARGET_TRIPLET": "x86-windows-static-md",
                 "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x86-windows-static-md"
             }
@@ -25,6 +26,7 @@
             "cacheVariables": {
                 "CMAKE_GENERATOR_PLATFORM": "Win32",
                 "CMAKE_BUILD_TYPE": "Release",
+                "VCPKG_MANIFEST_INSTALL": false,
                 "VCPKG_TARGET_TRIPLET": "x86-windows-static-md",
                 "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x86-windows-static-md"
             }
@@ -32,29 +34,57 @@
         {
             "name": "vs2022-x64-debug",
             "displayName": "Visual Studio 2022 x64 Debug",
-            "description": "64-bit Debug build for CLI tooling",
+            "description": "64-bit Debug build for CLI tooling (static CRT)",
             "generator": "Visual Studio 17 2022",
             "architecture": "x64",
             "binaryDir": "${sourceDir}/cmake-build-debug-visual-studio-x64",
             "cacheVariables": {
                 "CMAKE_GENERATOR_PLATFORM": "x64",
                 "CMAKE_BUILD_TYPE": "Debug",
-                "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
-                "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x64-windows-static-md"
+                "VCPKG_MANIFEST_INSTALL": false,
+                "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+                "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x64-windows-static"
             }
         },
         {
             "name": "vs2022-x64-release",
             "displayName": "Visual Studio 2022 x64 Release",
-            "description": "64-bit Release build for CLI tooling",
+            "description": "64-bit Release build for CLI tooling (static CRT)",
             "generator": "Visual Studio 17 2022",
             "architecture": "x64",
             "binaryDir": "${sourceDir}/cmake-build-release-visual-studio-x64",
             "cacheVariables": {
                 "CMAKE_GENERATOR_PLATFORM": "x64",
                 "CMAKE_BUILD_TYPE": "Release",
-                "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
-                "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x64-windows-static-md"
+                "VCPKG_MANIFEST_INSTALL": false,
+                "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+                "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x64-windows-static"
+            }
+        },
+        {
+            "name": "linux-x64-debug",
+            "displayName": "Linux x64 Debug",
+            "description": "64-bit Debug build of the native Linux cache builder CLI",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/cmake-build-debug-linux",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "VCPKG_MANIFEST_INSTALL": false,
+                "VCPKG_TARGET_TRIPLET": "x64-linux",
+                "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x64-linux"
+            }
+        },
+        {
+            "name": "linux-x64-release",
+            "displayName": "Linux x64 Release",
+            "description": "64-bit Release build of the native Linux cache builder CLI",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/cmake-build-release-linux",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "VCPKG_MANIFEST_INSTALL": false,
+                "VCPKG_TARGET_TRIPLET": "x64-linux",
+                "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/x64-linux"
             }
         },
         {
@@ -65,6 +95,7 @@
             "binaryDir": "${sourceDir}/cmake-build-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
+                "VCPKG_MANIFEST_INSTALL": false,
                 "VCPKG_TARGET_TRIPLET": "arm64-osx",
                 "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/arm64-osx"
             }
@@ -77,6 +108,7 @@
             "binaryDir": "${sourceDir}/cmake-build-release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
+                "VCPKG_MANIFEST_INSTALL": false,
                 "VCPKG_TARGET_TRIPLET": "arm64-osx",
                 "CMAKE_PREFIX_PATH": "${sourceDir}/vcpkg_installed/arm64-osx"
             }
@@ -105,6 +137,18 @@
             "name": "vs2022-x64-release-build",
             "displayName": "Build x64 Release",
             "configurePreset": "vs2022-x64-release",
+            "configuration": "Release"
+        },
+        {
+            "name": "linux-x64-debug-build",
+            "displayName": "Build Linux x64 Debug",
+            "configurePreset": "linux-x64-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "linux-x64-release-build",
+            "displayName": "Build Linux x64 Release",
+            "configurePreset": "linux-x64-release",
             "configuration": "Release"
         },
         {

@@ -1,11 +1,10 @@
 #include "PlopAndPaintPanel.hpp"
 
 #include "cIGZPersistResourceManager.h"
-#include "decals/DecalPanelTab.hpp"
+#include "ground/GroundPanelTab.hpp"
 #include "decals/DecalRepository.hpp"
 #include "flora/FloraCollectionsPanelTab.hpp"
 #include "flora/FloraPanelTab.hpp"
-#include "imgui_impl_win32.h"
 #include "lots/BuildingsPanelTab.hpp"
 #include "lots/OccupantGroups.hpp"
 #include "props/FamiliesPanelTab.hpp"
@@ -29,7 +28,7 @@ PlopAndPaintPanel::PlopAndPaintPanel(SC4PlopAndPaintDirector* director,
     tabs_.push_back(std::make_unique<FloraPanelTab>(director_, flora, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FloraCollectionsPanelTab>(director_, flora, favorites, imguiService_));
     if (decals) {
-        tabs_.push_back(std::make_unique<DecalPanelTab>(director_, decals, favorites, pRM, imguiService_));
+        tabs_.push_back(std::make_unique<GroundPanelTab>(director_, decals, favorites, pRM, imguiService_));
     }
 }
 
@@ -38,7 +37,7 @@ void PlopAndPaintPanel::OnRender() {
         return;
     }
 
-    ImGui::Begin("Advanced Plopping & Painting", &isOpen_, ImGuiWindowFlags_NoNavFocus);
+    ImGui::Begin("Advanced Plopping & Painting###PlopAndPaintMain", &isOpen_, ImGuiWindowFlags_NoNav);
     if (!isOpen_) {
         ImGui::End();
         return;

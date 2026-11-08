@@ -10,6 +10,7 @@
 #include <string>
 #include "../shared/entities.hpp"
 #include "RecentPaintHistory.hpp"
+#include "common/FrameTickService.hpp"
 #include "GZServPtrs.h"
 #include "cIGZCommandServer.h"
 #include "cIGZMessage2Standard.h"
@@ -24,8 +25,12 @@
 #include "decals/DecalStripperInputControl.hpp"
 #include "public/TerrainDecalServiceIds.h"
 #include "decals/DecalRepository.hpp"
+#include "packs/PackCatalogRepository.hpp"
 #include "paint/DecalPaintSettings.hpp"
 #include "flora/FloraPainterInputControl.hpp"
+#include "ground/GroundPaintDocument.hpp"
+#include "ground/GroundPainterInputControl.hpp"
+#include "ground/GroundToolSettings.hpp"
 #include "flora/FloraStripperInputControl.hpp"
 #include "imgui.h"
 #include "paint/PaintStatusPanel.hpp"
@@ -38,8 +43,8 @@
 #include "public/ImGuiPanel.h"
 #include "public/ImGuiPanelAdapter.h"
 #include "public/ImGuiServiceIds.h"
-#include "public/cIGZDrawService.h"
 #include "public/cIGZImGuiService.h"
+#include "public/cIGZWorldDrawService.h"
 #include "utils/Settings.h"
 
 class PlopAndPaintPanel;
@@ -47,14 +52,18 @@ class FloraRepository;
 class LotRepository;
 class PropRepository;
 class FavoritesRepository;
-class cIGZS3DCameraService;
 class RecentSwapPanel;
 class BuildingStyleService;
+class cIGZTerrainPaintService;
 
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
 static constexpr uint32_t kSC4MessagePostCityInitComplete = 0xEA8AE29A;
 static constexpr uint32_t kMessageBuildingStyleCheckboxChanged = 0x573D5E8F;
+static constexpr uint32_t kSC4MessagePostRegionInit = 0xCBB5BB45;
+static constexpr uint32_t kSC4MessageLoad = 0x26C63341;
+static constexpr uint32_t kSC4MessageSave = 0x26C63344;
+static constexpr uint32_t kToolTickServiceID = 0xCA5000F1;
 
 class SC4PlopAndPaintDirector final : public cRZMessage2COMDirector
 {
@@ -99,6 +108,18 @@ public:
     void StopDecalPicking();
     [[nodiscard]] bool IsDecalPicking() const;
     [[nodiscard]] bool IsDecalServiceAvailable() const;
+    // Ground paint: areas, lines and brush strokes painted on the terrain.
+    [[nodiscard]] bool IsGroundPaintAvailable() const;
+    bool StartGroundPainting(const Ground::ToolSettings& settings);
+    void UpdateGroundPainting(const Ground::ToolSettings& settings);
+    void StopGroundPainting();
+    [[nodiscard]] bool IsGroundPainting() const;
+    [[nodiscard]] Ground::GroundPaintDocument* GetGroundDocument() const;
+    [[nodiscard]] const GroundPainterInputControl* GetGroundPainter() const;
+    [[nodiscard]] GroundPainterInputControl* GetGroundPainter();
+    // Starts the most recent prop or flora paint on a painted object: filling it in Polygon mode,
+    // or along it in Line mode. Enter then places them, as for a sketch drawn by hand.
+    bool PlantOnGround(uint32_t objectId, bool along);
     bool StartPropPicking(std::function<void(const PickedProp& picked)> onPick);
     void StopPropPicking();
     [[nodiscard]] bool IsPropPicking() const;
@@ -120,6 +141,8 @@ public:
     [[nodiscard]] bool GetDefaultSnapPointsToGrid() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPlacementsToGrid() const noexcept;
     [[nodiscard]] float GetDefaultGridStepMeters() const noexcept;
+    // Which pack textures and props first shipped in; null before startup.
+    [[nodiscard]] const PackCatalogRepository* GetPackCatalog() const { return packCatalog_.get(); }
     [[nodiscard]] PreviewMode GetDefaultPropPreviewMode() const noexcept;
     [[nodiscard]] ImU32 GetThumbnailBackgroundColor() const noexcept;
     [[nodiscard]] ImU32 GetThumbnailBorderColor() const noexcept;
@@ -130,12 +153,14 @@ private:
     void PostCityInitComplete_();
     void BuildingStyleCheckboxChanged_();
     void PreCityShutdown_(cIGZMessage2Standard* pStandardMsg);
+    void LoadCity_(const cIGZMessage2Standard* pStandardMsg);
+    void SaveCity_(const cIGZMessage2Standard* pStandardMsg) const;
     void ToggleLotPlopPanel_();
     bool RegisterLotPlopShortcut_();
     void UnregisterLotPlopShortcut_();
     static std::filesystem::path GetUserPluginsPath_();
-    static void DrawOverlayCallback_(DrawServicePass pass, bool begin, void* pThis);
     void ProcessPendingToolActions_();
+    [[nodiscard]] cIGZWorldDrawService* GetOverlayWorldDrawService_() const;
     void UpdatePaintPanels_();
     void SyncRecentPaintsCache_();
     void PersistRecentPaints_();
@@ -144,6 +169,10 @@ private:
                             const char* logName);
     bool CanPrepareForPaintSwitch_(BasePainterInputControl* control, bool isPaintingFlag) const;
     bool PrepareForPaintSwitch_(BasePainterInputControl* control, bool& isPaintingFlag);
+    // Vanilla tool commands push their control on top of ours instead of replacing it, so one of
+    // ours that is still active can sit below the top. Pops whatever is above it; returns whether
+    // the control is now on top.
+    bool RaiseToTop_(cISC4ViewInputControl* control, bool active);
     bool PrepareForExclusiveActivation_(bool keepPropPainting, bool keepFloraPainting, bool keepPropStripping,
                                         bool keepFloraStripping = false,
                                         bool keepDecalPainting = false,
@@ -151,6 +180,9 @@ private:
                                         bool keepScenePicking = false);
     void ApplySwitchPolicy_(BasePainterInputControl* control);
     void RememberDecalPlacementSettings_();
+    // Finds painted ground for F in the prop and flora painters.
+    [[nodiscard]] BasePainterInputControl::GroundShapeLookup MakeGroundShapeLookup_() const;
+    [[nodiscard]] std::optional<BasePainterInputControl::GroundShape> GroundShapeOf_(uint32_t objectId, bool along) const;
     [[nodiscard]] RecentPaintEntry BuildRecentPaintEntry_(RecentPaintEntry::Kind kind,
                                                           uint32_t typeId,
                                                           const PropPaintSettings& settings,
@@ -159,21 +191,20 @@ private:
 
 private:
     cIGZImGuiService* imguiService_ = nullptr;
-    cIGZDrawService* drawService_ = nullptr;
+    cIGZWorldDrawService* worldDrawService_ = nullptr;
     cRZAutoRefCount<cISC4City> pCity_;
     cISC4View3DWin* pView3D_ = nullptr;
     cRZAutoRefCount<cIGZMessageServer2> pMS2_;
-    cIGZS3DCameraService* cameraService_ = nullptr;
 
     std::unique_ptr<LotRepository>       lotRepository_;
     std::unique_ptr<PropRepository>      propRepository_;
     std::unique_ptr<FloraRepository>     floraRepository_;
     std::unique_ptr<FavoritesRepository> favoritesRepository_;
+    std::unique_ptr<PackCatalogRepository> packCatalog_;
     std::unique_ptr<DecalRepository>     decalRepository_;
     std::unique_ptr<BuildingStyleService> buildingStyleService_;
 
     bool panelRegistered_{false};
-    bool panelVisible_{false};
     bool shortcutRegistered_{false};
     std::unique_ptr<PlopAndPaintPanel> panel_;
     cRZAutoRefCount<PropPainterInputControl>  propPainterControl_;
@@ -192,6 +223,10 @@ private:
     cRZAutoRefCount<ScenePickerInputControl>   scenePickerControl_;
     bool scenePicking_{false};
     cIGZTerrainDecalService* terrainDecalService_{nullptr};
+    cIGZTerrainPaintService* terrainPaintService_{nullptr};
+    std::unique_ptr<Ground::GroundPaintDocument> groundDocument_;
+    cRZAutoRefCount<GroundPainterInputControl> groundPainterControl_;
+    bool groundPainting_{false};
     std::unique_ptr<PaintStatusPanel> statusPanel_;
     bool statusPanelRegistered_{false};
     std::unique_ptr<ScenePickStatusPanel> pickStatusPanel_;
@@ -202,7 +237,8 @@ private:
     bool enableRecentPaints_{true};
     PaintSwitchPolicy paintSwitchPolicy_{PaintSwitchPolicy::KeepPending};
     bool drawOverlayEnabled_{true};
-    uint32_t drawCallbackToken_{0};
+    FrameTickService toolTickService_{kToolTickServiceID, [this] { ProcessPendingToolActions_(); }};
+    bool toolTickServiceRegistered_{false};
     PreviewMode defaultPropPreviewMode_ = PreviewMode::Outline;
     bool defaultShowGridOverlay_ = true;
     bool defaultSnapPointsToGrid_ = false;

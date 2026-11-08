@@ -52,7 +52,7 @@ namespace {
 }
 
 BasePainterInputControl::BasePainterInputControl(const uint32_t controlID)
-    : cSC4BaseViewInputControl(controlID) {}
+    : cSC4BaseViewInputControlEx(controlID) {}
 
 BasePainterInputControl::~BasePainterInputControl() = default;
 
@@ -61,7 +61,7 @@ bool BasePainterInputControl::Init() {
         return true;
     }
 
-    if (!cSC4BaseViewInputControl::Init()) {
+    if (!cSC4BaseViewInputControlEx::Init()) {
         return false;
     }
 
@@ -70,13 +70,16 @@ bool BasePainterInputControl::Init() {
 }
 
 bool BasePainterInputControl::Shutdown() {
+    overlay_.SetWorldDrawService(nullptr);
     if (state_ == ControlState::Uninitialized) {
         return true;
     }
 
     CancelAllPlacements();
+    ClearDirectAbsoluteHeight_();
+    DestroyPreviewOccupant_();
     TransitionTo_(ControlState::Uninitialized, "Shutdown");
-    cSC4BaseViewInputControl::Shutdown();
+    cSC4BaseViewInputControlEx::Shutdown();
     return true;
 }
 
@@ -85,15 +88,6 @@ bool BasePainterInputControl::OnMouseDownL(const int32_t x, const int32_t z, con
         return false;
     }
     return HandleActiveMouseDownL_(x, z, modifiers);
-}
-
-bool BasePainterInputControl::OnMouseDownR(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
-    if (!IsActiveState_(state_) || !IsOnTop()) {
-        return false;
-    }
-    CancelAllPlacements();
-    cancelPending_ = true;
-    return true;
 }
 
 bool BasePainterInputControl::OnMouseMove(const int32_t x, const int32_t z, const uint32_t modifiers) {
@@ -110,24 +104,49 @@ bool BasePainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t mod
     return HandleActiveKeyDown_(vkCode, modifiers);
 }
 
+bool BasePainterInputControl::OnMouseDownM(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
+    if (!IsTargetActiveState_(state_)) {
+        return false;
+    }
+    Turn_();  // R
+    return true;
+}
+
+bool BasePainterInputControl::OnMouseDownX(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/,
+                                           const uint32_t button) {
+    if (button != XBUTTON1 || !IsActiveState_(state_)) {
+        return false;
+    }
+    UndoLastPlacement();  // Ctrl+Z
+    return true;
+}
+
+void BasePainterInputControl::Turn_() {
+    settings_.rotation = (settings_.rotation + 1) & 3;
+    if (state_ == ControlState::ActivePolygon) {
+        polygonPreviewDirty_ = true;
+    }
+    SyncPreviewForState_();
+}
+
 void BasePainterInputControl::Activate() {
-    cSC4BaseViewInputControl::Activate();
+    cSC4BaseViewInputControlEx::Activate();
     if (!Init()) {
         return;
     }
     TransitionTo_(typeToPaint_ != 0 ? ActiveStateForMode_(settings_.mode) : ControlState::ActiveNoTarget, "Activate");
+    if (pendingGroundShape_) {
+        const GroundShape shape = std::move(*pendingGroundShape_);
+        pendingGroundShape_.reset();
+        UseGroundShape(shape);
+    }
 }
 
+// The game also deactivates a control it covers, e.g. with its right-drag camera pan, and does
+// not activate it again when that ends. So this only pauses: the sketch stays, Shutdown ends it.
 void BasePainterInputControl::Deactivate() {
-    ClearCollectedPoints_();
-    ClearDirectAbsoluteHeight_();
     DestroyPreviewOccupant_();
-
-    if (state_ != ControlState::Uninitialized) {
-        TransitionTo_(typeToPaint_ != 0 ? ControlState::ReadyWithTarget : ControlState::ReadyNoTarget, "Deactivate");
-    }
-
-    cSC4BaseViewInputControl::Deactivate();
+    cSC4BaseViewInputControlEx::Deactivate();
 }
 
 void BasePainterInputControl::SetTypeToPaint(const uint32_t typeID, const PropPaintSettings& settings,
@@ -182,16 +201,58 @@ void BasePainterInputControl::SetCity(cISC4City* pCity) {
     OnCityChanged_(pCity);
 }
 
-void BasePainterInputControl::SetCameraService(cIGZS3DCameraService* cameraService) {
-    cameraService_ = cameraService;
-}
-
 void BasePainterInputControl::SetOnCancel(std::function<void()> onCancel) {
     onCancel_ = std::move(onCancel);
 }
 
 void BasePainterInputControl::SetOnQuickSwap(std::function<void(size_t)> onQuickSwap) {
     onQuickSwap_ = std::move(onQuickSwap);
+}
+
+void BasePainterInputControl::SetGroundShapeLookup(GroundShapeLookup lookup) {
+    groundShapeLookup_ = std::move(lookup);
+}
+
+bool BasePainterInputControl::UseGroundShape(const GroundShape& shape) {
+    if (state_ == ControlState::ReadyWithTarget &&
+        (settings_.mode == PaintMode::Line || settings_.mode == PaintMode::Polygon)) {
+        // Not on the view yet: taken once it is.
+        pendingGroundShape_ = shape;
+        return true;
+    }
+    const bool line = state_ == ControlState::ActiveLine;
+    if ((!line && state_ != ControlState::ActivePolygon) || shape.points.size() < (line ? 2u : 3u)) {
+        return false;
+    }
+    ClearCollectedPoints_();
+    cISTETerrain* terrain = GetTerrain_();
+    const auto add = [&](const Ground::Vec2 p) {
+        const float y = terrain ? SampleStableTerrainHeight(terrain, p.x, p.z) : 0.0f;
+        collectedPoints_.push_back({cS3DVector3(p.x, y, p.z), y, 0.0f});
+    };
+    for (const Ground::Vec2 p : shape.points) {
+        add(p);
+    }
+    if (line && shape.closed) {
+        add(shape.points.front());  // all the way round
+    }
+    if (!line) {
+        fillMask_ = shape.mask;
+        fillMaskBounds_ = Ground::BoundsOf(fillMask_);
+    }
+    polygonPreviewDirty_ = true;
+    RebuildPreviewOverlay_();
+    LOG_INFO("Took a sketch of {} points from painted ground", collectedPoints_.size());
+    return true;
+}
+
+bool BasePainterInputControl::OutsideFillMask_(const cS3DVector3& position) const {
+    const Ground::Vec2 p{position.fX, position.fZ};
+    return !fillMask_.empty() && (!Ground::Contains(fillMaskBounds_, p) || !Ground::Contains(fillMask_, p));
+}
+
+void BasePainterInputControl::DropFillMask_() {
+    fillMask_.clear();
 }
 
 bool BasePainterInputControl::HasPendingSketch() const {
@@ -266,16 +327,8 @@ void BasePainterInputControl::ProcessPendingActions() {
     }
 }
 
-void BasePainterInputControl::DrawOverlay(IDirect3DDevice7* device) {
-    if (!device || settings_.previewMode == PreviewMode::Hidden) {
-        return;
-    }
-
-    if (state_ == ControlState::ActiveDirect ||
-        state_ == ControlState::ActiveLine ||
-        state_ == ControlState::ActivePolygon) {
-        overlay_.Draw(device);
-    }
+void BasePainterInputControl::SetWorldDrawService(cIGZWorldDrawService* service) {
+    overlay_.SetWorldDrawService(service);
 }
 
 // ── Undo / commit ────────────────────────────────────────────────────────────
@@ -449,6 +502,7 @@ bool BasePainterInputControl::HandleActiveMouseDownL_(const int32_t x, const int
                 terrainPos.fY + captureOffset,
                 captureOffset
             });
+            DropFillMask_();
         }
         if (state_ == ControlState::ActivePolygon) {
             polygonPreviewDirty_ = true;
@@ -472,6 +526,10 @@ bool BasePainterInputControl::HandleActiveMouseMove_(const int32_t x, const int3
 
 bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const uint32_t modifiers) {
     if (vkCode == VK_ESCAPE) {
+        if (HasPendingSketch()) {
+            ClearCollectedPoints_();
+            return true;
+        }
         CancelAllPlacements();
         cancelPending_ = true;
         return true;
@@ -488,11 +546,16 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
     }
 
     if (vkCode == 'R') {
-        settings_.rotation = (settings_.rotation + 1) & 3;
-        if (state_ == ControlState::ActivePolygon) {
-            polygonPreviewDirty_ = true;
+        Turn_();
+        return true;
+    }
+
+    if (vkCode == 'F' && groundShapeLookup_ && cursorValid_ &&
+        (state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon)) {
+        const bool along = state_ == ControlState::ActiveLine;
+        if (const auto shape = groundShapeLookup_({currentCursorWorld_.fX, currentCursorWorld_.fZ}, along)) {
+            UseGroundShape(*shape);
         }
-        SyncPreviewForState_();
         return true;
     }
 
@@ -515,6 +578,7 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
     if (vkCode == VK_BACK && (state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon)) {
         if (!collectedPoints_.empty()) {
             collectedPoints_.pop_back();
+            DropFillMask_();
             if (state_ == ControlState::ActivePolygon) {
                 polygonPreviewDirty_ = true;
             }
@@ -549,7 +613,8 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         return true;
     }
 
-    if (vkCode == 'S') {
+    if (vkCode == 'S' &&
+        ((modifiers & MOD_SHIFT) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0)) {
         settings_.snapPointsToGrid = !settings_.snapPointsToGrid;
         if (!settings_.snapPointsToGrid) {
             settings_.snapPlacementsToGrid = false;
@@ -715,6 +780,7 @@ void BasePainterInputControl::SnapPlacementToGrid_(PlannedPaint& placement) cons
 
 void BasePainterInputControl::ClearCollectedPoints_() {
     collectedPoints_.clear();
+    DropFillMask_();
     cursorValid_ = false;
     cachedPolygonPlacements_.clear();
     polygonPreviewDirty_ = true;
@@ -965,6 +1031,9 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
     BeginUndoGroup_();
     size_t placedCount = 0;
     for (auto placement : placements) {
+        if (OutsideFillMask_(placement.position)) {
+            continue;
+        }
         placement.position.fY += GetActiveVerticalOffset_();
         SnapPlacementToGrid_(placement);
         if (PlaceAtWorld_(placement.position, placement.rotation, placement.itemId)) {
@@ -1111,6 +1180,9 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
             kMaxPreviewPlacements);
 
         for (const auto& placement : placements) {
+            if (OutsideFillMask_(placement.position)) {
+                continue;
+            }
             PaintOverlay::PreviewPlacement pp;
             pp.placement = placement;
             pp.placement.position.fY += GetActiveVerticalOffset_();

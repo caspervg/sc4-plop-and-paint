@@ -85,7 +85,8 @@ bool PropPickStrategy::TryGetCursorCell_(cISC4City* city,
     if (!city) {
         return false;
     }
-    return city->PositionToCell(cursorWorld.fX, cursorWorld.fZ, cellX, cellZ) != 0;
+    city->PositionToCell(cursorWorld.fX, cursorWorld.fZ, cellX, cellZ);
+    return city->CellIsInBounds(cellX, cellZ);
 }
 
 void PropPickStrategy::AppendCandidateProps_(std::vector<CollectedProp>& candidates,

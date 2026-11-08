@@ -1,22 +1,24 @@
 #pragma once
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "../../shared/entities.hpp"
+#include "../ground/GroundGeometry.hpp"
 #include "../paint/PaintOverlay.hpp"
 #include "../paint/PaintSettings.hpp"
 #include "cISC4City.h"
 #include "cISC4Occupant.h"
 #include "cRZAutoRefCount.h"
 #include "cS3DVector3.h"
-#include "cSC4BaseViewInputControl.h"
-#include "public/cIGZS3DCameraService.h"
+#include "cSC4BaseViewInputControlEx.h"
 
 class WeightedPicker;
 
-class BasePainterInputControl : public cSC4BaseViewInputControl {
+// The back mouse button undoes the last placement (Ctrl+Z) and the middle button turns (R).
+class BasePainterInputControl : public cSC4BaseViewInputControlEx {
 public:
     explicit BasePainterInputControl(uint32_t controlID);
     ~BasePainterInputControl() override;
@@ -25,18 +27,33 @@ public:
     bool Shutdown() override;
 
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
-    bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
+    bool OnMouseDownM(int32_t x, int32_t z, uint32_t modifiers) override;
+    bool OnMouseDownX(int32_t x, int32_t z, uint32_t modifiers, uint32_t button) override;
 
     void Activate() override;
     void Deactivate() override;
 
     void SetTypeToPaint(uint32_t typeID, const PropPaintSettings& settings, const std::string& name);
     void SetCity(cISC4City* pCity);
-    void SetCameraService(cIGZS3DCameraService* cameraService);
     void SetOnCancel(std::function<void()> onCancel);
     void SetOnQuickSwap(std::function<void(size_t)> onQuickSwap);
+
+    // Painted ground as a sketch: Polygon mode fills it (mask: only there, so holes stay empty),
+    // Line mode plants along points.
+    struct GroundShape {
+        std::vector<Ground::Vec2> points;
+        bool closed = true;
+        Ground::Area mask{};
+    };
+    // Finds the painted ground at a point, as a sketch for Line mode (along) or Polygon mode.
+    using GroundShapeLookup = std::function<std::optional<GroundShape>(Ground::Vec2 point, bool along)>;
+    // F in Line or Polygon mode takes the shape of the painted ground under the cursor.
+    void SetGroundShapeLookup(GroundShapeLookup lookup);
+    // Makes the shape the sketch, as F does; false outside Line and Polygon mode.
+    bool UseGroundShape(const GroundShape& shape);
+    [[nodiscard]] bool CanUseGroundShapes() const { return static_cast<bool>(groundShapeLookup_); }
 
     [[nodiscard]] const PropPaintSettings& GetSettings() const { return settings_; }
     [[nodiscard]] bool HasPendingSketch() const;
@@ -51,7 +68,9 @@ public:
     [[nodiscard]] std::vector<cS3DVector3> GetResolvedCollectedPoints() const;
     [[nodiscard]] std::vector<cS3DVector3> GetCollectedPointTerrainAnchors() const;
     void ProcessPendingActions();
-    void DrawOverlay(IDirect3DDevice7* device);
+    // Pushed onto the view and not shut down since; it may be below a vanilla tool.
+    [[nodiscard]] bool IsActive() const { return IsActiveState_(state_); }
+    void SetWorldDrawService(cIGZWorldDrawService* service);
 
     virtual void UndoLastPlacement();
     virtual void CancelAllPlacements();
@@ -147,7 +166,6 @@ protected:
 
     // Shared state
     cRZAutoRefCount<cISC4City> city_;
-    cIGZS3DCameraService* cameraService_{nullptr};
 
     uint32_t typeToPaint_{0};
     uint32_t directPaintTypeID_{0};
@@ -194,6 +212,8 @@ private:
     bool PlaceTypeAt_(int32_t screenX, int32_t screenZ);
 
     void UndoLastPlacementInGroup_();
+    // The next quarter turn (R, middle mouse button).
+    void Turn_();
     void TrimUndoStack_();
     [[nodiscard]] bool ShouldShowOutlinePreview_() const;
 
@@ -201,6 +221,14 @@ private:
 
     std::function<void()> onCancel_{};
     std::function<void(size_t)> onQuickSwap_{};
+    GroundShapeLookup groundShapeLookup_{};
+    // From painted ground: placements outside it are left out. Clicking or removing a point by
+    // hand drops it, as the sketch is no longer that shape.
+    Ground::Area fillMask_{};
+    std::optional<GroundShape> pendingGroundShape_{};
+    Ground::Bounds fillMaskBounds_{};
+    [[nodiscard]] bool OutsideFillMask_(const cS3DVector3& position) const;
+    void DropFillMask_();
 
     struct UndoGroup {
         std::vector<cRZAutoRefCount<cISC4Occupant>> props;

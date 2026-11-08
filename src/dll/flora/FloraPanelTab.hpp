@@ -1,8 +1,11 @@
 #pragma once
+#include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "../common/PanelTab.hpp"
+#include "../packs/PackFilter.hpp"
 #include "../paint/PaintSettings.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
 #include "FloraRepository.hpp"
@@ -19,15 +22,21 @@ public:
 
     [[nodiscard]] const char* GetTabName() const override;
     void OnRender() override;
-    void OnShutdown() override { thumbnailCache_.Clear(); }
+    void OnShutdown() override {
+        thumbnailCache_.Clear();
+        previewCache_.Clear();
+    }
     void OnDeviceReset(uint32_t deviceGeneration) override;
 
 private:
     ImGuiTexture LoadFloraTexture_(uint64_t key) const;
 
+    // Each flora item's packs, once per flora.cbor, for the pack filter.
+    void IndexPacks_();
     void RenderFilterUI_();
     void BuildFilteredFloraIndices_(std::vector<size_t>& filteredIndices) const;
     void RenderIndividualFloraTable_(const std::vector<size_t>& filteredIndices);
+    void RenderGrid_(const std::vector<size_t>& filteredIndices);
     [[nodiscard]] bool RenderFloraPills_(const Flora& flora, bool startOnNewLine) const;
     void RenderPaintModal_();
     void QueuePaintForFlora_(const Flora& flora);
@@ -36,9 +45,18 @@ private:
     FloraRepository* flora_;
     ThumbnailCache<uint64_t> thumbnailCache_{};
     uint32_t lastDeviceGeneration_{0};
+    uint64_t selectedFloraKey_{0};
+    // Grid order by name, redone only when the filtered list (or flora.cbor) changes.
+    std::vector<size_t> gridSortInput_{};
+    std::vector<size_t> gridSorted_{};
+    const Flora* gridSortItems_{nullptr};
 
     char searchBuf_[256]{};
     bool favoritesOnly_{false};
+    PackFilter packFilter_{};
+    // By the flora item's index; empty spans when the catalog does not know it.
+    std::vector<std::span<const PackCatalogRepository::ExemplarRow>> floraPacks_{};
+    size_t indexedFloraCount_{SIZE_MAX};
 
     struct PendingPaintState {
         uint32_t typeId{0};

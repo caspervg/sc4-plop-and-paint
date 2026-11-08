@@ -249,6 +249,9 @@ void FamiliesPanelTab::OnRender() {
         ImGui::TextDisabled("IID: custom family");
     }
     ImGui::Text("%zu props in family", selectedFamily->entries.size());
+    if (RenderViewControls_()) {
+        thumbnailCache_.Clear();
+    }
 
     if (selectedFamily->entries.empty()) {
         if (selectedIsAuto) {
@@ -259,7 +262,10 @@ void FamiliesPanelTab::OnRender() {
         }
     }
     else {
-        if (ImGui::BeginTable("FamilyEntries", selectedIsAuto ? 3 : 4,
+        if (gridView_) {
+            RenderMemberGrid_(*selectedFamily, selectedIsAuto, userIndex);
+        }
+        else if (ImGui::BeginTable("FamilyEntries", selectedIsAuto ? 3 : 4,
                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
                               ImVec2(0, UI::familyEntriesHeight()))) {
             ImGui::TableSetupScrollFreeze(0, 1);
@@ -287,7 +293,7 @@ void FamiliesPanelTab::OnRender() {
                         thumbnailCache_.Request(key);
                     }
                     auto thumbTextureId = thumbnailCache_.Get(key);
-                    RenderThumbnail_(thumbTextureId);
+                    RenderThumbnailWithPreview_(thumbTextureId, props_->GetPropThumbnailStore(), key);
                 }
                 else {
                     RenderThumbnail_(std::nullopt);
@@ -384,6 +390,7 @@ void FamiliesPanelTab::OnRender() {
 void FamiliesPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
     if (deviceGeneration != lastDeviceGeneration_) {
         thumbnailCache_.OnDeviceReset();
+        previewCache_.OnDeviceReset();
         lastDeviceGeneration_ = deviceGeneration;
     }
 }
@@ -395,13 +402,90 @@ ImGuiTexture FamiliesPanelTab::LoadPropTexture_(const uint64_t propKey) const {
         return texture;
     }
 
-    auto data = props_->GetPropThumbnailStore().LoadThumbnail(propKey);
+    auto data = props_->GetPropThumbnailStore().LoadThumbnail(propKey, static_cast<uint32_t>(ShownThumbnailSize_()));
     if (!data.has_value()) {
         return texture;
     }
 
     texture.Create(imguiService_, data->width, data->height, data->rgba.data());
     return texture;
+}
+
+void FamiliesPanelTab::RenderMemberGrid_(const PropFamily& family, const bool isAuto, const size_t userIndex) {
+    if (!ImGui::BeginChild("FamilyEntriesGrid", ImVec2(0, UI::familyEntriesHeight()), false,
+                           ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+        ImGui::EndChild();
+        return;
+    }
+
+    ThumbnailStore& store = props_->GetPropThumbnailStore();
+    int removeIndex = -1;
+    const size_t visible = ThumbnailGrid::Render(family.entries.size(), gridTileSize_,
+        [&](const size_t index) { return family.entries[index].propID.value(); },
+        [&](const size_t index) {
+        const FamilyEntry& entry = family.entries[index];
+        const Prop* prop = props_->FindPropByInstanceId(entry.propID.value());
+        const uint64_t key = prop ? MakeGIKey(prop->groupId.value(), prop->instanceId.value()) : 0;
+        const bool hasThumbnail = prop && store.HasThumbnail(key);
+
+        std::optional<void*> texture;
+        if (hasThumbnail) {
+            texture = thumbnailCache_.Get(key);
+            if (!texture) {
+                thumbnailCache_.Request(key);
+            }
+        }
+        RenderGridTile_(texture);
+        if (!hasThumbnail) {
+            char missing[24];
+            std::snprintf(missing, sizeof(missing), "0x%08X", entry.propID.value());
+            ThumbnailGrid::LabelLastTile(prop ? (prop->visibleName.empty() ? prop->exemplarName.c_str()
+                                                                           : prop->visibleName.c_str())
+                                              : missing);
+        }
+        ThumbnailGrid::DecorateLastTile(false, false);
+
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            if (prop) {
+                ImGui::TextUnformatted(prop->visibleName.empty() ? prop->exemplarName.c_str() : prop->visibleName.c_str());
+                if (!prop->visibleName.empty()) {
+                    ImGui::TextDisabled("%s", prop->exemplarName.c_str());
+                }
+            }
+            else {
+                ImGui::Text("Missing 0x%08X", entry.propID.value());
+            }
+            if (!isAuto) {
+                ImGui::Text("Weight %.1f", entry.weight);
+                ImGui::TextDisabled("Right-click to change the weight or remove it.");
+            }
+            if (hasThumbnail) {
+                RenderLargePreview_(store, key);
+            }
+            ImGui::EndTooltip();
+        }
+
+        if (!isAuto && ImGui::BeginPopupContextItem("##FamilyTileMenu")) {
+            auto& weight = favorites_->GetUserFamilies()[userIndex].entries[index].weight;
+            ImGui::SetNextItemWidth(10.0f * ImGui::GetFontSize());
+            if (ImGui::SliderFloat("Weight", &weight, 0.1f, 10.0f, "%.1f")) {
+                favorites_->Save();
+            }
+            if (ImGui::Selectable("Remove from family")) {
+                removeIndex = static_cast<int>(index);
+            }
+            ImGui::EndPopup();
+        }
+    });
+    thumbnailCache_.FitVisible(visible + Cache::kMaxLoadPerFrame);
+    ImGui::EndChild();
+
+    if (removeIndex >= 0) {
+        auto& entries = favorites_->GetUserFamilies()[userIndex].entries;
+        entries.erase(entries.begin() + removeIndex);
+        favorites_->Save();
+    }
 }
 
 void FamiliesPanelTab::RenderNewFamilyPopup_() {

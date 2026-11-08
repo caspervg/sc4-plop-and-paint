@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "../common/PanelTab.hpp"
@@ -28,6 +29,8 @@ private:
     void BuildFilteredIndices_(std::vector<size_t>& out) const;
     void RenderDecalGrid_(const std::vector<size_t>& indices);
     void RenderSettingsModal_();
+    void RenderFaAngleCombo_(float& rotationDegrees, TerrainDecalState& state);
+    std::string CurrentFaAngleLabel_(float rotationDegrees) const;
     void RenderUvPicker_(TerrainDecalState& state);
     void QueuePaintForDecal_(uint32_t instanceId);
     void StartPaintingDecal_(uint32_t instanceId);

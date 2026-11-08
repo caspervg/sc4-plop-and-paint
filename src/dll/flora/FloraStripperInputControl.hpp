@@ -23,7 +23,6 @@ public:
 
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseUpL(int32_t x, int32_t z, uint32_t modifiers) override;
-    bool OnMouseDownR(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
 
@@ -34,7 +33,9 @@ public:
     void SetOnCancel(std::function<void()> onCancel);
     void UndoLastDeletion();
     void ProcessPendingActions();
-    void DrawOverlay(IDirect3DDevice7* device);
+    // Pushed onto the view and not shut down since; it may be below a vanilla tool.
+    [[nodiscard]] bool IsActive() const { return active_; }
+    void SetWorldDrawService(cIGZWorldDrawService* service);
 
 private:
     enum class StripMode {

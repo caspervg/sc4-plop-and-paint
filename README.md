@@ -13,7 +13,7 @@ SC4 Plop and Paint is a SimCity 4 plugin that adds an in-game panel for browsing
 _Short demo clip. Click the animation to watch the full video on YouTube._
 
 
-`_SC4PlopAndPaintCacheBuilder.exe` scans your SimCity 4 plugin directories, parses exemplar and cohort data, and writes `lots.cbor`, `props.cbor`, and `flora.cbor` into your Plugins folder. When thumbnail rendering is enabled, it also writes `lot_thumbnails.bin`, `prop_thumbnails.bin`, and `flora_thumbnails.bin`. The DLL reads those cache files when the city loads, which is why rebuilding the cache matters whenever your plugin collection changes.
+`_SC4PlopAndPaintCacheBuilder.exe` scans your SimCity 4 plugin directories, parses exemplar and cohort data, and writes `lots.cbor`, `props.cbor`, and `flora.cbor` into your Plugins folder. It also fetches the latest [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) into `packs.cbor`, which names and groups ground textures, props and flora by the packs they come from (`--no-packs` skips this, `--update-packs` does only this). The download is skipped while the catalog has not changed. When thumbnail rendering is enabled, it also writes `lot_thumbnails.bin`, `prop_thumbnails.bin`, and `flora_thumbnails.bin`. The DLL reads those cache files when the city loads, which is why rebuilding the cache matters whenever your plugin collection changes.
 
 ## Installation
 
@@ -21,24 +21,31 @@ Install SC4RenderServices first, then download `SC4PlopAndPaint-{version}-Setup.
 
 Dependencies:
 
-- SC4RenderServices (required): GitHub project `https://github.com/caspervg/sc4-render-services`
+- SC4RenderServices v0.8.1 or newer (required): GitHub project `https://github.com/caspervg/sc4-render-services`
 - SC4RenderServices download page: `https://community.simtropolis.com/files/file/37372-sc4-render-services/`
 - Visual C++ 2015-2022 Redistributable (x86, required for SimCity 4 / 32-bit): `https://aka.ms/vs/17/release/vc_redist.x86.exe`
-- Visual C++ 2015-2022 Redistributable (x64, required for the cache builder): `https://aka.ms/vs/17/release/vc_redist.x64.exe`
-- The bundled cache builder is x64-only and requires 64-bit Windows.
+- The bundled cache builder is x64-only and requires 64-bit Windows. It has no runtime dependencies of its own.
 
 The installer will:
 
 1. Ask for your game root and Plugins directory.
 2. Verify that `SC4RenderServices.dll` is already present in your Plugins folder. If it is missing, the installer will stop and direct you to the SC4RenderServices download page.
 3. Place `SC4PlopAndPaint.dll` and `SC4PlopAndPaint.dat` in your Plugins folder.
-4. Let you choose the thumbnail size used for cache generation and apply the same size to `ThumbnailDisplaySize` in `SC4PlopAndPaint.ini`.
+4. Let you choose the thumbnail detail stored in the cache (default 132 pixels) and the thumbnail size shown in the panels (default 44 pixels, saved as `ThumbnailDisplaySize` in `SC4PlopAndPaint.ini`). The plugin scales the stored thumbnails down to the panel size.
 5. Place `_SC4PlopAndPaintCacheBuilder.exe` and a generated `Rebuild-Cache.cmd` in `Documents\SimCity 4\SC4PlopAndPaint\`.
 6. Optionally run the cache builder immediately.
 
 To rebuild the cache later, for example after adding or removing plugins, run `Rebuild-Cache.cmd`.
 
+The UI and the in-city previews draw through SC4RenderServices, so they work with the game's built-in DirectX driver, SCD3D11 and scvk alike.
+
 If something looks wrong in game, check the separate services plugin's log output in `Documents\SimCity 4\`.
+
+### Linux (Wine / Steam Proton)
+
+The DLL runs in SimCity 4 under Wine or Proton. Install SC4RenderServices and SC4 Plop and Paint by running their installers inside the prefix the game runs in (for example `WINEPREFIX=/path/to/prefix wine SC4PlopAndPaint-{version}-Setup.exe`), and pick that prefix's `drive_c/users/<user>/Documents/SimCity 4/Plugins` folder.
+
+To build the cache without Wine, download `SC4PlopAndPaintCacheBuilder-{version}-linux-x64.tar.gz` from the releases page. It is a native build of the cache builder that runs on any x86-64 distribution with glibc 2.28 or newer. Extract it anywhere and run `./rebuild-cache.sh`. The game and Plugins folders are detected from `$WINEPREFIX`, `~/.wine`, Steam Proton prefixes and Steam libraries. If the wrong folders are picked, pass `--wine-prefix`, `--game`, or `--plugins`. Running `./SC4PlopAndPaintCacheBuilder` without arguments prints the detected folders. See the `README.txt` in the archive for details.
 
 ## Using it in-game
 
@@ -67,7 +74,7 @@ If you just want the basics:
 Notable options:
 
 - `LogLevel` and `LogToFile` control logging verbosity and file logging
-- `EnableDrawOverlay` disables or enables the draw-service overlay preview used while painting
+- `EnableDrawOverlay` disables or enables the in-city preview (grid, outlines and placement boxes) drawn while painting, stripping and picking
 - `DefaultPropPreviewMode`, `DefaultShowGridOverlay`, `DefaultSnapPointsToGrid`, `DefaultSnapPlacementsToGrid`, and `DefaultGridStepMeters` control the default paint popup values
 - `ThumbnailDisplaySize` controls thumbnail size in the UI
 - `ThumbnailBackgroundColor` and `ThumbnailBorderColor` control the thumbnail slot styling used behind transparent thumbnails
@@ -85,28 +92,45 @@ cd sc4-advanced-plop
 
 **DLL (32-bit, Windows only - required for SC4):**
 
+The DLL uses the ImGui that `SC4RenderServices.dll` exports. The build compiles `SC4RenderServices` from the submodule and links against it, so no separate step is needed.
+
 ```bash
+./vendor/vcpkg/vcpkg install --triplet x86-windows-static-md
 cmake --preset vs2022-win32-release
 cmake --build --preset vs2022-win32-release-build --target SC4PlopAndPaint
 ```
 
 **Cache builder CLI (64-bit, Windows):**
 
+The CLI links the C++ runtime statically (`x64-windows-static` triplet). If an existing build directory was configured with another triplet, reconfigure it with `--fresh`.
+
 ```bash
+./vendor/vcpkg/vcpkg install --triplet x64-windows-static
 cmake --preset vs2022-x64-release
 cmake --build --preset vs2022-x64-release-build --target SC4PlopAndPaintCli
 ```
 
-**macOS / Linux (CLI only):**
+**Cache builder CLI (64-bit, Linux):**
+
+Requires GCC 14 or newer, Ninja, and the X11/OpenGL development packages needed by GLFW and raylib (on Ubuntu: `xorg-dev libgl1-mesa-dev libglu1-mesa-dev pkg-config`). Release builds are made in the `manylinux_2_28` container, see `.github/workflows/build.yml`.
+
+```bash
+./vendor/vcpkg/bootstrap-vcpkg.sh
+./vendor/vcpkg/vcpkg install --triplet x64-linux
+cmake --preset linux-x64-release
+cmake --build --preset linux-x64-release-build --target SC4PlopAndPaintCli
+```
+
+**macOS (CLI only):**
 
 ```bash
 cmake --preset ninja-release
 cmake --build --preset ninja-release-build
 ```
 
-Use `ninja-debug`, `vs2022-win32-debug`, or `vs2022-x64-debug` for debug builds.
+Use `ninja-debug`, `linux-x64-debug`, `vs2022-win32-debug`, or `vs2022-x64-debug` for debug builds.
 
-Dependencies are managed via vcpkg (bundled in `vendor/vcpkg`). On Windows, the CI workflow also builds `sc4-imgui-service` separately before packaging the release artifact.
+Dependencies are managed via vcpkg (bundled in `vendor/vcpkg`). On Windows, the CI workflow also builds `SC4RenderServices` from the submodule before building the DLL.
 
 **Running tests:**
 
@@ -118,7 +142,7 @@ ctest -C Debug --test-dir cmake-build-debug-visual-studio --output-on-failure
 
 | Library | Purpose | License |
 |---|---|---|
-| [sc4-render-services](https://github.com/caspervg/sc4-render-services) | ImGui backend and SC4 custom services integration | LGPL 2.1 |
+| [sc4-render-services](https://github.com/caspervg/sc4-render-services) | ImGui, world drawing and terrain decal services for every graphics driver | LGPL 2.1 |
 | [gzcom-dll](https://github.com/nsgomez/gzcom-dll) | GZCOM interface headers for SC4 plugin development | LGPL 2.1 |
 | [DBPFKit](https://github.com/caspervg/DBPFKit) | DBPF archive reader (exemplars, FSH, S3D, LText) | - |
 | [Dear ImGui](https://github.com/ocornut/imgui) | Immediate-mode UI framework | MIT |
@@ -137,5 +161,14 @@ ctest -C Debug --test-dir cmake-build-debug-visual-studio --output-on-failure
 | [raylib](https://www.raylib.com) | 3D rendering for thumbnail generation | zlib |
 | [GLFW](https://www.glfw.org) | OpenGL windowing (raylib dependency) | zlib |
 | [Fira Mono](https://fonts.google.com/specimen/Fira+Mono) | Embedded monospace font | SIL Open Font License 1.1 |
+| [libwebp](https://chromium.googlesource.com/webm/libwebp) | Thumbnail compression (WebP) | BSD 3-Clause |
+| [Clipper2](https://github.com/AngusJohnson/Clipper2) | Polygon clipping for ground painting | Boost 1.0 |
+| [TinySpline](https://github.com/msteinbeck/tinyspline) | Splines for ground painting | MIT |
+| [Hershey Fonts](https://github.com/kamalmostafa/hershey-fonts) | Stroke font for ground markings | Hershey font licence |
+| [curl](https://curl.se) | Downloading the SC4 Prop Texture Catalog | curl licence |
+| [zlib](https://zlib.net) | Compression (curl dependency) | zlib |
+| [SQLite](https://www.sqlite.org) | Reading the SC4 Prop Texture Catalog | Public domain |
+| cgltf, qoi, NanoSVG, sdefl/sinfl, miniaudio, dr_libs | Built into raylib | MIT / zlib / public domain |
+| [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) | Pack names for textures, props and flora | Data, used with permission |
 
-Full license texts are in [dist/ThirdPartyNotices.txt](dist/ThirdPartyNotices.txt).
+Full license texts are in [dist/THIRD_PARTY_NOTICES.txt](dist/THIRD_PARTY_NOTICES.txt).

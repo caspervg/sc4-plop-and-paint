@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <list>
 #include <optional>
 #include <unordered_map>
@@ -87,6 +88,13 @@ public:
 
     [[nodiscard]] size_t MaxSize() const {
         return maxSize_;
+    }
+
+    // Sizes the cache to what is on screen, never below the default. A cache smaller than the
+    // visible set evicts visible textures, which are requested again next frame and reload forever;
+    // one that only grows keeps hundreds of large textures after switching to bigger tiles.
+    void FitVisible(const size_t visible) {
+        maxSize_ = std::max(Cache::kMaxSize, visible);
     }
 
     [[nodiscard]] bool IsQueueEmpty() const {

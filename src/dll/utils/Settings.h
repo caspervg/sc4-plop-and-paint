@@ -24,6 +24,7 @@ public:
     // Logging
     [[nodiscard]] spdlog::level::level_enum GetLogLevel() const noexcept;
     [[nodiscard]] bool GetLogToFile() const noexcept;
+    [[nodiscard]] bool GetCheckForUpdates() const noexcept;
     [[nodiscard]] bool GetEnableDrawOverlay() const noexcept;
     [[nodiscard]] PreviewMode GetDefaultPropPreviewMode() const noexcept;
     [[nodiscard]] bool GetDefaultShowGridOverlay() const noexcept;
@@ -40,6 +41,7 @@ public:
 private:
     spdlog::level::level_enum logLevel_;
     bool logToFile_;
+    bool checkForUpdates_;
     bool enableDrawOverlay_;
     PreviewMode defaultPropPreviewMode_;
     bool defaultShowGridOverlay_;

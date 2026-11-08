@@ -220,6 +220,13 @@ struct RecentPaintEntryData {
     std::vector<FamilyEntry> palette;
 };
 
+// How a panel tab shows its items (list or thumbnail grid), remembered between sessions.
+struct TabViewSettings {
+    std::string tab;  // the tab's name, e.g. "Props"
+    bool grid = false;
+    uint32_t tileSize = 66;
+};
+
 struct AllFavorites {
     uint32_t version = 7;
     TabFavorites lots;
@@ -229,5 +236,6 @@ struct AllFavorites {
     std::optional<std::vector<PropFamily>> families;
     std::optional<std::vector<RecentPaintEntryData>> recentPaints;
     std::optional<std::vector<SeasonalSet>> seasonalSets;
+    std::optional<std::vector<TabViewSettings>> tabViews;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

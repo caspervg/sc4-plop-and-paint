@@ -23,7 +23,7 @@ The window has six tabs:
 - `Prop Families`: manage built-in and custom prop families, then paint with a weighted random palette
 - `Flora`: browse individual flora items and paint one flora type at a time
 - `Flora Collections`: paint flora families and multi-stage chains built from the loaded flora data
-- `Decals`: browse and paint texture decals on terrain and lots
+- `Terrain Paint`: paint areas, lines, brush strokes and road markings on the terrain, and stamp texture decals
 
 ![Main window](images/main-window-cropped.jpg)
 
@@ -67,7 +67,8 @@ This tab is for individual props and prop removal.
 
 Filters:
 
-- `Search props...`
+- `Search props...`, which also matches pack names
+- The pack list: only the props of one pack, as the [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) knows them (needs `packs.cbor` from the cache builder). A prop that several packs ship is listed under each of them. Hovering a prop shows its pack.
 - `Favorites only`
 - Width, height, and depth min/max sliders
 - `Clear filters`
@@ -94,7 +95,7 @@ Strip mode:
 - In strip mode, move the cursor over a prop within the preview radius and left-click to delete it
 - Press `B` to toggle brush mode and hold the left mouse button to strip everything inside the preview radius
 - `Ctrl+Z` restores the most recently removed city, lot, or street prop
-- `Esc` or right-click exits strip mode
+- `Esc` exits strip mode; right-drag pans the camera as usual
 
 ![Props tab](images/props-cropped.jpg)
 
@@ -142,7 +143,8 @@ This tab is for individual flora items.
 
 Filters:
 
-- `Search flora...`
+- `Search flora...`: also matches the pack a flora item comes from
+- The pack list: shows only the flora of one pack, as the [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) knows them (from `packs.cbor`). An item in several packs shows under each of them
 - `Favorites only`
 - `Clear filters`
 
@@ -182,9 +184,75 @@ Important behavior:
 - Double-clicking a collection row or pressing `Paint` opens the flora paint options for that collection
 - Selecting a collection shows its members below, including thumbnails, IDs, and favorite buttons for the individual flora entries
 
-## Decals
+## Terrain Paint
 
-This tab is for painting texture decals on terrain and lot surfaces.
+This tab paints the ground: areas, lines, brush strokes and road markings in any shape, with a ground texture or a plain colour. Everything you paint stays editable and is saved with the city. It needs SC4RenderServices with terrain paint and `EnableCustomTerrainDecalRenderer=true`.
+
+Tools (pick one to start, `Stop` or Esc to end):
+
+- `Area`: click points to outline an area. Click the first point or press Enter to finish. With `Corner radius` the corners are rounded.
+- `Line`: click points along a line, Enter to finish. Set the width, flat or round ends, and dashes for road markings.
+- `Brush`: hold the left mouse button and drag. With `Join overlapping strokes`, a stroke over one painted the same way becomes part of it, so a patch of ground stays one object in the list.
+- `Marking`: road markings. Pick a kind and click the points it needs:
+  - `Parking row` and `Car park`: click along the front of the row, Enter to finish. The bays lie to the left of the direction you click in. A car park adds rows back to back with aisles between them.
+  - `Zebra crossing`: two clicks across the road, kerb to kerb.
+  - `Arrow`: click the tail, then the tip.
+  - `Double line`: click along the line, Enter to finish.
+  - `Hatching`: click round the area, then click the first point or press Enter. The stripe angle is measured from the first side.
+  - `Text`: type the text, click where it starts, then click which way it runs.
+- `Erase`: rub out painted ground with a brush, or click an outline and press Enter.
+- `Select`: click painted ground to select it (Ctrl+click adds to the selection), drag to move it, Delete to remove it. Shift+drag moves its texture instead of the shape. With one area, line or marking selected, its points show: drag a point to move it, Ctrl+click its path to add a point, Alt+click a point to remove it.
+- `Stamp`: the texture decal painter described below.
+
+`Draw` chooses straight lines between clicks, a smooth curve through them, or freehand drawing (drag). Backspace removes the last point, Esc cancels the shape, and a second Esc stops the tool. Right-drag pans the camera, even halfway through a shape. The grid works as in the other painters: G shows it, Shift+S snaps points to it, Ctrl+[ and Ctrl+] change its step.
+
+`Snap to paint` (M) snaps clicked and dragged points to what is already painted: corners, the middles of sides, and edges. After snapping to an edge, a side drawn within 2° of parallel or square to it lines up with it. Hold Shift for 15° steps from the last point. A small ring shows what the point snapped to. The status box shows the length of the side being drawn, how far it turns from the last, and the length and area of the whole shape; with one object selected, its area.
+
+`Paint with`: `Copy look` (or Alt+click in the city) takes the colour or textures and finish from something already painted.
+
+- `Colour`, or `Texture`: pick ground textures from the library below it.
+  - Click a texture to paint with it. Ctrl+click adds it to a mix, or takes it out again. In a mix, each 16 m square of ground takes one of the textures, by its share, for natural variation.
+  - Right-click a texture to make it a favourite; `Favourites only` shows just those. They are the same favourites as in `Stamp`.
+  - `Pack` shows the textures of one pack. With `All packs`, a pack's textures sit together. The search finds textures by the name of the file they first shipped in, their pack, or their instance ID. Pack and file names come from the [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog), through `packs.cbor`. Without that file, the search goes by instance ID only.
+  - The textures you used last are at the top.
+- `Texture size` and `Texture turn` scale and turn the texture. `Texture shift` moves it, to line it up with a kerb or a lot; Shift+drag in `Select` does the same in the city.
+- `Mix` (with two or more textures): `By 16 m square`, or `In soft patches`: the first texture covers the shape and the others lie on it in natural, blended patches, each by its share. `Patch size` sets how big they are, `Patch blend` how far their edges fade.
+- `Follow the line` (lines with a texture): the texture runs along the line and spans its width, like a dirt track or a kerb. `Texture length` is how often it repeats along the line.
+- `Finish`: opacity, a soft edge (how far in from the edge the paint fades out), worn paint (patches missing, as on an old road), a rough edge (an uneven, natural outline that wanders this far in and out, for grass, dirt and gravel; not for markings) and the depth (raise it when the paint flickers or hides under lot textures; 4 and up draws over the game's shadows).
+
+Colour and opacity changes show in the city while the slider moves; changes to the shape show every so often and apply when you let go.
+
+
+`Painted in this city` lists everything painted, top first: show or hide it, lock it against erasing and moving, and click a row to select it. With one object selected, its name, shape settings and look can be changed; changes apply when you let go of a control. `Up`, `Down`, `Top` and `Bottom` change what lies on top. With the selection:
+
+- `Turn` and `Scale`: drag to turn or scale it about its middle; it changes when you let go.
+- `Copy` (Ctrl+D): copies it, 4 m away.
+- `Group` (Ctrl+G) and `Ungroup` (Ctrl+Shift+G): a group is selected as one.
+- `Merge`: makes it one shape, painted like the topmost. Its points can no longer be edited.
+- `Border, repeat, mirror`:
+  - `Add border`: a new shape along the edge, outside, inside or on it, such as a kerb, a gravel edge or a beach. It starts painted the same way; pick its own look next.
+  - `Repeat`: copies across and down, each a `Step` further (it starts just clear of the selection). Groups are copied as groups.
+  - `Flip left-right` and `Flip top-bottom` mirror it. Parking bays and turn arrows swap sides, text is not written backwards. With `as a copy`, the original stays and the copy lies alongside it.
+- `Props and flora on it`: with the prop, family or flora you painted last, `Fill it` opens its painter in Polygon mode with this shape as the sketch (holes stay empty), and `Plant along it` opens it in Line mode along this line or round the edge of this shape. Then -/+ change the density or spacing, and Enter places them. In the Line and Polygon modes of the prop and flora painters, F over painted ground does the same.
+
+Ctrl+Z and Ctrl+Y undo and redo, in the panel and in the city.
+
+Shortcuts, by key and with a mouse that has a middle and back/forward buttons:
+
+| Action | Key | Mouse |
+|---|---|---|
+| Undo, redo | Ctrl+Z, Ctrl+Y | Back, Forward |
+| Remove the last point while drawing | Backspace | Back |
+| Finish the shape | Enter | Middle click |
+| Brush or eraser size | `[` and `]` | Middle-drag sideways |
+| Turn the selection | `,` and `.` (15°, with Shift 1°) | Middle-drag sideways |
+| Scale the selection | `-` and `=` | Shift + middle-drag sideways |
+| Snap to paint on or off | M | |
+| 15° steps from the last point | Hold Shift | |
+
+### Stamp
+
+Stamp paints single texture decals on terrain and lot surfaces.
 
 Filters:
 
@@ -280,6 +348,8 @@ In `Paint along line`, left-click adds line points and `Enter` places props alon
 
 In `Paint inside polygon`, left-click adds polygon vertices and `Enter` fills the area.
 
+With ground painted in the `Terrain Paint` tab, `F` takes its shape as the sketch: in `Paint inside polygon` the shape under the cursor is filled (holes in it stay empty), in `Paint along line` the props follow a painted line, or go round the edge of a painted area.
+
 In line and polygon modes, the first `Enter` generates the batch and places it as pending props. Press `Enter` again to commit those pending props permanently.
 
 ![Polygon painting in progress, step 1 - building polygon](images/polygon-painting-01-cropped.jpg)
@@ -292,16 +362,17 @@ Polygon paint mode in action, with the live overlay preview and the status windo
 
 While paint mode is active:
 
-- `R`: rotate the fixed rotation (cycles 0 / 90 / 180 / 270)
+- `R` or a middle click: rotate the fixed rotation (cycles 0 / 90 / 180 / 270)
 - `G`: toggle the grid overlay
-- `S`: toggle point snapping (turning it off also disables placement snapping)
-- `[` / `]`: step the grid size through preset values (`1`, `2`, `4`, `8`, `16` meters)
+- `Shift+S`: toggle point snapping (turning it off also disables placement snapping)
+- `Ctrl+[` / `Ctrl+]`: step the grid size through preset values (`1`, `2`, `4`, `8`, `16` meters)
 - `P`: cycle preview mode (`Outline`, `Full`, `Combined`, `Hidden`)
 - `Backspace`: remove the last unconfirmed line point or polygon vertex while drawing
-- `Ctrl+Z`: undo the whole last pending placement group
+- `Ctrl+Z` or the back mouse button: undo the whole last pending placement group
 - `Ctrl+Backspace`: undo only the last prop in the current top group
 - `Enter`: place the current line or polygon batch, or commit pending placements
-- `Esc` or right-click: cancel all pending placements and leave paint mode
+- `Esc`: cancel the line or polygon being drawn; with none, cancel all pending placements and leave paint mode
+- Right-drag pans the camera as usual, also while drawing a line or polygon
 
 Flora-specific note:
 
@@ -312,6 +383,7 @@ Mode-specific hotkeys:
 - Line mode: `-` / `+` decrease or increase spacing by `0.5m`
 - Polygon mode: `-` / `+` decrease or increase density by `0.25`
 - Polygon mode: `Ctrl+-` / `Ctrl++` decrease or increase density variation by `0.05`
+- Line and polygon modes: `F` takes the shape of the painted ground under the cursor as the sketch
 
 While painting, a small status window also shows up to help you out and to mirror the main paint hotkeys for quick reference.
 
@@ -482,10 +554,10 @@ The packaged `SC4PlopAndPaint.ini` controls several runtime defaults.
 
 Relevant options:
 
-- `EnableDrawOverlay`: disables the overlay preview if needed
+- `EnableDrawOverlay`: disables the in-city preview (grid, outlines and placement boxes) if needed
 - `DefaultPropPreviewMode`: `outline`, `full`, or `combined`
 - `DefaultShowGridOverlay`, `DefaultSnapPointsToGrid`, `DefaultSnapPlacementsToGrid`, `DefaultGridStepMeters`: default paint popup values
-- `ThumbnailDisplaySize`: thumbnail size in the UI (`22` to `176`)
+- `ThumbnailDisplaySize`: thumbnail size in the UI (`22` to `220`). The cache stores thumbnails at the size given to the cache builder (`--thumbnail-size`, default `132`); larger ones are scaled down to this size
 - `ThumbnailBackgroundColor` and `ThumbnailBorderColor`: thumbnail slot colors shown behind transparent thumbnails
 
 Thumbnail color options accept `RRGGBB` or `RRGGBBAA`. Set either one to an empty value to make it transparent.

@@ -9,9 +9,9 @@
 
 namespace {
     constexpr auto kScenePickerControlID = 0x7F6E5D4Du;
-    constexpr DWORD kPickerNoTargetColor = 0xC0FF3333;
-    constexpr DWORD kPickerTargetColor = 0xC033DD66;
-    constexpr DWORD kPickerRectHighlightColor = 0xF0FFD700;
+    constexpr uint32_t kPickerNoTargetColor = 0xC0FF3333;
+    constexpr uint32_t kPickerTargetColor = 0xC033DD66;
+    constexpr uint32_t kPickerRectHighlightColor = 0xF0FFD700;
 }
 
 ScenePickerInputControl::ScenePickerInputControl()
@@ -31,6 +31,8 @@ bool ScenePickerInputControl::Init() {
 }
 
 bool ScenePickerInputControl::Shutdown() {
+    active_ = false;
+    overlay_.SetWorldDrawService(nullptr);
     if (!initialized) {
         return true;
     }
@@ -56,17 +58,6 @@ bool ScenePickerInputControl::OnMouseDownL(const int32_t /*x*/,
     pickedResult_ = hoveredResult_;
     pickPending_ = true;
     ClearHover_();
-    return true;
-}
-
-bool ScenePickerInputControl::OnMouseDownR(const int32_t /*x*/,
-                                           const int32_t /*z*/,
-                                           const uint32_t /*modifiers*/) {
-    if (!active_ || !IsOnTop()) {
-        return false;
-    }
-    ClearHover_();
-    cancelPending_ = true;
     return true;
 }
 
@@ -118,7 +109,8 @@ void ScenePickerInputControl::Activate() {
 }
 
 void ScenePickerInputControl::Deactivate() {
-    active_ = false;
+    // The game also deactivates a control it covers, e.g. with its right-drag camera pan, and
+    // does not activate it again when that ends, so active_ stays set until Shutdown.
     ClearHover_();
     overlay_.Clear();
     cSC4BaseViewInputControl::Deactivate();
@@ -168,11 +160,8 @@ void ScenePickerInputControl::ProcessPendingActions() {
     }
 }
 
-void ScenePickerInputControl::DrawOverlay(IDirect3DDevice7* device) {
-    if (!device) {
-        return;
-    }
-    overlay_.Draw(device, false);
+void ScenePickerInputControl::SetWorldDrawService(cIGZWorldDrawService* service) {
+    overlay_.SetWorldDrawService(service);
 }
 
 bool ScenePickerInputControl::UpdateCursorWorldFromScreen_(const int32_t screenX, const int32_t screenZ) {

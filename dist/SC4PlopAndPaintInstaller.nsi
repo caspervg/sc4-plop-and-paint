@@ -42,10 +42,12 @@ Var CacheLocale
 Var CacheRenderThumbs
 Var CacheBuildNow
 Var CacheThumbnailSize
+Var ThumbnailDisplaySize
 Var HCacheLocale
 Var HCacheRenderThumbs
 Var HCacheBuildNow
 Var HCacheThumbnailSize
+Var HThumbnailDisplaySize
 Var HSummaryText
 Var GameExePath
 Var RenderServicesDllPath
@@ -80,7 +82,8 @@ Function .onInit
   StrCpy $CacheLocale "English"
   StrCpy $CacheRenderThumbs "0"
   StrCpy $CacheBuildNow "1"
-  StrCpy $CacheThumbnailSize "44"
+  StrCpy $CacheThumbnailSize "132"
+  StrCpy $ThumbnailDisplaySize "44"
 FunctionEnd
 
 Function NormalizeDirPath
@@ -424,9 +427,12 @@ Function ConfigureCachePage
     ${NSD_Check} $HCacheRenderThumbs
   ${EndIf}
 
-  ${NSD_CreateLabel} 0u 90u 100% 10u "Thumbnail size in pixels (22-176, used for cache thumbnails and UI display):"
-  ${NSD_CreateText} 0u 102u 100% 12u "$CacheThumbnailSize"
+  ${NSD_CreateLabel} 0u 90u 48% 10u "Thumbnail detail in pixels (22-220):"
+  ${NSD_CreateText} 0u 102u 48% 12u "$CacheThumbnailSize"
   Pop $HCacheThumbnailSize
+  ${NSD_CreateLabel} 52% 90u 48% 10u "Thumbnail size in the panels (22-220):"
+  ${NSD_CreateText} 52% 102u 48% 12u "$ThumbnailDisplaySize"
+  Pop $HThumbnailDisplaySize
 
   ${NSD_CreateCheckbox} 0u 122u 100% 12u "Build cache during installation"
   Pop $HCacheBuildNow
@@ -446,6 +452,7 @@ FunctionEnd
 Function ConfigureCachePageLeave
   ${NSD_GetText} $HCacheLocale $CacheLocale
   ${NSD_GetText} $HCacheThumbnailSize $CacheThumbnailSize
+  ${NSD_GetText} $HThumbnailDisplaySize $ThumbnailDisplaySize
   ${NSD_GetState} $HCacheRenderThumbs $0
   ${If} $0 == ${BST_CHECKED}
     StrCpy $CacheRenderThumbs "1"
@@ -458,21 +465,17 @@ Function ConfigureCachePageLeave
     Abort
   ${EndIf}
 
-  ${If} $CacheThumbnailSize == ""
-    MessageBox MB_OK|MB_ICONEXCLAMATION "Thumbnail size cannot be empty."
+  ; Empty or non-numeric text compares as 0, so the range check covers it.
+  ${If} $CacheThumbnailSize < 22
+  ${OrIf} $CacheThumbnailSize > 220
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Thumbnail detail must be a whole number between 22 and 220 pixels."
     Abort
   ${EndIf}
-
-  IntCmp $CacheThumbnailSize 22 0 thumbnail_size_too_small thumbnail_size_ok_min
-  thumbnail_size_too_small:
-    MessageBox MB_OK|MB_ICONEXCLAMATION "Thumbnail size must be an integer between 22 and 176 pixels."
+  ${If} $ThumbnailDisplaySize < 22
+  ${OrIf} $ThumbnailDisplaySize > 220
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Thumbnail size in the panels must be a whole number between 22 and 220 pixels."
     Abort
-  thumbnail_size_ok_min:
-  IntCmp $CacheThumbnailSize 176 thumbnail_size_ok_max thumbnail_size_ok_max thumbnail_size_too_large
-  thumbnail_size_too_large:
-    MessageBox MB_OK|MB_ICONEXCLAMATION "Thumbnail size must be an integer between 22 and 176 pixels."
-    Abort
-  thumbnail_size_ok_max:
+  ${EndIf}
 
   ${NSD_GetState} $HCacheBuildNow $0
   ${If} $0 == ${BST_CHECKED}
@@ -545,7 +548,7 @@ Function ConfigureSummaryPage
     StrCpy $1 "No"
   ${EndIf}
 
-  ${NSD_CreateLabel} 0u 16u 100% 88u "Game root:$\r$\n$GameRoot$\r$\n$\r$\nPlugins dir:$\r$\n$SC4PluginsDir$\r$\n$\r$\nTools/output dir:$\r$\n$SC4ToolsDir$\r$\n$\r$\nCache locale: $CacheLocale$\r$\nRender 3D thumbnails: $0$\r$\nThumbnail size: $CacheThumbnailSize px$\r$\nBuild cache during install: $1"
+  ${NSD_CreateLabel} 0u 16u 100% 100u "Game root:$\r$\n$GameRoot$\r$\n$\r$\nPlugins dir:$\r$\n$SC4PluginsDir$\r$\n$\r$\nTools/output dir:$\r$\n$SC4ToolsDir$\r$\n$\r$\nCache locale: $CacheLocale$\r$\nRender 3D thumbnails: $0$\r$\nThumbnail detail: $CacheThumbnailSize px$\r$\nThumbnail size in the panels: $ThumbnailDisplaySize px$\r$\nBuild cache during install: $1"
   Pop $HSummaryText
 
   nsDialogs::Show
@@ -561,7 +564,7 @@ Section "Install"
   SetOverwrite off
   File "SC4PlopAndPaint.ini"
   SetOverwrite on
-  WriteINIStr "$SC4PluginsDir\SC4PlopAndPaint.ini" "SC4PlopAndPaint" "ThumbnailDisplaySize" "$CacheThumbnailSize"
+  WriteINIStr "$SC4PluginsDir\SC4PlopAndPaint.ini" "SC4PlopAndPaint" "ThumbnailDisplaySize" "$ThumbnailDisplaySize"
 
   CreateDirectory "$SC4ToolsDir"
   SetOutPath "$SC4ToolsDir"
@@ -591,6 +594,7 @@ Section "Install"
   FileWrite $3 '@echo off$\r$\n'
   FileWrite $3 'setlocal EnableExtensions$\r$\n'
   FileWrite $3 'set "SCRIPT_DIR=%~dp0"$\r$\n'
+  FileWrite $3 'cd /d "%SCRIPT_DIR%"$\r$\n'
   FileWrite $3 'set "EXE=%SCRIPT_DIR%_SC4PlopAndPaintCacheBuilder.exe"$\r$\n'
   FileWrite $3 'set "LOG_FILE=%SCRIPT_DIR%cache_build.log"$\r$\n'
   FileWrite $3 'if not exist "%EXE%" ($\r$\n'
@@ -609,7 +613,7 @@ Section "Install"
   FileWrite $3 '>> "%LOG_FILE%" echo Plugins dir: "$SC4PluginsDir"$\r$\n'
   FileWrite $3 '>> "%LOG_FILE%" echo Locale: "$CacheLocale"$\r$\n'
   FileWrite $3 '>> "%LOG_FILE%" echo Render thumbnails: $CacheRenderThumbs$\r$\n'
-  FileWrite $3 '>> "%LOG_FILE%" echo Thumbnail size: $CacheThumbnailSize px$\r$\n'
+  FileWrite $3 '>> "%LOG_FILE%" echo Thumbnail detail: $CacheThumbnailSize px$\r$\n'
   FileWrite $3 '>> "%LOG_FILE%" echo Command: "%EXE%" --scan --game "$GameRoot" --plugins "$SC4PluginsDir" --locale "$CacheLocale" --thumbnail-size "$CacheThumbnailSize"'
   ${If} $CacheRenderThumbs == "1"
     FileWrite $3 ' --render-thumbnails'

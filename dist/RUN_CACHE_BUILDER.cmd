@@ -2,6 +2,7 @@
 setlocal EnableExtensions
 
 set "SCRIPT_DIR=%~dp0"
+cd /d "%SCRIPT_DIR%"
 set "EXE=%SCRIPT_DIR%_SC4PlopAndPaintCacheBuilder.exe"
 
 if not exist "%EXE%" (
@@ -34,7 +35,7 @@ set "DEFAULT_GAME_ROOT=%ProgramFiles(x86)%\SimCity 4 Deluxe Edition"
 if not defined ProgramFiles(x86) set "DEFAULT_GAME_ROOT=%ProgramFiles%\SimCity 4 Deluxe Edition"
 set "DEFAULT_PLUGINS=%USERPROFILE%\Documents\SimCity 4\Plugins"
 set "DEFAULT_LOCALE=English"
-set "DEFAULT_THUMBNAIL_SIZE=44"
+set "DEFAULT_THUMBNAIL_SIZE=132"
 
 set "GAME_ROOT="
 set "PLUGINS_DIR="
@@ -53,7 +54,7 @@ if not defined LOCALE_DIR set "LOCALE_DIR=%DEFAULT_LOCALE%"
 
 set /p "RENDER_THUMBS=Render 3D thumbnails? (y/N): "
 
-set /p "THUMBNAIL_SIZE=Thumbnail size in pixels (22-176) [default: %DEFAULT_THUMBNAIL_SIZE%]: "
+set /p "THUMBNAIL_SIZE=Thumbnail size in pixels (22-220) [default: %DEFAULT_THUMBNAIL_SIZE%]: "
 if not defined THUMBNAIL_SIZE set "THUMBNAIL_SIZE=%DEFAULT_THUMBNAIL_SIZE%"
 
 echo.

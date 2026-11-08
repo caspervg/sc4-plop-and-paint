@@ -6,16 +6,17 @@ This release zip includes:
 - THIRD_PARTY_NOTICES.txt
 
 Installation instructions:
-- Install SC4RenderServices first so SC4RenderServices.dll is already present in your Plugins folder.
+- Install SC4RenderServices v0.8.1 or newer first so SC4RenderServices.dll is already present in your Plugins folder.
+- SC4 Plop and Paint works with the game's built-in DirectX driver, SCD3D11 and scvk.
 - SC4RenderServices project page: https://github.com/caspervg/sc4-render-services
 - SC4RenderServices download page: https://community.simtropolis.com/files/file/37372-sc4-render-services/
 - Install the Microsoft Visual C++ 2015-2022 Redistributables:
 - x86 (required for SimCity 4 / 32-bit): https://aka.ms/vs/17/release/vc_redist.x86.exe
-- x64 (required for the cache builder): https://aka.ms/vs/17/release/vc_redist.x64.exe
-- The bundled cache builder is x64-only and requires 64-bit Windows.
+- The bundled cache builder is x64-only and requires 64-bit Windows. It needs no redistributable of its own.
+- Playing on Linux with Wine or Steam Proton? A native Linux cache builder is available as SC4PlopAndPaintCacheBuilder-<version>-linux-x64.tar.gz on the releases page.
 - Run the included SC4 Plop and Paint installer.
 - The installer will ask for your SimCity 4 game root and Plugins folder, verify the SC4RenderServices dependency, and install the plugin files. If SC4RenderServices is missing, the installer will stop and tell you where to download it.
-- The installer also lets you choose the thumbnail size used for cache generation and sets the same size in SC4PlopAndPaint.ini for the in-game UI.
+- The installer also lets you choose the thumbnail detail stored in the cache (default 132 pixels) and the thumbnail size shown in the panels (default 44 pixels, saved as ThumbnailDisplaySize in SC4PlopAndPaint.ini). The plugin scales the stored thumbnails down to the panel size.
 - The installer can also run the cache builder for you. If you skip that step, run Rebuild-Cache.cmd later from Documents\SimCity 4\SC4PlopAndPaint\.
 - The cache builder scans your game and Plugins folders and writes lots.cbor, props.cbor and flora.cbor into your Plugins folder.
 - If thumbnail rendering is enabled, it also writes lot_thumbnails.bin, prop_thumbnails.bin and flora_thumbnails.bin into your Plugins folder.
