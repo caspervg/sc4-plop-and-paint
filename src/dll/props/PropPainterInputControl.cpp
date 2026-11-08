@@ -230,7 +230,7 @@ void PropPainterInputControl::UpdatePreviewOccupant_() {
     placement.itemId = previewDisplayedPropID_;
     cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation,
                           IsDirectPreviewPlacementValid_(placement)}},
-                        CurrentView_());
+                        ModelPreview::CurrentView(view3D));
     lastPreviewPosition_ = placement.position;
     lastPreviewRotation_ = placement.rotation;
     previewPositionValid_ = true;
@@ -244,20 +244,7 @@ void PropPainterInputControl::ShowPlannedModels_(const std::vector<PaintOverlay:
         items.push_back({ResolveInSeasonPreviewProp_(placement.itemId), placement.position, placement.rotation,
                          preview.valid});
     }
-    plannedPreview_.Show(items, CurrentView_());
-}
-
-ModelPreview::View PropPainterInputControl::CurrentView_() const {
-    // ponytail: cSC4CameraControl has no SDK header; zoom and rotation are at 0x108 and 0x10C
-    // (see sc4-render-services' camera-view-input sample).
-    ModelPreview::View view;
-    cISC43DRender* renderer = view3D ? view3D->GetRenderer() : nullptr;
-    const auto* camera = renderer ? reinterpret_cast<const uint8_t*>(renderer->GetCameraControl()) : nullptr;
-    if (camera) {
-        view.zoom = *reinterpret_cast<const int32_t*>(camera + 0x108);
-        view.rotation = *reinterpret_cast<const int32_t*>(camera + 0x10C) & 3;
-    }
-    return view;
+    plannedPreview_.Show(items, ModelPreview::CurrentView(view3D));
 }
 
 bool PropPainterInputControl::ShouldForceDirectOverlay_() const {

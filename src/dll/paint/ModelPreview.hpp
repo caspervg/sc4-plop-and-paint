@@ -13,6 +13,7 @@
 #include "cS3DVector3.h"
 
 class cISC4City;
+class cISC4View3DWin;
 
 // Model previews drawn as visual effects, so nothing is added to the city. Each preview is a
 // copy of a vanilla effect with a single model particle, with the model swapped for the item's.
@@ -34,6 +35,8 @@ public:
     };
 
     using ModelLookup = std::function<std::optional<PropModel>(uint32_t typeID)>;
+
+    [[nodiscard]] static View CurrentView(cISC4View3DWin* view3D);
 
     ModelPreview() = default;
     ~ModelPreview();

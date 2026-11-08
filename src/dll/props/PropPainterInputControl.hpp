@@ -37,7 +37,6 @@ protected:
 private:
     bool PlaceSingleProp_(uint32_t propToCreate, const cS3DVector3& pos, int32_t rotation);
     [[nodiscard]] uint32_t ResolveInSeasonPreviewProp_(uint32_t propID) const;
-    [[nodiscard]] ModelPreview::View CurrentView_() const;
 
     cRZAutoRefCount<cISC4PropManager> propManager_;
     const PropRepository* propRepository_{nullptr};

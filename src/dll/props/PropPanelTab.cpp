@@ -1072,7 +1072,7 @@ void PropPanelTab::RenderRotationModal_() {
         ImGui::Combo("Direct preview", &previewMode, kPreviewModeLabels, IM_ARRAYSIZE(kPreviewModeLabels));
         pendingPaint_.settings.previewMode = static_cast<PreviewMode>(previewMode);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Used only for direct paint mode. Line and polygon previews always use the outline overlay.");
+            ImGui::SetTooltip("This setting also changes the line and polygon previews.");
         }
 
         if (pendingPaint_.settings.mode == PaintMode::Line) {

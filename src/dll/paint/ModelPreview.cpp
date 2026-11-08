@@ -7,7 +7,9 @@
 #include "GZServPtrs.h"
 #include "cIGZPersistResourceManager.h"
 #include "cIS3DResModel.h"
+#include "cISC43DRender.h"
 #include "cISC4City.h"
+#include "cISC4View3DWin.h"
 #include "cS3DTransform.h"
 #include "../utils/Logger.h"
 
@@ -45,6 +47,19 @@ namespace {
     void SetColor(cISC4VisualEffect* effect, const bool valid) {
         effect->SetFloatParams(ParamType::Color, valid ? kValidColor : kInvalidColor, 3);
     }
+}
+
+ModelPreview::View ModelPreview::CurrentView(cISC4View3DWin* view3D) {
+    // ponytail: cSC4CameraControl has no SDK header; zoom and rotation are at 0x108 and 0x10C
+    // (see sc4-render-services' camera-view-input sample).
+    View view;
+    cISC43DRender* renderer = view3D ? view3D->GetRenderer() : nullptr;
+    const auto* camera = renderer ? reinterpret_cast<const uint8_t*>(renderer->GetCameraControl()) : nullptr;
+    if (camera) {
+        view.zoom = *reinterpret_cast<const int32_t*>(camera + 0x108);
+        view.rotation = *reinterpret_cast<const int32_t*>(camera + 0x10C) & 3;
+    }
+    return view;
 }
 
 ModelPreview::~ModelPreview() {
