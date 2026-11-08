@@ -384,6 +384,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - uses: actions/download-artifact@v4
@@ -411,6 +413,12 @@ jobs:
             dist-package/THIRD_PARTY_NOTICES.txt \
             dist-package/SC4PlopAndPaint.spdx.json \
             dist-package/SC4PlopAndPaintCacheBuilder.spdx.json
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            SC4PlopAndPaint-${{ github.ref_name }}.zip
+            dist-linux/SC4PlopAndPaintCacheBuilder-${{ github.ref_name }}-linux-x64.tar.gz
 
       - uses: softprops/action-gh-release@v3
         with:
