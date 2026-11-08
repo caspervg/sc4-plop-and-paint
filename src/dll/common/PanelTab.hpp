@@ -1,6 +1,8 @@
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 #include "../SC4PlopAndPaintDirector.hpp"
 #include "../favorites/FavoritesRepository.hpp"
@@ -51,6 +53,33 @@ protected:
             ImGui::ClearActiveID();
             ImGui::SetWindowFocus(nullptr);
         }
+    }
+
+    // Dragging snaps to half meters. Ctrl+click still takes any value.
+    static void RenderSpacingControl_(float& spacingMeters) {
+        constexpr auto kLabel = "Spacing (m)";
+        constexpr float kDragStep = 0.5f;
+        static constexpr std::pair<const char*, float> kPresets[] = {
+            {"2##Spacing", 2.0f}, {"4##Spacing", 4.0f}, {"8##Spacing", 8.0f}, {"16##Spacing", 16.0f}};
+
+        // Read before the slider: it closes the text box in the frame that applies the typed value.
+        // Not ImGui::TempInputIsActive, which is inline and reads GImGui. That symbol cannot be
+        // imported from the delay-loaded SC4RenderServices.dll.
+        const ImGuiContext& context = *ImGui::GetCurrentContext();
+        const ImGuiID id = ImGui::GetID(kLabel);
+        const bool typing = context.ActiveId == id && context.TempInputId == id;
+        if (ImGui::SliderFloat(kLabel, &spacingMeters, 0.5f, 50.0f, "%.1f") && !typing) {
+            spacingMeters = std::round(spacingMeters / kDragStep) * kDragStep;
+        }
+        ImGui::SetItemTooltip("Ctrl+click to type an exact value.");
+
+        for (const auto& [label, meters] : kPresets) {
+            if (ImGui::SmallButton(label)) {
+                spacingMeters = meters;
+            }
+            ImGui::SameLine();
+        }
+        ImGui::NewLine();
     }
 
     void RenderPropStripperControls_() const {
