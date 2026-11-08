@@ -22,6 +22,11 @@ protected:
     bool PlaceAtWorld_(const cS3DVector3& pos, int32_t rotation, uint32_t typeID) override;
     void RemoveOccupant_(cISC4Occupant* occupant) override;
     void OnCityChanged_(cISC4City* pCity) override;
+    void OnDirectPlaced_(const cS3DVector3& position) override {
+        // ponytail: with random rotation the game picks the facing, so the pop can face another way.
+        const uint32_t typeID = CurrentDirectTypeID_();
+        cursorPreview_.Pop(typeID, position, settings_.rotation, ItemSize_(typeID), ModelPreview::CurrentView(view3D));
+    }
     [[nodiscard]] bool ShouldShowModelPreview_() const override;
     [[nodiscard]] bool HasActivePreviewOccupant_() const override;
     void CreatePreviewOccupant_() override;

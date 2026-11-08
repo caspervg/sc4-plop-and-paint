@@ -939,10 +939,24 @@ bool BasePainterInputControl::PlaceTypeAt_(const int32_t screenX, const int32_t 
 
     const bool placed = PlaceAtWorld_(targetPosition, settings_.rotation, CurrentDirectTypeID_());
     if (placed) {
+        OnDirectPlaced_(targetPosition);
         AdvanceDirectPaintType_();
         SyncPreviewForState_();
     }
     return placed;
+}
+
+std::array<float, 4> BasePainterInputControl::DirectFootprint_(const PlannedPaint& placement) const {
+    PaintOverlay::PreviewPlacement preview;
+    preview.placement = placement;
+    PopulatePreviewBounds_(preview, placement.itemId);
+    return PaintOverlay::WorldFootprint(preview);
+}
+
+float BasePainterInputControl::ItemSize_(const uint32_t typeID) const {
+    PaintOverlay::PreviewPlacement bounds;
+    PopulatePreviewBounds_(bounds, typeID);
+    return std::max(bounds.width, bounds.depth);
 }
 
 void BasePainterInputControl::ExecuteLinePlacement_() {
@@ -1098,7 +1112,9 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
             previewPlacement.valid = IsDirectPreviewPlacementValid_(previewPlacement.placement);
         }
 
-        const bool drawPlacement = PaintOverlay::NeedsOutline(previewPlacement, settings_, GetTerrain_());
+        // The blue or red footprint already shows the placement, also when it is invalid.
+        const bool drawPlacement = !(ShowsFootprint_() && previewPlacement.hasModel) &&
+            PaintOverlay::NeedsOutline(previewPlacement, settings_, GetTerrain_());
         overlay_.BuildDirectPreview(hasOverlayCursor, overlayCursor, GetTerrain_(), settings_, previewPlacement,
                                     drawPlacement);
         return;

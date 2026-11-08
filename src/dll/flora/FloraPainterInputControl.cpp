@@ -45,6 +45,7 @@ void FloraPainterInputControl::SetFloraRepository(const FloraRepository* floraRe
         return flora ? FindPropModel(flora->groupId.value(), flora->instanceId.value()) : std::nullopt;
     };
     cursorPreview_.SetModelLookup(lookup);
+    cursorPreview_.UseUnpinnedModels();
     plannedPreview_.SetModelLookup(lookup);
 }
 
@@ -186,8 +187,9 @@ void FloraPainterInputControl::UpdatePreviewOccupant_() {
     const bool valid = IsDirectPreviewPlacementValid_(placement);
     cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation, valid}},
                         ModelPreview::CurrentView(view3D));
-    cursorPreview_.SetArrow(ShowsDirectionArrow_(valid) && cursorPreview_.HasModel(placement.itemId),
-                            placement.position, placement.rotation);
+    const bool hasModel = cursorPreview_.HasModel(placement.itemId);
+    cursorPreview_.SetArrow(ShowsDirectionArrow_(valid) && hasModel, placement.position, placement.rotation);
+    cursorPreview_.SetFootprint(ShowsFootprint_() && hasModel, placement.position, DirectFootprint_(placement), valid);
     lastPreviewPosition_ = placement.position;
     lastPreviewRotation_ = placement.rotation;
     previewPositionValid_ = true;

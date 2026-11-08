@@ -75,6 +75,9 @@ public:
     [[nodiscard]] static bool NeedsOutline(const PreviewPlacement& preview, const PropPaintSettings& settings,
                                            cISTETerrain* terrain);
 
+    // The placed item's bounds on the ground, as x1, z1, x2, z2 in meters.
+    [[nodiscard]] static std::array<float, 4> WorldFootprint(const PreviewPlacement& preview);
+
     void BuildDirectPreview(bool cursorValid,
                             const cS3DVector3& cursorPos,
                             cISTETerrain* terrain,

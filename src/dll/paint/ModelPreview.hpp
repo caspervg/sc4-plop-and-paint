@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -59,6 +60,16 @@ public:
     // The game's lot direction arrow on the ground, turned like the item. Hide stops it too.
     void SetArrow(bool visible, const cS3DVector3& position, int32_t rotation);
 
+    // The game's blue or red building footprint on the ground. rect is x1, z1, x2, z2 in meters.
+    void SetFootprint(bool visible, const cS3DVector3& position, const std::array<float, 4>& rect, bool valid);
+
+    // Draws models with pnp_preview_model from SC4PlopAndPaint.dat when the game has it. That
+    // effect keeps the item's height. Set before the first Show.
+    void UseUnpinnedModels() { unpinnedModels_ = true; }
+
+    // Plays a short pop of the item's model. meters is the larger of the item's width and depth.
+    void Pop(uint32_t typeID, const cS3DVector3& position, int32_t rotation, float meters, View view);
+
 private:
     struct Slot {
         cRZAutoRefCount<cISC4VisualEffect> effect;
@@ -69,6 +80,7 @@ private:
 
     const PropModel* PropModel_(uint32_t typeID) const;
     cIS3DModelInstance* Instance_(const cGZPersistResourceKey& key) const;
+    cIS3DModelInstance* ModelFor_(const PropModel& prop, int32_t rotation, View view) const;
     bool GrowTo_(size_t count);
     void Release_();
 
@@ -77,6 +89,18 @@ private:
     std::vector<Slot> slots_;
     cRZAutoRefCount<cISC4VisualEffect> arrow_;
     bool arrowStarted_ = false;
+    struct Footprint {
+        cRZAutoRefCount<cISC4VisualEffect> effect;
+        bool started = false;
+    };
+    std::array<Footprint, 2> footprints_; // valid, invalid
+    bool unpinnedModels_ = false;
+    struct PopSlot {
+        cRZAutoRefCount<cISC4VisualEffect> effect;
+        const char* name = nullptr;
+    };
+    std::array<PopSlot, 8> pops_; // reused in turn, for fast clicks
+    size_t nextPop_ = 0;
     mutable std::unordered_map<uint32_t, std::optional<PropModel>> props_;
     mutable std::unordered_map<uint64_t, cRZAutoRefCount<cIS3DModelInstance>> instances_; // null: no model
     bool templateMissing_ = false;

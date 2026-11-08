@@ -92,6 +92,9 @@ protected:
     // Called from SetCity() after city_ is updated; subclass acquires its manager here.
     virtual void OnCityChanged_(cISC4City* pCity) {}
 
+    // Called after a single click placed an item, not for line and polygon batches.
+    virtual void OnDirectPlaced_(const cS3DVector3& position) {}
+
     // Returns true if a 3D model preview should be shown in Direct mode.
     [[nodiscard]] virtual bool ShouldShowModelPreview_() const { return false; }
     [[nodiscard]] virtual bool SupportsVerticalAdjustment_() const { return true; }
@@ -134,6 +137,14 @@ protected:
     }
     // Raised items keep their outline, for its height stilts.
     [[nodiscard]] bool IsDirectPreviewRaised_() const;
+
+    // The larger of the item's width and depth, in meters.
+    [[nodiscard]] float ItemSize_(uint32_t typeID) const;
+    // The full model preview marks the item's ground area with the game's footprint.
+    [[nodiscard]] bool ShowsFootprint_() const {
+        return settings_.previewMode == PreviewMode::FullModel && !IsDirectPreviewRaised_();
+    }
+    [[nodiscard]] std::array<float, 4> DirectFootprint_(const PlannedPaint& placement) const;
 
     // Returns whether the current direct preview position is valid for placement.
     [[nodiscard]] virtual bool IsDirectPreviewPlacementValid_(const PlannedPaint& placement) const { return true; }

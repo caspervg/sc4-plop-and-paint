@@ -23,6 +23,10 @@ protected:
     void RemoveOccupant_(cISC4Occupant* occupant) override;
 
     void OnCityChanged_(cISC4City* pCity) override;
+    void OnDirectPlaced_(const cS3DVector3& position) override {
+        const uint32_t typeID = ResolveInSeasonPreviewProp_(CurrentDirectTypeID_());
+        cursorPreview_.Pop(typeID, position, settings_.rotation, ItemSize_(typeID), ModelPreview::CurrentView(view3D));
+    }
 
     [[nodiscard]] bool ShouldShowModelPreview_() const override;
     [[nodiscard]] bool HasActivePreviewOccupant_() const override;

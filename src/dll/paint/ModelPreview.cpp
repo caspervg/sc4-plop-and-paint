@@ -17,9 +17,13 @@ namespace {
     // A puzzle piece preview: one model particle emitted every 0.1 s, drawn at size 1 and alpha 0.5,
     // pinned to the terrain.
     constexpr auto kTemplateEffect = "preview_el_straight";
-    constexpr float kAlpha = 1.6f; // times the effect's own 0.5
+    // The same without the terrain pin. From SC4PlopAndPaint.dat.
+    constexpr auto kCursorModelEffect = "pnp_preview_model";
 
     constexpr auto kArrowEffect = "lot_direction_arrow";
+    // pnp_footprint_notok is from SC4PlopAndPaint.dat, the vanilla red one is opaque with its own texture.
+    constexpr const char* kFootprintEffects[2] = {"building_footprint_ok", "pnp_footprint_notok"};
+    constexpr float kCellMeters = 16.0f; // DecalRect takes city cells: cSC4DecalEffect::SetFloatParams
     // ponytail: which way the arrow texture points at rotation 0 is not checked yet. Compare with
     // the outline's arrow in game and change this if they differ.
     constexpr int32_t kArrowQuarterTurns = 0;
@@ -51,6 +55,15 @@ namespace {
 
     void SetColor(cISC4VisualEffect* effect, const bool valid) {
         effect->SetFloatParams(ParamType::Color, valid ? kValidColor : kInvalidColor, 3);
+    }
+
+    int32_t ModelTurns(const PropModel& prop, const int32_t rotation, const ModelPreview::View view) {
+        return prop.perView ? view.rotation : rotation;
+    }
+
+    // Small items grow more, so the pop stays visible. The effects are in SC4PlopAndPaint.dat.
+    const char* PopEffect(const float meters) {
+        return meters < 3.0f ? "pnp_pop_small" : meters < 8.0f ? "pnp_pop_medium" : "pnp_pop_large";
     }
 }
 
@@ -93,6 +106,37 @@ bool ModelPreview::HasModel(const uint32_t typeID) const {
     return prop && Instance_(prop->Key(4, 0));
 }
 
+void ModelPreview::SetFootprint(const bool visible, const cS3DVector3& position, const std::array<float, 4>& rect,
+                                const bool valid) {
+    const bool hasArea = rect[2] > rect[0] && rect[3] > rect[1];
+    for (size_t i = 0; i < footprints_.size(); ++i) {
+        Footprint& footprint = footprints_[i];
+        if (!visible || !hasArea || !Available() || i != (valid ? 0u : 1u)) {
+            if (footprint.started) {
+                footprint.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
+                footprint.started = false;
+            }
+            continue;
+        }
+
+        if (!footprint.effect) {
+            cISC4VisualEffect* effect = nullptr;
+            if (!effectsManager_->CreateVisualEffect(kFootprintEffects[i], &effect) || !effect) {
+                continue;
+            }
+            footprint.effect = cRZAutoRefCount<cISC4VisualEffect>(effect); // takes over the created reference
+        }
+
+        const float cells[4] = {rect[0] / kCellMeters, rect[1] / kCellMeters, rect[2] / kCellMeters, rect[3] / kCellMeters};
+        footprint.effect->SetFloatParams(ParamType::DecalRect, cells, 4);
+        footprint.effect->SetEffectTransform(MakeTransform(position, 0));
+        if (!footprint.started) {
+            footprint.effect->Start(cISC4VisualEffect::tTransitionType::Soft);
+            footprint.started = true;
+        }
+    }
+}
+
 void ModelPreview::SetArrow(const bool visible, const cS3DVector3& position, const int32_t rotation) {
     if (!visible || !Available()) {
         if (arrowStarted_) {
@@ -117,6 +161,37 @@ void ModelPreview::SetArrow(const bool visible, const cS3DVector3& position, con
     }
 }
 
+void ModelPreview::Pop(const uint32_t typeID, const cS3DVector3& position, const int32_t rotation, const float meters,
+                       const View view) {
+    const PropModel* prop = Available() ? PropModel_(typeID) : nullptr;
+    cIS3DModelInstance* model = prop ? ModelFor_(*prop, rotation, view) : nullptr;
+    const char* name = PopEffect(meters);
+    if (!model || !effectsManager_->HasVisualEffect(name)) {
+        return;
+    }
+
+    PopSlot& pop = pops_[nextPop_];
+    nextPop_ = (nextPop_ + 1) % pops_.size();
+    if (pop.effect && pop.effect->IsStarted()) {
+        pop.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
+    }
+    if (pop.name != name) {
+        pop.effect.Reset();
+        pop.name = nullptr;
+        cISC4VisualEffect* effect = nullptr;
+        if (!effectsManager_->CreateVisualEffect(name, &effect) || !effect) {
+            return;
+        }
+        pop.effect = cRZAutoRefCount<cISC4VisualEffect>(effect); // takes over the created reference
+        pop.name = name;
+    }
+
+    void* instance = model;
+    pop.effect->SetVoidParams(ParamType::Model, &instance, 1);
+    pop.effect->SetEffectTransform(MakeTransform(position, ModelTurns(*prop, rotation, view)));
+    pop.effect->Start(cISC4VisualEffect::tTransitionType::Soft);
+}
+
 void ModelPreview::Show(const std::vector<Item>& items, const View view) {
     const size_t count = std::min(items.size(), kMaxPreviews);
     if (!Available() || !GrowTo_(count)) {
@@ -127,10 +202,7 @@ void ModelPreview::Show(const std::vector<Item>& items, const View view) {
     for (size_t i = 0; i < slots_.size(); ++i) {
         Slot& slot = slots_[i];
         const PropModel* prop = i < count ? PropModel_(items[i].typeID) : nullptr;
-        // Models made for one view: the one for the prop's rotation relative to the camera, like
-        // cSC4ModelMakerUtility::GetModelInstanceID.
-        const int32_t viewSlot = prop && prop->perView ? (items[i].rotation - view.rotation) & 3 : 0;
-        cIS3DModelInstance* model = prop ? Instance_(prop->Key(std::clamp(view.zoom, 0, 4), viewSlot)) : nullptr;
+        cIS3DModelInstance* model = prop ? ModelFor_(*prop, items[i].rotation, view) : nullptr;
         if (!model) {
             if (slot.started) {
                 slot.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
@@ -149,7 +221,7 @@ void ModelPreview::Show(const std::vector<Item>& items, const View view) {
             SetColor(slot.effect, item.valid);
             slot.valid = item.valid;
         }
-        slot.effect->SetEffectTransform(MakeTransform(item.position, prop->perView ? view.rotation : item.rotation));
+        slot.effect->SetEffectTransform(MakeTransform(item.position, ModelTurns(*prop, item.rotation, view)));
         if (!slot.started) {
             slot.effect->Start(cISC4VisualEffect::tTransitionType::Soft);
             slot.started = true;
@@ -168,18 +240,19 @@ void ModelPreview::Hide() {
         }
     }
     SetArrow(false, {}, 0);
+    SetFootprint(false, {}, {}, true);
 }
 
 bool ModelPreview::GrowTo_(const size_t count) {
+    const char* name = unpinnedModels_ && effectsManager_->HasVisualEffect(kCursorModelEffect) ? kCursorModelEffect : kTemplateEffect;
     while (slots_.size() < count) {
         cISC4VisualEffect* effect = nullptr;
-        if (!effectsManager_->CreateVisualEffect(kTemplateEffect, &effect) || !effect) {
-            LOG_WARN("ModelPreview: the game has no '{}' effect, model previews are off", kTemplateEffect);
+        if (!effectsManager_->CreateVisualEffect(name, &effect) || !effect) {
+            LOG_WARN("ModelPreview: the game has no '{}' effect, model previews are off", name);
             templateMissing_ = true;
             return false;
         }
 
-        effect->SetFloatParams(ParamType::Alpha, &kAlpha, 1);
         SetColor(effect, true);
 
         Slot slot;
@@ -188,6 +261,13 @@ bool ModelPreview::GrowTo_(const size_t count) {
         LOG_DEBUG("ModelPreview: created preview effect {}", slots_.size());
     }
     return true;
+}
+
+cIS3DModelInstance* ModelPreview::ModelFor_(const PropModel& prop, const int32_t rotation, const View view) const {
+    // Models made for one view: the one for the prop's rotation relative to the camera, like
+    // cSC4ModelMakerUtility::GetModelInstanceID.
+    const int32_t viewSlot = prop.perView ? (rotation - view.rotation) & 3 : 0;
+    return Instance_(prop.Key(std::clamp(view.zoom, 0, 4), viewSlot));
 }
 
 const PropModel* ModelPreview::PropModel_(const uint32_t typeID) const {
@@ -228,6 +308,16 @@ cIS3DModelInstance* ModelPreview::Instance_(const cGZPersistResourceKey& key) co
 void ModelPreview::Release_() {
     Hide();
     arrow_.Reset();
+    for (Footprint& footprint : footprints_) {
+        footprint.effect.Reset();
+    }
+    for (PopSlot& pop : pops_) {
+        if (pop.effect && pop.effect->IsStarted()) {
+            pop.effect->Stop(cISC4VisualEffect::tTransitionType::Hard);
+        }
+        pop.effect.Reset();
+        pop.name = nullptr;
+    }
     slots_.clear();
     props_.clear();
     instances_.clear();

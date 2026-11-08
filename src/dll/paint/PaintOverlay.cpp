@@ -242,6 +242,29 @@ bool PaintOverlay::NeedsOutline(const PreviewPlacement& preview, const PropPaint
         IsRaised(preview.placement.position, terrain);
 }
 
+std::array<float, 4> PaintOverlay::WorldFootprint(const PreviewPlacement& preview) {
+    const bool hasBounds = preview.maxX > preview.minX && preview.maxZ > preview.minZ;
+    const cS3DVector3 a = RotateLocalPoint(
+        cS3DVector3(hasBounds ? preview.minX : -preview.width * 0.5f, 0.0f, hasBounds ? preview.minZ : -preview.depth * 0.5f),
+        preview.placement.rotation);
+    const cS3DVector3 b = RotateLocalPoint(
+        cS3DVector3(hasBounds ? preview.maxX : preview.width * 0.5f, 0.0f, hasBounds ? preview.maxZ : preview.depth * 0.5f),
+        preview.placement.rotation);
+    const cS3DVector3& position = preview.placement.position;
+    return {position.fX + std::min(a.fX, b.fX), position.fZ + std::min(a.fZ, b.fZ),
+            position.fX + std::max(a.fX, b.fX), position.fZ + std::max(a.fZ, b.fZ)};
+}
+
+namespace {
+    // Families can hold empty props on purpose, as gaps in a forest.
+    bool NeedsPlanOutline(const PaintOverlay::PreviewPlacement& preview, const PropPaintSettings& settings,
+                          cISTETerrain* terrain) {
+        const bool emptyFamilyItem = settings.previewMode == PreviewMode::FullModel && !preview.hasModel &&
+            !settings.activePalette.empty();
+        return !emptyFamilyItem && PaintOverlay::NeedsOutline(preview, settings, terrain);
+    }
+}
+
 void PaintOverlay::BuildDirectPreview(const bool cursorValid,
                                           const cS3DVector3& cursorPos,
                                           cISTETerrain* terrain,
@@ -283,7 +306,7 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
     }
 
     for (const auto& placement : plannedPlacements) {
-        if (NeedsOutline(placement, settings, terrain)) {
+        if (NeedsPlanOutline(placement, settings, terrain)) {
             EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
         }
     }
@@ -324,7 +347,7 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
     }
 
     for (const auto& placement : plannedPlacements) {
-        if (NeedsOutline(placement, settings, terrain)) {
+        if (NeedsPlanOutline(placement, settings, terrain)) {
             EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
         }
     }
