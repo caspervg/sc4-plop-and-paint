@@ -72,8 +72,13 @@ void PaintStatusPanel::OnRender() {
     else if (settings.mode == PaintMode::Line) {
         ImGui::Text("Spacing: %.1fm", settings.spacingMeters);
     } else if (settings.mode == PaintMode::Polygon) {
-        ImGui::Text("Density: %.1f/100m^2", settings.densityPer100Sqm);
-        ImGui::Text("Variation: %.2f", settings.densityVariation);
+        if (settings.polygonFill == PolygonFillStyle::Rows) {
+            ImGui::Text("Rows: %.1fm apart, every %.2fm", settings.rowSpacingMeters, settings.rowStepMeters);
+        }
+        else {
+            ImGui::Text("Density: %.1f/100m^2", settings.densityPer100Sqm);
+            ImGui::Text("Variation: %.2f", settings.densityVariation);
+        }
     }
 
     if (activeControl_->SupportsVerticalAdjustment() &&
@@ -109,7 +114,7 @@ void PaintStatusPanel::OnRender() {
         ImGui::TextUnformatted("-/+ spacing/density");
     }
     if (settings.mode == PaintMode::Polygon) {
-        ImGui::TextUnformatted("Ctrl+-/+ variation");
+        ImGui::TextUnformatted(settings.polygonFill == PolygonFillStyle::Rows ? "Ctrl+-/+ step along row" : "Ctrl+-/+ variation");
     }
     if ((settings.mode == PaintMode::Line || settings.mode == PaintMode::Polygon) &&
         activeControl_->CanUseGroundShapes()) {

@@ -9,17 +9,6 @@
 
 namespace {
     constexpr float kEpsilon = 1e-4f;
-    constexpr float kPi = 3.14159265358979323846f;
-
-    int32_t QuantizeRotationStep(const float dirX, const float dirZ) {
-        const float angle = std::atan2(dirX, dirZ);
-        int32_t step = static_cast<int32_t>(std::lround(angle / (kPi * 0.5f)));
-        step %= 4;
-        if (step < 0) {
-            step += 4;
-        }
-        return step;
-    }
 }
 
 std::vector<PlannedPaint> LinePlacer::ComputePlacements(

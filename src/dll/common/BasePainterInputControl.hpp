@@ -229,6 +229,10 @@ private:
     void RebuildPreviewOverlay_();
     void ExecuteLinePlacement_();
     void ExecutePolygonPlacement_();
+    [[nodiscard]] std::vector<PlannedPaint> ComputePolygonPlacements_(const std::vector<cS3DVector3>& vertices,
+                                                                      WeightedPicker* picker,
+                                                                      uint32_t singleTypeID,
+                                                                      size_t maxPlacements) const;
     bool PlaceTypeAt_(int32_t screenX, int32_t screenZ);
 
     void UndoLastPlacementInGroup_();

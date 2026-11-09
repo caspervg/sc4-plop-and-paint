@@ -165,6 +165,9 @@ void BasePainterInputControl::SetTypeToPaint(const uint32_t typeID, const PropPa
         settings_.sketchHeightMode = SketchHeightMode::Terrain;
     }
     settings_.densityVariation = std::clamp(settings_.densityVariation, 0.0f, 1.0f);
+    settings_.edgeMarginMeters = std::clamp(settings_.edgeMarginMeters, 0.0f, 50.0f);
+    settings_.rowSpacingMeters = std::clamp(settings_.rowSpacingMeters, 0.5f, 50.0f);
+    settings_.rowStepMeters = std::clamp(settings_.rowStepMeters, 0.25f, 50.0f);
     if (settings_.randomSeed == 0) {
         settings_.randomSeed = static_cast<uint32_t>(GetTickCount64() ^ static_cast<uint64_t>(typeToPaint_));
     }
@@ -691,7 +694,11 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
             settings_.spacingMeters = std::clamp(settings_.spacingMeters + lineDelta, 0.5f, 50.0f);
         }
         else if (state_ == ControlState::ActivePolygon) {
-            if (controlHeld) {
+            if (settings_.polygonFill == PolygonFillStyle::Rows) {
+                float& value = controlHeld ? settings_.rowStepMeters : settings_.rowSpacingMeters;
+                value = std::clamp(value + lineDelta, controlHeld ? 0.25f : 0.5f, 50.0f);
+            }
+            else if (controlHeld) {
                 const float variationDelta = (vkCode == VK_OEM_PLUS) ? 0.05f : -0.05f;
                 settings_.densityVariation = std::clamp(settings_.densityVariation + variationDelta, 0.0f, 1.0f);
             }
@@ -1011,6 +1018,45 @@ void BasePainterInputControl::ExecuteLinePlacement_() {
     ClearCollectedPoints_();
 }
 
+std::vector<PlannedPaint> BasePainterInputControl::ComputePolygonPlacements_(const std::vector<cS3DVector3>& vertices,
+                                                                             WeightedPicker* const picker,
+                                                                             const uint32_t singleTypeID,
+                                                                             const size_t maxPlacements) const {
+    const PolygonHeightSamplingMode heights = ShouldUseCustomSketchHeights_()
+                                                  ? PolygonHeightSamplingMode::InterpolateVertices
+                                                  : PolygonHeightSamplingMode::Terrain;
+    if (settings_.polygonFill == PolygonFillStyle::Rows) {
+        return PolygonPlacer::ComputeRowPlacements(
+            vertices,
+            {.spacingMeters = settings_.rowSpacingMeters,
+             .stepMeters = settings_.rowStepMeters,
+             .angleDegrees = settings_.rowAngleDegrees,
+             .alignToRows = settings_.alignToPath},
+            settings_.edgeMarginMeters,
+            settings_.rotation,
+            settings_.randomRotation,
+            GetTerrain_(),
+            settings_.randomSeed,
+            heights,
+            picker,
+            singleTypeID,
+            maxPlacements);
+    }
+    return PolygonPlacer::ComputePlacements(
+        vertices,
+        std::max(settings_.densityPer100Sqm, 0.1f),
+        settings_.densityVariation,
+        settings_.rotation,
+        settings_.randomRotation,
+        GetTerrain_(),
+        settings_.randomSeed,
+        heights,
+        picker,
+        singleTypeID,
+        maxPlacements,
+        settings_.edgeMarginMeters);
+}
+
 void BasePainterInputControl::ExecutePolygonPlacement_() {
     if (collectedPoints_.size() < 3) {
         return;
@@ -1034,19 +1080,7 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
         singleTypeID = 0;
     }
 
-    const auto placements = PolygonPlacer::ComputePlacements(
-        polygonVertices,
-        std::max(settings_.densityPer100Sqm, 0.1f),
-        settings_.densityVariation,
-        settings_.rotation,
-        settings_.randomRotation,
-        GetTerrain_(),
-        settings_.randomSeed,
-        ShouldUseCustomSketchHeights_()
-            ? PolygonHeightSamplingMode::InterpolateVertices
-            : PolygonHeightSamplingMode::Terrain,
-        picker.get(),
-        singleTypeID);
+    const auto placements = ComputePolygonPlacements_(polygonVertices, picker.get(), singleTypeID, static_cast<size_t>(-1));
 
     BeginUndoGroup_();
     size_t placedCount = 0;
@@ -1199,20 +1233,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
         cachedPolygonPlacements_.clear();
         cachedPolygonPlacements_.reserve(kMaxPreviewPlacements);
 
-        const auto placements = PolygonPlacer::ComputePlacements(
-            points,
-            std::max(settings_.densityPer100Sqm, 0.1f),
-            settings_.densityVariation,
-            settings_.rotation,
-            settings_.randomRotation,
-            GetTerrain_(),
-            settings_.randomSeed,
-            ShouldUseCustomSketchHeights_()
-                ? PolygonHeightSamplingMode::InterpolateVertices
-                : PolygonHeightSamplingMode::Terrain,
-            picker.get(),
-            singleTypeID,
-            kMaxPreviewPlacements);
+        const auto placements = ComputePolygonPlacements_(points, picker.get(), singleTypeID, kMaxPreviewPlacements);
 
         for (const auto& placement : placements) {
             if (OutsideFillMask_(placement.position)) {

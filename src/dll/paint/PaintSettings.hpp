@@ -22,6 +22,11 @@ enum class SketchHeightMode {
     Custom = 1
 };
 
+enum class PolygonFillStyle {
+    Scatter = 0,
+    Rows = 1
+};
+
 struct PropPaintSettings {
     PaintMode mode = PaintMode::Direct;
     PreviewMode previewMode = PreviewMode::Combined;
@@ -43,4 +48,9 @@ struct PropPaintSettings {
     std::vector<FamilyEntry> activePalette{};
     float densityVariation = 0.0f;
     bool placeFloraOverObjects = false;  // flora may stand on roads, lots and props
+    PolygonFillStyle polygonFill = PolygonFillStyle::Scatter;
+    float edgeMarginMeters = 0.0f;
+    float rowSpacingMeters = 6.0f;
+    float rowStepMeters = 3.0f;
+    float rowAngleDegrees = 0.0f;
 };

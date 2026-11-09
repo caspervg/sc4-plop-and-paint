@@ -336,7 +336,7 @@ Common options:
 Mode-specific options:
 
 - Line mode: `Spacing (m)` (moves in 0.5 m steps, with the same buttons and Ctrl+click), `Align to path direction`, `Random rotation`, and `Lateral jitter (m)`
-- Polygon mode: `Density (/100 m^2)`, `Density variation`, and `Random rotation`
+- Polygon mode: `Fill` is `Scatter` (`Density (/100 m^2)`, `Density variation`) or `Rows` (`Row spacing`, `Step along row`, `Row angle`, `Turn items with the rows`), and both have `Edge margin` and `Random rotation`. With `Rows`, `-` and `+` change the row spacing, and `Ctrl` with `-` or `+` changes the step along the row
 
 Polygon notes:
 

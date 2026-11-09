@@ -1,4 +1,5 @@
 #include "PropPanelTab.hpp"
+#include "../paint/PolygonFillControls.hpp"
 
 #include <array>
 #include <cstdio>
@@ -1085,12 +1086,7 @@ void PropPanelTab::RenderRotationModal_() {
         }
         else if (pendingPaint_.settings.mode == PaintMode::Polygon) {
             ImGui::Separator();
-            ImGui::SliderFloat("Density (/100 m^2)", &pendingPaint_.settings.densityPer100Sqm, 0.1f, 10.0f, "%.2f");
-            ImGui::SliderFloat("Density variation", &pendingPaint_.settings.densityVariation, 0.0f, 1.0f, "%.2f");
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("0 gives an even fill. 1 gives more clusters and gaps.");
-            }
-            ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
+            RenderPolygonFillControls(pendingPaint_.settings);
             ImGui::TextWrapped("Click to add polygon corners. Press Enter to fill the polygon with props. Press Backspace to remove the last corner.");
         }
         else {

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
+#include <numbers>
 #include <random>
 
 #include "../common/WeightedPicker.hpp"
@@ -176,6 +178,38 @@ namespace {
         }
         return false;
     }
+
+    float DistanceToOutlineSquared_(const float px, const float pz, const std::vector<cS3DVector3>& polygon) {
+        float best = std::numeric_limits<float>::max();
+        for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+            const float ax = polygon[j].fX;
+            const float az = polygon[j].fZ;
+            const float dx = polygon[i].fX - ax;
+            const float dz = polygon[i].fZ - az;
+            const float lengthSquared = dx * dx + dz * dz;
+            const float t = lengthSquared > kEpsilon
+                                ? std::clamp(((px - ax) * dx + (pz - az) * dz) / lengthSquared, 0.0f, 1.0f)
+                                : 0.0f;
+            const float ex = ax + t * dx - px;
+            const float ez = az + t * dz - pz;
+            best = std::min(best, ex * ex + ez * ez);
+        }
+        return best;
+    }
+
+    bool TryResolveHeight_(const float px,
+                           const float pz,
+                           const std::vector<cS3DVector3>& polygonVertices,
+                           const std::vector<TriangleIndices>& triangles,
+                           const PolygonHeightSamplingMode mode,
+                           cISTETerrain* terrain,
+                           float& outY) {
+        if (mode == PolygonHeightSamplingMode::InterpolateVertices) {
+            return TryResolveInterpolatedY_(px, pz, polygonVertices, triangles, outY);
+        }
+        outY = terrain ? terrain->GetAltitude(px, pz) : polygonVertices.front().fY;
+        return true;
+    }
 }
 
 std::vector<PlannedPaint> PolygonPlacer::ComputePlacements(
@@ -189,7 +223,8 @@ std::vector<PlannedPaint> PolygonPlacer::ComputePlacements(
     const PolygonHeightSamplingMode heightSamplingMode,
     WeightedPicker* picker,
     const uint32_t singlePropID,
-    const size_t maxPlacements) {
+    const size_t maxPlacements,
+    const float edgeMarginMeters) {
     std::vector<PlannedPaint> result;
     if (polygonVertices.size() < 3 || densityPer100Sqm <= kEpsilon || maxPlacements == 0) {
         return result;
@@ -247,18 +282,14 @@ std::vector<PlannedPaint> PolygonPlacer::ComputePlacements(
                 if (!PointInPolygon_(px, pz, polygonVertices)) {
                     continue;
                 }
+                if (edgeMarginMeters > 0.0f &&
+                    DistanceToOutlineSquared_(px, pz, polygonVertices) < edgeMarginMeters * edgeMarginMeters) {
+                    continue;
+                }
 
                 float py = 0.0f;
-                if (heightSamplingMode == PolygonHeightSamplingMode::InterpolateVertices) {
-                    if (!TryResolveInterpolatedY_(px, pz, polygonVertices, triangles, py)) {
-                        continue;
-                    }
-                }
-                else if (terrain) {
-                    py = terrain->GetAltitude(px, pz);
-                }
-                else {
-                    py = polygonVertices.front().fY;
+                if (!TryResolveHeight_(px, pz, polygonVertices, triangles, heightSamplingMode, terrain, py)) {
+                    continue;
                 }
 
                 const int32_t rotation = randomRotation ? rotDist(rng) : (baseRotation & 3);
@@ -268,6 +299,98 @@ std::vector<PlannedPaint> PolygonPlacer::ComputePlacements(
                     picker ? picker->Pick() : singlePropID
                 });
 
+                if (result.size() >= maxPlacements) {
+                    return result;
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+std::vector<PlannedPaint> PolygonPlacer::ComputeRowPlacements(
+    const std::vector<cS3DVector3>& polygonVertices,
+    const RowLayout& rows,
+    const float edgeMarginMeters,
+    const int32_t baseRotation,
+    const bool randomRotation,
+    cISTETerrain* terrain,
+    const uint32_t seed,
+    const PolygonHeightSamplingMode heightSamplingMode,
+    WeightedPicker* picker,
+    const uint32_t singlePropID,
+    const size_t maxPlacements) {
+    std::vector<PlannedPaint> result;
+    if (polygonVertices.size() < 3 || rows.spacingMeters <= kEpsilon || rows.stepMeters <= kEpsilon || maxPlacements == 0) {
+        return result;
+    }
+
+    std::vector<TriangleIndices> triangles;
+    if (heightSamplingMode == PolygonHeightSamplingMode::InterpolateVertices &&
+        !TriangulatePolygon_(polygonVertices, triangles)) {
+        return result;
+    }
+
+    const float angle = rows.angleDegrees * std::numbers::pi_v<float> / 180.0f;
+    const float dirX = std::cos(angle);
+    const float dirZ = std::sin(angle);
+    const auto along = [&](const cS3DVector3& p) { return p.fX * dirX + p.fZ * dirZ; };
+    const auto across = [&](const cS3DVector3& p) { return p.fZ * dirX - p.fX * dirZ; };
+
+    float minAcross = across(polygonVertices.front());
+    float maxAcross = minAcross;
+    for (const auto& v : polygonVertices) {
+        minAcross = std::min(minAcross, across(v));
+        maxAcross = std::max(maxAcross, across(v));
+    }
+
+    std::mt19937 rng(seed);
+    std::uniform_int_distribution<int32_t> rotDist(0, 3);
+    const int32_t fixedRotation = (baseRotation + (rows.alignToRows ? QuantizeRotationStep(dirX, dirZ) : 0)) & 3;
+
+    const float breadth = maxAcross - minAcross;
+    const int rowCount = std::max(1, static_cast<int>(std::floor(breadth / rows.spacingMeters + kEpsilon)));
+    const float firstRow = minAcross + 0.5f * (breadth - static_cast<float>(rowCount - 1) * rows.spacingMeters);
+
+    std::vector<float> crossings;
+    for (int row = 0; row < rowCount; ++row) {
+        const float w = firstRow + static_cast<float>(row) * rows.spacingMeters;
+
+        crossings.clear();
+        for (size_t i = 0, j = polygonVertices.size() - 1; i < polygonVertices.size(); j = i++) {
+            const float a = across(polygonVertices[i]);
+            const float b = across(polygonVertices[j]);
+            if ((a > w) != (b > w)) {
+                const float t = (w - a) / (b - a);
+                crossings.push_back(along(polygonVertices[i]) + t * (along(polygonVertices[j]) - along(polygonVertices[i])));
+            }
+        }
+        std::sort(crossings.begin(), crossings.end());
+
+        // A concave outline cuts a row into several spans.
+        for (size_t span = 0; span + 1 < crossings.size(); span += 2) {
+            const float length = crossings[span + 1] - crossings[span];
+            const int count = std::max(1, static_cast<int>(std::floor(length / rows.stepMeters + kEpsilon)));
+            const float first = crossings[span] + 0.5f * (length - static_cast<float>(count - 1) * rows.stepMeters);
+
+            for (int item = 0; item < count; ++item) {
+                const float u = first + static_cast<float>(item) * rows.stepMeters;
+                const float px = u * dirX - w * dirZ;
+                const float pz = u * dirZ + w * dirX;
+                if (edgeMarginMeters > 0.0f &&
+                    DistanceToOutlineSquared_(px, pz, polygonVertices) < edgeMarginMeters * edgeMarginMeters) {
+                    continue;
+                }
+
+                float py = 0.0f;
+                if (!TryResolveHeight_(px, pz, polygonVertices, triangles, heightSamplingMode, terrain, py)) {
+                    continue;
+                }
+
+                result.push_back({cS3DVector3(px, py, pz),
+                                  randomRotation ? rotDist(rng) : fixedRotation,
+                                  picker ? picker->Pick() : singlePropID});
                 if (result.size() >= maxPlacements) {
                     return result;
                 }
