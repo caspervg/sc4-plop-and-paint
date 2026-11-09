@@ -66,6 +66,9 @@ public:
     void AddPropToNewUserFamily(uint32_t propID, const std::string& baseName);
     bool AddPropFamilyToNewUserFamily(uint32_t familyID);
 
+    // Named sets of ground textures and colours. Change them in place, then call Save.
+    [[nodiscard]] std::vector<PaintPalette>& GetPaintPalettes() { return paintPalettes_; }
+
     // User-created seasonal sets
     [[nodiscard]] const std::vector<SeasonalSet>& GetUserSeasonalSets() const;
     bool CreateUserSeasonalSet(const std::string& name);
@@ -88,6 +91,7 @@ private:
     std::unordered_map<uint32_t, std::vector<NamedDecalPreset>> favoriteDecalPresets_;
     std::vector<PropFamily> userFamilies_;
     std::vector<SeasonalSet> userSeasonalSets_;
+    std::vector<PaintPalette> paintPalettes_;
     std::vector<RecentPaintEntryData> recentPaintsCache_;
     std::vector<TabViewSettings> tabViews_;
     size_t activeUserFamilyIndex_{0};

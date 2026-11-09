@@ -51,6 +51,7 @@ void FavoritesRepository::Load() {
     favoriteDecalPresets_.clear();
     userFamilies_.clear();
     userSeasonalSets_.clear();
+    paintPalettes_.clear();
     recentPaintsCache_.clear();
     tabViews_.clear();
     activeUserFamilyIndex_ = 0;
@@ -123,6 +124,9 @@ void FavoritesRepository::Load() {
             if (result->tabViews) {
                 tabViews_ = *result->tabViews;
             }
+            if (result->paintPalettes) {
+                paintPalettes_ = *result->paintPalettes;
+            }
 
             LOG_INFO("Loaded {} favorite lots, {} favorite decals, {} user families from {}",
                      favoriteLotIds_.size(), favoriteDecalIds_.size(), userFamilies_.size(), cborPath.string());
@@ -142,7 +146,7 @@ void FavoritesRepository::Save() const {
         const auto cborPath = pluginsPath / "favorites.cbor";
 
         AllFavorites allFavorites;
-        allFavorites.version = 7;
+        allFavorites.version = 8;
 
         for (const uint32_t id : favoriteLotIds_) {
             allFavorites.lots.items.emplace_back(id);
@@ -196,6 +200,7 @@ void FavoritesRepository::Save() const {
             ? std::nullopt
             : std::make_optional(recentPaintsCache_);
         allFavorites.tabViews = tabViews_.empty() ? std::nullopt : std::make_optional(tabViews_);
+        allFavorites.paintPalettes = paintPalettes_.empty() ? std::nullopt : std::make_optional(paintPalettes_);
 
         if (const auto saveResult = rfl::cbor::save(cborPath.string(), allFavorites)) {
             LOG_INFO("Saved {} favorite lots, {} favorite decals, {} user families to {}",

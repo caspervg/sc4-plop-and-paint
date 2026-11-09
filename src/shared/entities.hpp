@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -227,8 +228,20 @@ struct TabViewSettings {
     uint32_t tileSize = 66;
 };
 
+// Ground textures and colours that belong together, for the Terrain Paint tab.
+struct PaintPaletteTexture {
+    rfl::Hex<uint32_t> instanceId;
+    float weight = 1.0f;
+};
+
+struct PaintPalette {
+    std::string name;
+    std::vector<PaintPaletteTexture> textures;
+    std::vector<std::array<float, 3>> colours;
+};
+
 struct AllFavorites {
-    uint32_t version = 7;
+    uint32_t version = 8;
     TabFavorites lots;
     std::optional<TabFavorites> props;
     std::optional<TabFavorites> flora;
@@ -237,5 +250,6 @@ struct AllFavorites {
     std::optional<std::vector<RecentPaintEntryData>> recentPaints;
     std::optional<std::vector<SeasonalSet>> seasonalSets;
     std::optional<std::vector<TabViewSettings>> tabViews;
+    std::optional<std::vector<PaintPalette>> paintPalettes;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

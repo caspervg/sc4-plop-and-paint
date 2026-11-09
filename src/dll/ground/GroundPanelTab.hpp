@@ -49,6 +49,7 @@ private:
     // followsLine: the shape is a line, whose texture can follow it.
     void RenderLookEditor_(Ground::Look& look, bool followsLine, LookEditorState& state, bool& changed, bool& committed);
     void RenderChosenTextures_(Ground::Look& look, bool& changed, bool& committed);
+    void RenderPalettes_(Ground::Look& look, LookEditorState& state, bool& committed);
     // Tint, size, turn and shift on one line. Only the repeat length when the texture follows a line.
     void RenderTextureLayout_(Ground::Look& look, bool following, bool& changed, bool& committed);
     void RenderTextureLibrary_(Ground::Look& look, bool& committed);
@@ -143,6 +144,7 @@ private:
 
     // Newest first, this session.
     std::vector<uint32_t> recentTextures_{};
+    size_t activePalette_ = 0;
     LookEditorState toolLook_{};
     uint32_t lookPickCount_ = 0;
     LookEditorState selectionLook_{};
