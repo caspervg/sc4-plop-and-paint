@@ -47,8 +47,8 @@ public:
     // The keys change the grid settings too.
     [[nodiscard]] const Ground::ToolSettings& Settings() const { return settings_; }
     void SetOnCancel(std::function<void()> onCancel);
-    // Called when the keys change the grid size.
-    void SetOnGridStepChanged(std::function<void(float)> onChanged) { onGridStepChanged_ = std::move(onChanged); }
+    // Called when the keys change the grid: its size, or showing or snapping to it.
+    void SetOnGridChanged(std::function<void()> onChanged) { onGridChanged_ = std::move(onChanged); }
     void ProcessPendingActions();
     // Pushed onto the view and not shut down since; it may be below a vanilla tool.
     [[nodiscard]] bool IsActive() const { return active_; }
@@ -142,7 +142,7 @@ private:
     Ground::GroundPaintDocument* document_ = nullptr;
     Ground::ToolSettings settings_{};
     std::function<void()> onCancel_{};
-    std::function<void(float)> onGridStepChanged_{};
+    std::function<void()> onGridChanged_{};
     PaintOverlay overlay_{};
 
     bool active_ = false;

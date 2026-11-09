@@ -499,7 +499,7 @@ void FloraPanelTab::HandlePickedFlora_(const PickedFlora& picked) {
 
 void FloraPanelTab::RenderPaintModal_() {
     if (pendingPaint_.open) {
-        pendingPaint_.settings.gridStepMeters = director_->GetGridStepMeters(&PaintGridSteps::flora);
+        director_->ApplyGridChoice(&PaintGridChoices::flora, pendingPaint_.settings);
         ImGui::OpenPopup("Flora Painter");
         pendingPaint_.open = false;
     }
@@ -582,7 +582,7 @@ void FloraPanelTab::RenderPaintModal_() {
 
     if (ImGui::Button("Start")) {
         ReleaseImGuiInputCapture_();
-        director_->SaveGridStep(&PaintGridSteps::flora, pendingPaint_.settings.gridStepMeters);
+        director_->SaveGridChoice(&PaintGridChoices::flora, pendingPaint_.settings);
         director_->StartFloraPainting(pendingPaint_.typeId, pendingPaint_.settings, pendingPaint_.name);
         ImGui::CloseCurrentPopup();
     }

@@ -38,8 +38,8 @@ public:
     void SetTypeToPaint(uint32_t typeID, const PropPaintSettings& settings, const std::string& name);
     void SetCity(cISC4City* pCity);
     void SetOnCancel(std::function<void()> onCancel);
-    // Called when the keys change the grid size.
-    void SetOnGridStepChanged(std::function<void(float)> onChanged) { onGridStepChanged_ = std::move(onChanged); }
+    // Called when the keys change the grid: its size, or showing or snapping to it.
+    void SetOnGridChanged(std::function<void()> onChanged) { onGridChanged_ = std::move(onChanged); }
     void SetOnQuickSwap(std::function<void(size_t)> onQuickSwap);
 
     // Painted ground as a sketch: Polygon mode fills it (mask: only there, so holes stay empty),
@@ -247,7 +247,7 @@ private:
     ControlState state_{ControlState::Uninitialized};
 
     std::function<void()> onCancel_{};
-    std::function<void(float)> onGridStepChanged_{};
+    std::function<void()> onGridChanged_{};
     std::function<void(size_t)> onQuickSwap_{};
     GroundShapeLookup groundShapeLookup_{};
     // From painted ground: placements outside it are left out. Clicking or removing a point by

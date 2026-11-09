@@ -612,6 +612,9 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
 
     if (vkCode == 'G') {
         settings_.showGrid = !settings_.showGrid;
+        if (onGridChanged_) {
+            onGridChanged_();
+        }
         SyncPreviewForState_();
         return true;
     }
@@ -621,6 +624,9 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         settings_.snapPointsToGrid = !settings_.snapPointsToGrid;
         if (!settings_.snapPointsToGrid) {
             settings_.snapPlacementsToGrid = false;
+        }
+        if (onGridChanged_) {
+            onGridChanged_();
         }
         SyncPreviewForState_();
         return true;
@@ -682,8 +688,8 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         }
 
         settings_.gridStepMeters = kGridSteps[currentIdx];
-        if (onGridStepChanged_) {
-            onGridStepChanged_(settings_.gridStepMeters);
+        if (onGridChanged_) {
+            onGridChanged_();
         }
         SyncPreviewForState_();
         return true;

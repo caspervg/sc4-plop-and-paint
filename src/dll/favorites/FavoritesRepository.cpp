@@ -52,7 +52,7 @@ void FavoritesRepository::Load() {
     userFamilies_.clear();
     userSeasonalSets_.clear();
     paintPalettes_.clear();
-    gridSteps_ = {};
+    gridChoices_ = {};
     recentPaintsCache_.clear();
     tabViews_.clear();
     activeUserFamilyIndex_ = 0;
@@ -128,8 +128,14 @@ void FavoritesRepository::Load() {
             if (result->paintPalettes) {
                 paintPalettes_ = *result->paintPalettes;
             }
-            if (result->gridSteps) {
-                gridSteps_ = *result->gridSteps;
+            if (result->gridChoices) {
+                gridChoices_ = *result->gridChoices;
+            }
+            else if (result->gridSteps) {
+                gridChoices_.props.step = result->gridSteps->props;
+                gridChoices_.flora.step = result->gridSteps->flora;
+                gridChoices_.decals.step = result->gridSteps->decals;
+                gridChoices_.ground.step = result->gridSteps->ground;
             }
 
             LOG_INFO("Loaded {} favorite lots, {} favorite decals, {} user families from {}",
@@ -150,7 +156,7 @@ void FavoritesRepository::Save() const {
         const auto cborPath = pluginsPath / "favorites.cbor";
 
         AllFavorites allFavorites;
-        allFavorites.version = 9;
+        allFavorites.version = 10;
 
         for (const uint32_t id : favoriteLotIds_) {
             allFavorites.lots.items.emplace_back(id);
@@ -205,7 +211,7 @@ void FavoritesRepository::Save() const {
             : std::make_optional(recentPaintsCache_);
         allFavorites.tabViews = tabViews_.empty() ? std::nullopt : std::make_optional(tabViews_);
         allFavorites.paintPalettes = paintPalettes_.empty() ? std::nullopt : std::make_optional(paintPalettes_);
-        allFavorites.gridSteps = gridSteps_;
+        allFavorites.gridChoices = gridChoices_;
 
         if (const auto saveResult = rfl::cbor::save(cborPath.string(), allFavorites)) {
             LOG_INFO("Saved {} favorite lots, {} favorite decals, {} user families to {}",
@@ -220,9 +226,9 @@ void FavoritesRepository::Save() const {
     }
 }
 
-void FavoritesRepository::SetGridStep(std::optional<float> PaintGridSteps::* const kind, const float meters) {
-    if (gridSteps_.*kind != meters) {
-        gridSteps_.*kind = meters;
+void FavoritesRepository::SetGridChoice(PaintGridChoice PaintGridChoices::* const kind, const PaintGridChoice& choice) {
+    if (!(gridChoices_.*kind == choice)) {
+        gridChoices_.*kind = choice;
         Save();
     }
 }

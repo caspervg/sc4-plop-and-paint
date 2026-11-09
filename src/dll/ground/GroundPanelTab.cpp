@@ -354,9 +354,10 @@ GroundPanelTab::GroundPanelTab(SC4PlopAndPaintDirector* director,
     , decals_(decals)
     , pRM_(pRM)
     , stampTab_(decals ? std::make_unique<DecalPanelTab>(director, decals, favorites, pRM, imguiService) : nullptr) {
-    settings_.showGrid = director->GetDefaultShowGridOverlay();
-    settings_.snapPointsToGrid = director->GetDefaultSnapPointsToGrid();
-    settings_.gridStepMeters = director->GetGridStepMeters(&PaintGridSteps::ground);
+    const PaintGridChoice grid = director->GetGridChoice(&PaintGridChoices::ground);
+    settings_.showGrid = *grid.show;
+    settings_.snapPointsToGrid = *grid.snap;
+    settings_.gridStepMeters = *grid.step;
 }
 
 void GroundPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
@@ -689,6 +690,8 @@ void GroundPanelTab::RenderGrid_() {
     ImGui::SeparatorText("Grid and snapping");
     bool changed = false;
     changed |= ImGui::Checkbox("Show grid", &settings_.showGrid);
+    const bool wasShown = settings_.showGrid;
+    const bool wasSnapping = settings_.snapPointsToGrid;
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Show the grid (G).");
     }
@@ -711,8 +714,11 @@ void GroundPanelTab::RenderGrid_() {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-1.0f);
     changed |= ImGui::SliderFloat("##step", &settings_.gridStepMeters, 1.0f, 16.0f, "Every %.0f m");
-    if (presetChosen || ImGui::IsItemDeactivatedAfterEdit()) {
-        director_->SaveGridStep(&PaintGridSteps::ground, settings_.gridStepMeters);
+    if (presetChosen || ImGui::IsItemDeactivatedAfterEdit() || settings_.showGrid != wasShown ||
+        settings_.snapPointsToGrid != wasSnapping) {
+        director_->SaveGridChoice(&PaintGridChoices::ground, PaintGridChoice{.step = settings_.gridStepMeters,
+                                                                             .show = settings_.showGrid,
+                                                                             .snap = settings_.snapPointsToGrid});
     }
     Tooltip("The grid step. Press Ctrl+[ or Ctrl+] to change it.");
     ImGui::PopID();

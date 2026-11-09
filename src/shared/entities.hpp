@@ -248,8 +248,25 @@ struct PaintGridSteps {
     std::optional<float> ground;
 };
 
+// What was last chosen for the grid of one kind of painter. Empty: not chosen yet.
+struct PaintGridChoice {
+    std::optional<float> step;
+    std::optional<bool> show;
+    std::optional<bool> snap;
+    std::optional<bool> snapPlacements;
+
+    bool operator==(const PaintGridChoice&) const = default;
+};
+
+struct PaintGridChoices {
+    PaintGridChoice props;
+    PaintGridChoice flora;
+    PaintGridChoice decals;
+    PaintGridChoice ground;
+};
+
 struct AllFavorites {
-    uint32_t version = 9;
+    uint32_t version = 10;
     TabFavorites lots;
     std::optional<TabFavorites> props;
     std::optional<TabFavorites> flora;
@@ -259,6 +276,7 @@ struct AllFavorites {
     std::optional<std::vector<SeasonalSet>> seasonalSets;
     std::optional<std::vector<TabViewSettings>> tabViews;
     std::optional<std::vector<PaintPalette>> paintPalettes;
-    std::optional<PaintGridSteps> gridSteps;
+    std::optional<PaintGridSteps> gridSteps;  // only read: what version 9 saved
+    std::optional<PaintGridChoices> gridChoices;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

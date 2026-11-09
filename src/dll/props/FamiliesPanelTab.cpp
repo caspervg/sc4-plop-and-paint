@@ -585,7 +585,7 @@ void FamiliesPanelTab::QueuePaintForSelectedFamily_() {
 
 void FamiliesPanelTab::RenderPaintOptionsPopup_() {
     if (pendingPaint_.open) {
-        pendingPaint_.settings.gridStepMeters = director_->GetGridStepMeters(&PaintGridSteps::props);
+        director_->ApplyGridChoice(&PaintGridChoices::props, pendingPaint_.settings);
         ImGui::OpenPopup("Family Paint Options");
         pendingPaint_.open = false;
     }
@@ -691,7 +691,7 @@ bool FamiliesPanelTab::StartPaintingWithSelectedFamily_() {
     }
 
     ReleaseImGuiInputCapture_();
-    director_->SaveGridStep(&PaintGridSteps::props, pendingPaint_.settings.gridStepMeters);
+    director_->SaveGridChoice(&PaintGridChoices::props, pendingPaint_.settings);
 
     PropPaintSettings settings = pendingPaint_.settings;
     if (settings.randomSeed == 0) {

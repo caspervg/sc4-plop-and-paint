@@ -630,6 +630,9 @@ bool GroundPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
         // As in the other painters: G shows the grid, Shift+S snaps to it, Ctrl+[ and Ctrl+]
         // change its step.
         settings_.showGrid = !settings_.showGrid;
+        if (onGridChanged_) {
+            onGridChanged_();
+        }
         RefreshPreview_();
         return true;
     case 'S':
@@ -637,6 +640,9 @@ bool GroundPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
             return false;
         }
         settings_.snapPointsToGrid = !settings_.snapPointsToGrid;
+        if (onGridChanged_) {
+            onGridChanged_();
+        }
         return true;
     case 'M':
         if (ctrl) {
@@ -656,8 +662,8 @@ bool GroundPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
             const std::ptrdiff_t index = std::clamp<std::ptrdiff_t>(
                 (nearest - std::begin(kSteps)) + (vkCode == VK_OEM_6 ? 1 : -1), 0, std::size(kSteps) - 1);
             settings_.gridStepMeters = kSteps[index];
-            if (onGridStepChanged_) {
-                onGridStepChanged_(settings_.gridStepMeters);
+            if (onGridChanged_) {
+                onGridChanged_();
             }
             RefreshPreview_();
             return true;

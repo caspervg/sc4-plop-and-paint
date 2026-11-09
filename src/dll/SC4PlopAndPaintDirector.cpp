@@ -278,8 +278,11 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         propRepository_->Load();
         floraRepository_->Load();
         favoritesRepository_->Load();
-        lastDecalPlacementSettings_.gridStepMeters =
-            favoritesRepository_->GetGridSteps().decals.value_or(lastDecalPlacementSettings_.gridStepMeters);
+        // Decals have their own defaults, so only what was chosen replaces them.
+        const PaintGridChoice& decalGrid = favoritesRepository_->GetGridChoices().decals;
+        lastDecalPlacementSettings_.gridStepMeters = decalGrid.step.value_or(lastDecalPlacementSettings_.gridStepMeters);
+        lastDecalPlacementSettings_.showGrid = decalGrid.show.value_or(lastDecalPlacementSettings_.showGrid);
+        lastDecalPlacementSettings_.snapPointsToGrid = decalGrid.snap.value_or(lastDecalPlacementSettings_.snapPointsToGrid);
         propRepository_->ApplyUserSeasonalSets(favoritesRepository_->GetUserSeasonalSets());
 
         cIGZPersistResourceManagerPtr pRMForPanel;
@@ -647,7 +650,7 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
     propPainterControl_->SetWindow(pView3D_->AsIGZWin());
     propPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     propPainterControl_->SetPropRepository(propRepository_.get());
-    propPainterControl_->SetOnGridStepChanged([this](const float meters) { SaveGridStep(&PaintGridSteps::props, meters); });
+    propPainterControl_->SetOnGridChanged([this]() { SaveGridChoice(&PaintGridChoices::props, propPainterControl_->GetSettings()); });
     propPainterControl_->SetOnCancel([this]() {
         if (pView3D_ && propPainterControl_ &&
             pView3D_->GetCurrentViewInputControl() == propPainterControl_) {
@@ -761,7 +764,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
     floraPlacerControl_->SetWindow(pView3D_->AsIGZWin());
     floraPlacerControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     floraPlacerControl_->SetFloraRepository(floraRepository_.get());
-    floraPlacerControl_->SetOnGridStepChanged([this](const float meters) { SaveGridStep(&PaintGridSteps::flora, meters); });
+    floraPlacerControl_->SetOnGridChanged([this]() { SaveGridChoice(&PaintGridChoices::flora, floraPlacerControl_->GetSettings()); });
     floraPlacerControl_->SetOnCancel([this]() {
         if (pView3D_ && floraPlacerControl_ &&
             pView3D_->GetCurrentViewInputControl() == floraPlacerControl_) {
@@ -925,7 +928,7 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
     decalPainterControl_->SetWindow(pView3D_->AsIGZWin());
     decalPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     decalPainterControl_->SetDecalService(terrainDecalService_);
-    decalPainterControl_->SetOnGridStepChanged([this](const float meters) { SaveGridStep(&PaintGridSteps::decals, meters); });
+    decalPainterControl_->SetOnGridChanged([this]() { SaveGridChoice(&PaintGridChoices::decals, decalPainterControl_->GetSettings()); });
     decalPainterControl_->SetOnCancel([this]() {
         if (pView3D_ && decalPainterControl_ &&
             pView3D_->GetCurrentViewInputControl() == decalPainterControl_) {
@@ -1338,8 +1341,7 @@ bool SC4PlopAndPaintDirector::ActivateRecentPaint(const size_t index) {
     PropPaintSettings settings = activeControl->GetSettings();
     settings.activePalette = entry.palette;
     settings.randomSeed = 0;
-    settings.gridStepMeters = GetGridStepMeters(entry.kind == RecentPaintEntry::Kind::Prop ? &PaintGridSteps::props
-                                                                                           : &PaintGridSteps::flora);
+    ApplyGridChoice(entry.kind == RecentPaintEntry::Kind::Prop ? &PaintGridChoices::props : &PaintGridChoices::flora, settings);
 
     const RecentPaintSource source{
         .sourceKind = entry.sourceKind,
@@ -1375,15 +1377,34 @@ float SC4PlopAndPaintDirector::GetDefaultGridStepMeters() const noexcept {
     return defaultGridStepMeters_;
 }
 
-float SC4PlopAndPaintDirector::GetGridStepMeters(std::optional<float> PaintGridSteps::* const kind) const {
-    return favoritesRepository_ ? (favoritesRepository_->GetGridSteps().*kind).value_or(defaultGridStepMeters_)
-                                : defaultGridStepMeters_;
+PaintGridChoice SC4PlopAndPaintDirector::GetGridChoice(PaintGridChoice PaintGridChoices::* const kind) const {
+    PaintGridChoice choice = favoritesRepository_ ? favoritesRepository_->GetGridChoices().*kind : PaintGridChoice{};
+    choice.step = choice.step.value_or(defaultGridStepMeters_);
+    choice.show = choice.show.value_or(defaultShowGridOverlay_);
+    choice.snap = choice.snap.value_or(defaultSnapPointsToGrid_);
+    choice.snapPlacements = choice.snapPlacements.value_or(defaultSnapPlacementsToGrid_);
+    return choice;
 }
 
-void SC4PlopAndPaintDirector::SaveGridStep(std::optional<float> PaintGridSteps::* const kind, const float meters) {
+void SC4PlopAndPaintDirector::ApplyGridChoice(PaintGridChoice PaintGridChoices::* const kind, PropPaintSettings& settings) const {
+    const PaintGridChoice choice = GetGridChoice(kind);
+    settings.gridStepMeters = *choice.step;
+    settings.showGrid = *choice.show;
+    settings.snapPointsToGrid = *choice.snap;
+    settings.snapPlacementsToGrid = *choice.snap && *choice.snapPlacements;
+}
+
+void SC4PlopAndPaintDirector::SaveGridChoice(PaintGridChoice PaintGridChoices::* const kind, const PaintGridChoice& choice) {
     if (favoritesRepository_) {
-        favoritesRepository_->SetGridStep(kind, meters);
+        favoritesRepository_->SetGridChoice(kind, choice);
     }
+}
+
+void SC4PlopAndPaintDirector::SaveGridChoice(PaintGridChoice PaintGridChoices::* const kind, const PropPaintSettings& settings) {
+    SaveGridChoice(kind, PaintGridChoice{.step = settings.gridStepMeters,
+                                         .show = settings.showGrid,
+                                         .snap = settings.snapPointsToGrid,
+                                         .snapPlacements = settings.snapPlacementsToGrid});
 }
 
 PreviewMode SC4PlopAndPaintDirector::GetDefaultPropPreviewMode() const noexcept {
@@ -1860,7 +1881,12 @@ bool SC4PlopAndPaintDirector::StartGroundPainting(const Ground::ToolSettings& se
     groundPainterControl_->SetDocument(groundDocument_.get());
     groundPainterControl_->SetSettings(settings);
     groundPainterControl_->SetOnCancel([this]() { StopGroundPainting(); });
-    groundPainterControl_->SetOnGridStepChanged([this](const float meters) { SaveGridStep(&PaintGridSteps::ground, meters); });
+    groundPainterControl_->SetOnGridChanged([this]() {
+        const Ground::ToolSettings& current = groundPainterControl_->Settings();
+        SaveGridChoice(&PaintGridChoices::ground, PaintGridChoice{.step = current.gridStepMeters,
+                                                                  .show = current.showGrid,
+                                                                  .snap = current.snapPointsToGrid});
+    });
 
     if (!RaiseToTop_(groundPainterControl_, groundPainterControl_->IsActive()) &&
         !pView3D_->SetCurrentViewInputControl(
@@ -1949,8 +1975,8 @@ bool SC4PlopAndPaintDirector::PlantOnGround(const uint32_t objectId, const bool 
     BasePainterInputControl* const control =
         prop ? static_cast<BasePainterInputControl*>(propPainterControl_) : floraPlacerControl_;
     PropPaintSettings settings = control ? control->GetSettings() : PropPaintSettings{};
-    settings.mode = along ? PaintMode::Line : PaintMode::Polygon;
-    settings.gridStepMeters = GetGridStepMeters(prop ? &PaintGridSteps::props : &PaintGridSteps::flora);
+    SetPaintMode(settings, along ? PaintMode::Line : PaintMode::Polygon);
+    ApplyGridChoice(prop ? &PaintGridChoices::props : &PaintGridChoices::flora, settings);
     settings.activePalette = entry.palette;
     settings.randomSeed = 0;
     const RecentPaintSource source{.sourceKind = entry.sourceKind, .sourceId = entry.sourceId};
