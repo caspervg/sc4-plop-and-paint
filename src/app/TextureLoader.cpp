@@ -15,11 +15,9 @@ namespace thumb {
         const bool nightOverlay,
         std::function<std::optional<FSH::Record>(uint32_t inst, uint32_t group)> extraLookup) {
         const auto tryLoad = [&](uint32_t inst, uint32_t group) -> std::optional<FSH::Record> {
-            DBPF::TgiMask mask;
-            mask.type = 0x7AB50E44; // FSH
-            mask.group = group;
-            mask.instance = inst;
-            auto fsh = reader.LoadFSH(mask);
+            // Look up by exact TGI. A mask lookup walks every FSH in the package.
+            constexpr uint32_t kTypeFsh = 0x7AB50E44;
+            auto fsh = reader.LoadFSH(DBPF::Tgi{kTypeFsh, group, inst});
             if (!fsh.has_value() || fsh->entries.empty() || fsh->entries[0].bitmaps.empty()) {
                 if (extraLookup) {
                     return extraLookup(inst, group);
