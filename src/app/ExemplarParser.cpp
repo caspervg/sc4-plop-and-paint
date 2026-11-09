@@ -778,6 +778,21 @@ std::optional<ParsedFloraExemplar> ExemplarParser::parseFlora(const Exemplar::Re
     return parsed;
 }
 
+std::optional<Thumbnail> ExemplarParser::renderModelThumbnail(const DBPF::Tgi& modelTgi) const {
+    if (!thumbnailRenderer_) {
+        return std::nullopt;
+    }
+    auto rendered = thumbnailRenderer_->renderModel(modelTgi, thumbnailSize_);
+    if (!rendered.has_value() || rendered->pixels.empty()) {
+        return std::nullopt;
+    }
+    PreRendered preview;
+    preview.data = rfl::Bytestring(std::move(rendered->pixels));
+    preview.width = rendered->width;
+    preview.height = rendered->height;
+    return preview;
+}
+
 Flora ExemplarParser::floraFromParsed(const ParsedFloraExemplar& parsed) const {
     Flora flora;
     flora.instanceId = parsed.tgi.instance;

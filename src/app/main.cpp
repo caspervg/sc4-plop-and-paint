@@ -482,6 +482,7 @@ namespace {
             EncodedThumbnails buildingThumbnails;
             EncodedThumbnails propThumbnails;
             EncodedThumbnails floraThumbnails;
+            EncodedThumbnails networkThumbnails;
             ThumbnailEncoder thumbnailEncoder(thumbnailSize);
             const auto encodeThumbnail = [&thumbnailEncoder](auto& item, EncodedThumbnails& out) {
                 if (item.thumbnail.has_value()) {
@@ -490,6 +491,10 @@ namespace {
                     item.thumbnail.reset();
                 }
             };
+
+            // The override networks of the NAM. This comes first: RUL2 is some 50 MB, and after the exemplar
+            // scan the 32-bit address space has no room for it. Their pictures are rendered after the scan.
+            NetworksCache networksCache{NetworkDiscovery::FindOverrideNetworks(indexService)};
 
             // Use the index service to get exemplars and cohorts across all files.
             logger.info("Processing exemplar/cohort records using type index...");
@@ -827,6 +832,15 @@ namespace {
                 return WriteCborAtomic(logger, cborPath, data);
             };
 
+            for (const auto& network : networksCache.networks) {
+                constexpr uint32_t kS3DType = 0x5AD0E817;
+                constexpr uint32_t kPreviewModelGroup = 0xBADB57F1;
+                logger.debug("Rendering network {} (model 0x{:08X})", network.name, network.previewModel);
+                if (auto thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, network.previewModel})) {
+                    thumbnailEncoder.submit(networkThumbnails, MakeGIKey(0, network.starterPiece), std::move(*thumbnail));
+                }
+            }
+
             thumbnailEncoder.finish();
 
             // Buildings without lots and those replaced by a later plugin are not exported.
@@ -919,11 +933,14 @@ namespace {
                 }
             }
 
-            if (NetworksCache networksCache{NetworkDiscovery::FindOverrideNetworks(indexService)};
-                !networksCache.networks.empty()) {
+            if (!networksCache.networks.empty()) {
                 const auto cborPath = config.userPluginsRoot / "networks.cbor";
                 logger.info("Exporting {} override networks to {}", networksCache.networks.size(), cborPath.string());
                 writeCborAtomic(cborPath, networksCache);
+                if (!networkThumbnails.empty()) {
+                    writeThumbnailBin(config.userPluginsRoot / "network_thumbnails.bin",
+                                      std::move(networkThumbnails), "network");
+                }
             }
 
             // Shutdown the indexing service

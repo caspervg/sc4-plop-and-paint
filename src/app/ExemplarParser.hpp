@@ -168,6 +168,9 @@ public:
     [[nodiscard]] Lot lotFromParsed(const ParsedLotConfigExemplar& parsed) const;
     [[nodiscard]] Prop propFromParsed(const ParsedPropExemplar& parsed) const;
     [[nodiscard]] Flora floraFromParsed(const ParsedFloraExemplar& parsed) const;
+    // Renders a model that belongs to no exemplar, such as the preview model of a network piece.
+    // Empty without --render-thumbnails, or when the model does not render.
+    [[nodiscard]] std::optional<Thumbnail> renderModelThumbnail(const DBPF::Tgi& modelTgi) const;
 
     // Cohort-aware property lookup - searches exemplar and parent cohorts recursively
     [[nodiscard]] const Exemplar::Property* findProperty(

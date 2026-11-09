@@ -65,6 +65,8 @@ static constexpr uint32_t kSC4MessageLoad = 0x26C63341;
 static constexpr uint32_t kSC4MessageSave = 0x26C63344;
 static constexpr uint32_t kToolTickServiceID = 0xCA5000F1;
 
+struct OverrideNetwork;
+
 class SC4PlopAndPaintDirector final : public cRZMessage2COMDirector
 {
 public:
@@ -88,11 +90,13 @@ public:
     // Whether a plop started from the panel is still going on. Plopping is the game's own tool, so
     // this follows the view control that took over after the plop started. Call it every frame.
     bool IsLotPlopping();
-    // Starts the game's drag tool for baseNetwork (a cISC4NetworkOccupant::eNetworkType). Until the
-    // player leaves that tool, the NAM DLL turns each drag into the override network of this tile.
-    bool StartOverrideNetworkDrag(uint32_t tile, uint32_t baseNetwork);
-    // The tile of the override network that drags make now, or 0.
-    [[nodiscard]] uint32_t ActiveOverrideNetworkTile() const { return overrideNetworkTile_; }
+    // Starts the game's drag tool for the network's base network. Until the player leaves that tool,
+    // the NAM DLL turns each drag into the override network.
+    bool StartOverrideNetworkDrag(const OverrideNetwork& network);
+    // Leaves the drag tool that StartOverrideNetworkDrag started.
+    void StopOverrideNetworkDrag();
+    // The starter piece of the override network that drags make now, or 0.
+    [[nodiscard]] uint32_t ActiveOverrideNetwork() const { return overrideNetworkPiece_; }
     // Whether the installed NAM DLL can drag override networks without a starter piece.
     [[nodiscard]] static bool CanDragOverrideNetworks();
     bool StartPropPainting(uint32_t propId, const PropPaintSettings& settings, const std::string& name,
@@ -226,9 +230,9 @@ private:
     const cISC4ViewInputControl* controlBeforePlop_ = nullptr;
     const cISC4ViewInputControl* plopControl_ = nullptr;
     int plopWatchFrames_ = 0;
-    uint32_t overrideNetworkTile_ = 0;
+    uint32_t overrideNetworkPiece_ = 0;
     const cISC4ViewInputControl* overrideNetworkControl_ = nullptr;
-    void StopOverrideNetworkDrag_();
+    void DisarmOverrideNetworkDrag_();
     cRZAutoRefCount<cIGZMessageServer2> pMS2_;
 
     std::unique_ptr<LotRepository>       lotRepository_;
