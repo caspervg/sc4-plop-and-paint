@@ -54,6 +54,29 @@ namespace thumb {
             0.78539819f  // 45 degrees
         };
         constexpr size_t kThumbnailZoomIndex = 4; // SC4 zoom 5 framing
+        // ponytail: FIFO of 1024 renders (about 127 MB at 176 px), so a repeat further back renders again.
+        // Keeping every render would double the thumbnail memory of a large plugin set.
+        constexpr size_t kRenderCacheCapacity = 1024;
+
+        // Gives the same pixels as raylib's ImageDraw with a white tint onto a blank RGBA image, without
+        // its per-pixel format conversion. Like its blend, partly transparent pixels gain one alpha step.
+        void BlitOntoBlank(const Image& source, Image& destination, const int destinationX, const int destinationY) {
+            const auto* sourcePixel = static_cast<const uint8_t*>(source.data);
+            auto* destinationRow = static_cast<uint8_t*>(destination.data) +
+                (static_cast<size_t>(destinationY) * destination.width + destinationX) * 4;
+            for (int y = 0; y < source.height; ++y) {
+                for (int x = 0; x < source.width; ++x, sourcePixel += 4) {
+                    const uint8_t alpha = sourcePixel[3];
+                    if (alpha == 0) {
+                        continue;
+                    }
+                    uint8_t* out = destinationRow + static_cast<size_t>(x) * 4;
+                    std::memcpy(out, sourcePixel, 3);
+                    out[3] = alpha == 255 ? alpha : static_cast<uint8_t>(alpha + 1);
+                }
+                destinationRow += static_cast<size_t>(destination.width) * 4;
+            }
+        }
 
         struct AlphaBounds {
             int minX;
@@ -102,6 +125,9 @@ namespace thumb {
 
     ThumbnailRenderer::~ThumbnailRenderer() {
         if (initialized_) {
+            if (target_) {
+                UnloadRenderTexture(*target_);
+            }
             CloseWindow();
         }
     }
@@ -109,6 +135,10 @@ namespace thumb {
     ParseExpected<RenderedImage> ThumbnailRenderer::renderModel(const DBPF::Tgi& tgi, const uint32_t size) {
         if (size == 0) {
             return Fail("requested thumbnail size is 0");
+        }
+        if (const auto cached = renderCache_.find(tgi); cached != renderCache_.end() && cached->second.width == size) {
+            spdlog::debug("Reusing thumbnail render for {}", tgi.ToString());
+            return cached->second;
         }
         if (!ensureInitialized_()) {
             return Fail("renderer failed to initialize (raylib window could not be created)");
@@ -127,17 +157,25 @@ namespace thumb {
         }
 
         const uint32_t renderSize = size * kSupersampleFactor;
-        const RenderTexture2D target = LoadRenderTexture(static_cast<int>(renderSize), static_cast<int>(renderSize));
-        if (target.id == 0) {
-            return Fail("failed to create {}x{} render texture", renderSize, renderSize);
+        // Creating a framebuffer is slow in the driver, so keep one while the size stays the same.
+        if (target_ && static_cast<uint32_t>(target_->texture.width) != renderSize) {
+            UnloadRenderTexture(*target_);
+            target_.reset();
         }
+        if (!target_) {
+            const RenderTexture2D created = LoadRenderTexture(static_cast<int>(renderSize), static_cast<int>(renderSize));
+            if (created.id == 0) {
+                return Fail("failed to create {}x{} render texture", renderSize, renderSize);
+            }
+            target_ = std::make_unique<RenderTexture2D>(created);
+        }
+        const RenderTexture2D& target = *target_;
 
         const BoundingBox bounds = GetModelBoundingBox((*modelHandle)->model);
         const Vector3 sizeVec = Vector3Subtract(bounds.max, bounds.min);
 
         const auto maxDim = std::max(std::max(sizeVec.x, sizeVec.y), sizeVec.z);
         if (maxDim <= 0.001f) {
-            UnloadRenderTexture(target);
             return Fail("degenerate model bounds (maxDim={})", maxDim);
         }
         const Vector3 center = Vector3Scale(Vector3Add(bounds.min, bounds.max), 0.5f);
@@ -251,7 +289,6 @@ namespace thumb {
             std::optional<AlphaBounds> visibleBounds = FindVisibleAlphaBounds(image, kAlphaFitThreshold);
             if (!visibleBounds.has_value()) {
                 UnloadImage(image);
-                UnloadRenderTexture(target);
                 modelCache_.erase(tgi);
                 return Fail("rendered image is fully transparent (missing textures or empty geometry?)");
             }
@@ -271,7 +308,6 @@ namespace thumb {
             Image cropped = ImageFromImage(image, cropRect);
             if (cropped.data == nullptr) {
                 UnloadImage(image);
-                UnloadRenderTexture(target);
                 modelCache_.erase(tgi);
                 return Fail("failed to crop rendered image to visible bounds");
             }
@@ -286,19 +322,10 @@ namespace thumb {
             ImageFormat(&cropped, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
 
             finalImage = GenImageColor(static_cast<int>(size), static_cast<int>(size), BLANK);
-            const Rectangle srcRect{
-                0.0f,
-                0.0f,
-                static_cast<float>(cropped.width),
-                static_cast<float>(cropped.height)
-            };
-            const Rectangle dstRect{
-                std::floor((static_cast<float>(size) - cropped.width) * 0.5f),
-                std::floor((static_cast<float>(size) - cropped.height) * 0.5f),
-                static_cast<float>(cropped.width),
-                static_cast<float>(cropped.height)
-            };
-            ImageDraw(&finalImage, cropped, srcRect, dstRect, WHITE);
+            BlitOntoBlank(cropped,
+                          finalImage,
+                          static_cast<int>(std::floor((static_cast<float>(size) - cropped.width) * 0.5f)),
+                          static_cast<int>(std::floor((static_cast<float>(size) - cropped.height) * 0.5f)));
             UnloadImage(cropped);
         }
         else {
@@ -317,7 +344,14 @@ namespace thumb {
 
         UnloadImage(finalImage);
         UnloadImage(image);
-        UnloadRenderTexture(target);
+
+        if (renderCacheOrder_.size() >= kRenderCacheCapacity) {
+            renderCache_.erase(renderCacheOrder_.front());
+            renderCacheOrder_.pop_front();
+        }
+        if (renderCache_.insert_or_assign(tgi, rendered).second) {
+            renderCacheOrder_.push_back(tgi);
+        }
 
         // Evict the model from cache to free GPU resources (textures, meshes).
         // In the cache builder each model is only rendered once, so keeping them

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstddef>
+#include <deque>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -9,6 +11,8 @@
 #include "DBPFReader.h"
 #include "DbpfIndexService.hpp"
 #include "ParseTypes.h"
+
+struct RenderTexture;
 
 namespace thumb {
     struct LoadedModelHandle;
@@ -42,6 +46,10 @@ namespace thumb {
         // Failed model TGIs mapped to the failure reason, so repeated lookups stay cheap
         // and report the original cause.
         std::unordered_map<DBPF::Tgi, std::string, DBPF::TgiHash> failedModels_;
+        // Recent renders, because many props share a model.
+        std::unordered_map<DBPF::Tgi, RenderedImage, DBPF::TgiHash> renderCache_;
+        std::deque<DBPF::Tgi> renderCacheOrder_;
+        std::unique_ptr<RenderTexture> target_;
         bool initialized_ = false;
         bool initializationFailed_ = false;
     };
