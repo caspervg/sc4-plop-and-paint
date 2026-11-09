@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "../RecentPaintHistory.hpp"
+#include "../common/PanelUi.hpp"
 #include "../SC4PlopAndPaintDirector.hpp"
 #include "../common/Constants.hpp"
 #include "../common/Utils.hpp"
@@ -225,7 +226,7 @@ void RecentSwapPanel::RenderTooltip_(const size_t index, const bool isCurrent, c
 
     if (!entry.palette.empty()) {
         if (const char* label = PaletteLabelForSource(entry)) {
-            ImGui::TextDisabled("%s (%zu items)", label, entry.palette.size());
+            PanelUi::SecondaryText("%s (%zu items)", label, entry.palette.size());
         }
         ImGui::Separator();
 
@@ -265,18 +266,18 @@ void RecentSwapPanel::RenderTooltip_(const size_t index, const bool isCurrent, c
         }
 
         if (entry.palette.size() > kMaxMembers) {
-            ImGui::TextDisabled("... and %zu more", entry.palette.size() - kMaxMembers);
+            PanelUi::SecondaryText("... and %zu more", entry.palette.size() - kMaxMembers);
         }
     }
 
     if (isCurrent) {
-        ImGui::TextDisabled("You are painting with this.");
+        PanelUi::SecondaryText("You are painting with this.");
     }
     else if (index <= kMaxQuickSwapSlots) {
-        ImGui::TextDisabled("Click or press %zu to swap.", index);
+        PanelUi::SecondaryText("Click or press %zu to swap.", index);
     }
     else {
-        ImGui::TextDisabled("Click to swap.");
+        PanelUi::SecondaryText("Click to swap.");
     }
     ImGui::EndTooltip();
 }

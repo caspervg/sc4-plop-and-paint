@@ -3,6 +3,7 @@
 #include <string>
 
 #include "../common/PanelTab.hpp"
+#include "../packs/PackFilter.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
 #include "PropPainterInputControl.hpp"
 
@@ -42,6 +43,7 @@ private:
         uint64_t favoriteKey = 0;
     };
 
+    void IndexPacks_();
     void RenderFilters_();
     [[nodiscard]] std::vector<FamilyRow> BuildRows_() const;
     void RenderResultLine_(size_t shown, size_t total);
@@ -71,6 +73,13 @@ private:
     char newFamilyName_[128] = {};
     std::string nameFilter_{};
     std::string iidFilter_{};
+    PackFilter packFilter_{};
+    // By combined family index, for packFilter_.
+    std::vector<std::vector<PackCatalogRepository::ExemplarRow>> familyPacks_{};
+    size_t indexedPackSignature_{SIZE_MAX};
+    // By combined family index.
+    std::vector<std::string> familyTexts_{};
+    TextSearch::Suggester suggester_{};
     bool favoritesOnly_ = false;
     // The own family whose name is being typed, and what has been typed so far.
     size_t renameFamilyIndex_ = SIZE_MAX;

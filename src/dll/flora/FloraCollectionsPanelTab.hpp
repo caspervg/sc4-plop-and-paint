@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "../common/PanelTab.hpp"
+#include "../packs/PackFilter.hpp"
 #include "../paint/PaintSettings.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
 #include "FloraRepository.hpp"
@@ -38,6 +39,7 @@ private:
     };
 
     [[nodiscard]] ImGuiTexture LoadFloraTexture_(uint64_t key) const;
+    void IndexPacks_(const std::vector<FloraRepository::FloraCollection>& collections);
     void RenderFilterUI_();
     void RenderResultLine_(size_t shown, size_t total);
     void ClearFilters_();
@@ -64,6 +66,13 @@ private:
     char iidFilterBuf_[64]{};
     int typeFilter_{0};
     bool favoritesOnly_{false};
+    PackFilter packFilter_{};
+    // By collection index, for packFilter_.
+    std::vector<std::vector<PackCatalogRepository::ExemplarRow>> collectionPacks_{};
+    size_t indexedPackCount_{SIZE_MAX};
+    // By collection index.
+    std::vector<std::string> collectionTexts_{};
+    TextSearch::Suggester suggester_{};
 
     PendingPaintState pendingPaint_{};
 };

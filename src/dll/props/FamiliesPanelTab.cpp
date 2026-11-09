@@ -89,6 +89,9 @@ void FamiliesPanelTab::OnRender() {
         if (PanelUi::NoResults("No families match these filters.")) {
             ClearFilters_();
         }
+        else if (const auto suggestion = suggester_.Suggest(nameFilter_); suggestion && PanelUi::DidYouMean(*suggestion)) {
+            nameFilter_ = *suggestion;
+        }
     }
     else {
         // The list takes about a third of the panel and the props the rest. Both stay usable in
@@ -102,7 +105,49 @@ void FamiliesPanelTab::OnRender() {
     RenderPaintOptionsPopup_();
 }
 
+void FamiliesPanelTab::IndexPacks_() {
+    const auto& autoFamilies = props_->GetAutoFamilies();
+    const auto& userFamilies = favorites_->GetUserFamilies();
+    // Changes when a family is made, removed, renamed, or gets other members.
+    size_t signature = autoFamilies.size();
+    for (const PropFamily& family : userFamilies) {
+        signature = signature * 31 + family.entries.size() + 1 + std::hash<std::string>{}(family.name);
+    }
+    if (signature == indexedPackSignature_) {
+        return;
+    }
+    indexedPackSignature_ = signature;
+
+    const PackCatalogRepository* catalog = director_->GetPackCatalog();
+    packFilter_.Begin(catalog);
+    familyPacks_.clear();
+    familyTexts_.clear();
+    suggester_.Clear();
+    familyPacks_.reserve(autoFamilies.size() + userFamilies.size());
+    const auto add = [&](const PropFamily& family) {
+        std::vector<PackCatalogRepository::ExemplarRow> rows;
+        for (const auto& entry : family.entries) {
+            const Prop* prop = catalog ? props_->FindPropByInstanceId(entry.propID.value()) : nullptr;
+            if (prop) {
+                const auto memberRows = catalog->ExemplarRows(prop->groupId.value(), prop->instanceId.value());
+                rows.insert(rows.end(), memberRows.begin(), memberRows.end());
+            }
+        }
+        familyPacks_.push_back(MergePackRows(std::move(rows)));
+        packFilter_.Count(familyPacks_.back());
+        familyTexts_.push_back(TextSearch::Normalize(family.name));
+        suggester_.Add(familyTexts_.back());
+    };
+    for (const PropFamily& family : autoFamilies) {
+        add(family);
+    }
+    for (const PropFamily& family : userFamilies) {
+        add(family);
+    }
+}
+
 void FamiliesPanelTab::RenderFilters_() {
+    IndexPacks_();
     static char nameFilterBuf[256] = {};
     if (nameFilter_ != nameFilterBuf) {
         std::strncpy(nameFilterBuf, nameFilter_.c_str(), sizeof(nameFilterBuf) - 1);
@@ -119,6 +164,9 @@ void FamiliesPanelTab::RenderFilters_() {
     if (ImGui::InputTextWithHint("##SearchFamiliesByName", "Search family name...", nameFilterBuf, sizeof(nameFilterBuf))) {
         nameFilter_ = nameFilterBuf;
     }
+    PanelUi::Tooltip(PanelUi::kSearchHelp);
+
+    packFilter_.Render("##FamilyPack", "families with props");
 
     ImGui::SetNextItemWidth(UI::iidFilterWidth());
     if (ImGui::InputTextWithHint("##SearchFamiliesByIid", "Filter IID (0x...)", iidFilterBuf, sizeof(iidFilterBuf))) {
@@ -135,6 +183,7 @@ std::vector<FamiliesPanelTab::FamilyRow> FamiliesPanelTab::BuildRows_() const {
     const auto& userFamilies = favorites_->GetUserFamilies();
     const size_t autoCount = autoFamilies.size();
 
+    const TextSearch::Query query(nameFilter_);
     std::vector<FamilyRow> rows;
     rows.reserve(autoCount + userFamilies.size());
     for (size_t i = 0; i < autoCount + userFamilies.size(); ++i) {
@@ -149,7 +198,10 @@ std::vector<FamiliesPanelTab::FamilyRow> FamiliesPanelTab::BuildRows_() const {
         if (favoritesOnly_ && !favorites_->IsFamilyFavorite(favoriteKey)) {
             continue;
         }
-        if (!ContainsCaseInsensitive(family->name, nameFilter_) || !MatchesIidFilter(familyId, iidFilter_)) {
+        if ((i < familyTexts_.size() && !query.Matches(familyTexts_[i])) || !MatchesIidFilter(familyId, iidFilter_)) {
+            continue;
+        }
+        if (packFilter_.IsActive() && (i >= familyPacks_.size() || !packFilter_.Passes(familyPacks_[i]))) {
             continue;
         }
         rows.push_back({.combinedIndex = i, .isAuto = isAuto, .family = family, .familyId = familyId, .favoriteKey = favoriteKey});
@@ -161,7 +213,7 @@ void FamiliesPanelTab::RenderResultLine_(const size_t shown, const size_t total)
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Showing %zu of %zu families", shown, total);
     const int active = static_cast<int>(!nameFilter_.empty()) + static_cast<int>(!iidFilter_.empty()) +
-                       static_cast<int>(favoritesOnly_);
+                       static_cast<int>(favoritesOnly_) + static_cast<int>(packFilter_.IsActive());
     if (active > 0) {
         ImGui::SameLine();
         ImGui::TextDisabled("%d filter%s on", active, active == 1 ? "" : "s");
@@ -176,6 +228,7 @@ void FamiliesPanelTab::RenderResultLine_(const size_t shown, const size_t total)
 }
 
 void FamiliesPanelTab::ClearFilters_() {
+    packFilter_.Clear();
     nameFilter_.clear();
     iidFilter_.clear();
     favoritesOnly_ = false;

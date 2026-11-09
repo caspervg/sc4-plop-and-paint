@@ -91,6 +91,8 @@ private:
         {PropFilterHelper::SortColumn::Name, false}
     };
     std::vector<PropView> allPropViewsCache_{};
+    std::vector<std::string> propSearchTexts_{};
+    TextSearch::Suggester suggester_{};
     std::vector<PropView> filteredPropsCache_{};
     size_t cachedPropCount_{0};
     // Counted with the views, so once per props.cbor.

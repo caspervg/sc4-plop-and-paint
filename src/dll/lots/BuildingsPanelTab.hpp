@@ -52,6 +52,8 @@ private:
     std::vector<const Building*> filteredBuildings_;
 
     LotFilterHelper filter_;
+    std::unordered_map<const Lot*, std::string> lotSearchTexts_{};
+    TextSearch::Suggester suggester_{};
     // What the list was last made from.
     LotFilterHelper appliedFilter_;
     BuildingStyleContext appliedContext_;

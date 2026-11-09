@@ -121,10 +121,7 @@ void LotFilterHelper::ResetFilters() {
 }
 
 bool LotFilterHelper::PassesTextFilter_(const LotView& view) const {
-    const Lot& lot = *view.lot;
-    const Building& building = *view.building;
-
-    return ContainsCaseInsensitive(lot.name, searchBuffer) || ContainsCaseInsensitive(building.name, searchBuffer);
+    return !view.query || view.query->Empty() || (view.searchText && view.query->Matches(*view.searchText));
 }
 
 bool LotFilterHelper::PassesSizeFilter_(const LotView& view) const {

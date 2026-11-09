@@ -1,5 +1,5 @@
 #include "PackFilter.hpp"
-#include "PackSearch.hpp"
+#include "../common/PanelUi.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -17,6 +17,9 @@ void PackFilter::Begin(const PackCatalogRepository* const catalog) {
     total_ = 0;
     byName_.clear();
     filesByName_.clear();
+    packTexts_.clear();
+    fileTexts_.clear();
+    suggester_.Clear();
     sorted_ = false;
 }
 
@@ -81,18 +84,19 @@ void PackFilter::RefreshMatches_() {
     appliedSearch_ = search_;
     packMatches_.clear();
     fileMatches_.clear();
-    const std::vector<TexturePack>& packs = catalog_->Packs();
-    for (const int32_t pack : byName_) {
-        if (ContainsAllWords(packs[static_cast<size_t>(pack)].name, appliedSearch_)) {
-            packMatches_.push_back(pack);
+    const TextSearch::Query query(appliedSearch_);
+    searching_ = !query.Empty();
+    for (size_t i = 0; i < byName_.size(); ++i) {
+        if (query.Matches(packTexts_[i])) {
+            packMatches_.push_back(byName_[i]);
         }
     }
-    if (appliedSearch_.find_first_not_of(' ') == std::string::npos) {
+    if (!searching_) {
         return;
     }
-    for (const uint32_t file : filesByName_) {
-        if (ContainsAllWords(*catalog_->File(file), appliedSearch_)) {
-            fileMatches_.push_back(file);
+    for (size_t i = 0; i < filesByName_.size(); ++i) {
+        if (query.Matches(fileTexts_[i])) {
+            fileMatches_.push_back(filesByName_[i]);
         }
     }
 }
@@ -115,6 +119,14 @@ bool PackFilter::Render(const char* const id, const char* const itemsName) {
             }
         }
         std::ranges::sort(filesByName_, {}, [&](const uint32_t file) { return std::string_view(*catalog_->File(file)); });
+        for (const int32_t pack : byName_) {
+            packTexts_.push_back(TextSearch::Normalize(packs[static_cast<size_t>(pack)].name));
+            suggester_.Add(packTexts_.back());
+        }
+        for (const uint32_t file : filesByName_) {
+            fileTexts_.push_back(TextSearch::Normalize(*catalog_->File(file)));
+            suggester_.Add(fileTexts_.back());
+        }
         sorted_ = true;
         matchesValid_ = false;
     }
@@ -136,8 +148,9 @@ bool PackFilter::Render(const char* const id, const char* const itemsName) {
     ImGui::SetNextItemWidth(-1.0f);
     const bool entered = ImGui::InputTextWithHint("##packSearch", "Type a pack or file name", search_, sizeof(search_),
                                                   ImGuiInputTextFlags_EnterReturnsTrue);
+    PanelUi::Tooltip(PanelUi::kSearchHelp);
     RefreshMatches_();
-    const bool searching = appliedSearch_.find_first_not_of(' ') != std::string::npos;
+    const bool searching = searching_;
 
     std::optional<int32_t> picked;
     const auto option = [&](const int32_t choice) {
@@ -176,6 +189,9 @@ bool PackFilter::Render(const char* const id, const char* const itemsName) {
         }
         if (searching && packMatches_.empty() && fileMatches_.empty()) {
             ImGui::TextDisabled("Nothing matches.");
+            if (const auto suggestion = suggester_.Suggest(search_); suggestion && PanelUi::DidYouMean(*suggestion)) {
+                std::snprintf(search_, sizeof(search_), "%s", suggestion->c_str());
+            }
         }
         if (!fileMatches_.empty()) {
             ImGui::SeparatorText("Files");
@@ -233,14 +249,3 @@ bool PackFilter::Passes(const std::span<const PackCatalogRepository::TextureRow>
     return Passes_(rows);
 }
 
-bool PackFilter::PackNameContains(const std::span<const PackCatalogRepository::ExemplarRow> rows,
-                                  const std::string_view text) const {
-    if (!catalog_ || text.empty()) {
-        return false;
-    }
-    const auto lower = [](const char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); };
-    return std::ranges::any_of(rows, [&](const auto& row) {
-        const TexturePack* pack = catalog_->Pack(static_cast<int32_t>(row[3]));
-        return pack && !std::ranges::search(pack->name, text, {}, lower, lower).empty();
-    });
-}

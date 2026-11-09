@@ -84,6 +84,8 @@ public:
 
     virtual void UndoLastPlacement();
     virtual void CancelAllPlacements();
+    // Ends painting: what was placed stays, a sketch in progress does not.
+    void FinishPlacements();
     virtual void CommitPlacements();
 
 protected:

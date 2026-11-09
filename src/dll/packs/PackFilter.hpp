@@ -7,10 +7,32 @@
 #include <vector>
 
 #include "PackCatalogRepository.hpp"
+#include "PackSearch.hpp"
+#include "../common/TextSearch.hpp"
 
 // The "Pack" filter of the Props, Flora and Terrain Paint tabs: how many items each pack and file
 // has, a dropdown to pick one, and whether an item is in the pick. An item shipped in several
 // packs or files counts, and shows, under each of them.
+// The packs and files of an item, for its search text.
+template <size_t N>
+[[nodiscard]] std::string PackSearchText(const PackCatalogRepository* catalog, const std::span<const std::array<uint32_t, N>> rows) {
+    std::string text;
+    if (!catalog) {
+        return text;
+    }
+    for (const auto& row : rows) {
+        if (const TexturePack* pack = catalog->Pack(static_cast<int32_t>(row[N - 1]))) {
+            text += ' ';
+            text += pack->name;
+        }
+        if (const std::string* file = catalog->File(row[N - 2])) {
+            text += ' ';
+            text += *file;
+        }
+    }
+    return text;
+}
+
 class PackFilter {
 public:
     static constexpr int32_t kAllPacks = -2;
@@ -26,9 +48,6 @@ public:
 
     [[nodiscard]] bool Passes(std::span<const PackCatalogRepository::ExemplarRow> rows) const;
     [[nodiscard]] bool Passes(std::span<const PackCatalogRepository::TextureRow> rows) const;
-    // Whether the name of a pack the item ships in contains the text, ignoring case.
-    [[nodiscard]] bool PackNameContains(std::span<const PackCatalogRepository::ExemplarRow> rows,
-                                        std::string_view text) const;
 
     [[nodiscard]] int32_t Selected() const { return selected_; }
     void Clear() { selected_ = kAllPacks; }
@@ -56,6 +75,11 @@ private:
     std::vector<uint32_t> fileCounts_{};
     std::vector<uint32_t> filePacks_{};
     std::vector<uint32_t> filesByName_{};
+    // Normalized names, in the order of byName_ and filesByName_.
+    std::vector<std::string> packTexts_{};
+    std::vector<std::string> fileTexts_{};
+    TextSearch::Suggester suggester_{};
+    bool searching_ = false;
     bool sorted_ = false;
     // What search_ finds. Files only once something is typed: there are thousands.
     std::vector<int32_t> packMatches_{};

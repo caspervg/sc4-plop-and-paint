@@ -5,6 +5,7 @@
 #include <variant>
 
 #include "../common/Utils.hpp"
+#include "../common/PanelUi.hpp"
 #include "../decals/DecalTextureLoader.hpp"
 #include "../flora/FloraRepository.hpp"
 #include "../lots/LotRepository.hpp"
@@ -23,7 +24,7 @@ namespace {
         if (!name.empty()) {
             ImGui::TextUnformatted(name.c_str());
         }
-        ImGui::TextDisabled("%s 0x%08X", kind, id);
+        PanelUi::SecondaryText("%s 0x%08X", kind, id);
     }
 
     template <typename T>
@@ -61,7 +62,7 @@ void ScenePickStatusPanel::OnRender() {
     const bool flipY = mouse.y > viewport->WorkPos.y + viewport->WorkSize.y * 0.66f;
     ImGui::SetNextWindowPos(ImVec2(mouse.x + (flipX ? -kCursorGap : kCursorGap), mouse.y + (flipY ? -kCursorGap : kCursorGap)),
                             ImGuiCond_Always, ImVec2(flipX ? 1.0f : 0.0f, flipY ? 1.0f : 0.0f));
-    ImGui::SetNextWindowBgAlpha(0.7f);
+    ImGui::SetNextWindowBgAlpha(0.85f);
     constexpr ImGuiWindowFlags kFlags =
         ImGuiWindowFlags_NoTitleBar |
         ImGuiWindowFlags_NoResize |
@@ -96,9 +97,9 @@ void ScenePickStatusPanel::OnRender() {
 
     const uint32_t count = picker_->GetCandidateCount();
     if (count > 1) {
-        ImGui::TextDisabled("%u of %u. Hold Alt and scroll to change.", picker_->GetCandidateIndex() + 1, count);
+        PanelUi::SecondaryText("%u of %u. Hold Alt and scroll to change.", picker_->GetCandidateIndex() + 1, count);
     }
-    ImGui::TextDisabled("Click to pick. Press Esc to cancel.");
+    PanelUi::SecondaryText("Click to pick. Press Esc to cancel.");
 
     ImGui::End();
 }

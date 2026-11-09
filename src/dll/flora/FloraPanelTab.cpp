@@ -81,6 +81,9 @@ void FloraPanelTab::OnRender() {
         if (PanelUi::NoResults("No flora match these filters.")) {
             ClearFilters_();
         }
+        else if (const auto suggestion = suggester_.Suggest(searchBuf_); suggestion && PanelUi::DidYouMean(*suggestion)) {
+            std::snprintf(searchBuf_, sizeof(searchBuf_), "%s", suggestion->c_str());
+        }
     }
     else if (gridView_) {
         if (ImGui::BeginChild("FloraGridRegion", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
@@ -187,11 +190,19 @@ void FloraPanelTab::IndexPacks_() {
     packFilter_.Begin(catalog);
     floraPacks_.clear();
     floraPacks_.reserve(items.size());
+    floraSearchTexts_.clear();
+    floraSearchTexts_.reserve(items.size());
+    suggester_.Clear();
     for (const auto& flora : items) {
         const auto rows = catalog ? catalog->ExemplarRows(flora.groupId.value(), flora.instanceId.value())
                                   : std::span<const PackCatalogRepository::ExemplarRow>{};
         packFilter_.Count(rows);
         floraPacks_.push_back(rows);
+        floraSearchTexts_.push_back(TextSearch::Normalize(flora.visibleName + ' ' + flora.exemplarName +
+                                                          TextSearch::HexId(flora.instanceId.value()) +
+                                                          TextSearch::HexId(flora.groupId.value()) +
+                                                          PackSearchText(catalog, rows)));
+        suggester_.Add(floraSearchTexts_.back());
     }
 }
 
@@ -200,6 +211,7 @@ void FloraPanelTab::RenderFilterUI_() {
     if (ImGui::InputTextWithHint("##SearchFlora", "Search flora...", searchBuf_, sizeof(searchBuf_))) {
         // searchBuf_ is updated in-place
     }
+    PanelUi::Tooltip(PanelUi::kSearchHelp);
     packFilter_.Render("##FloraPack", "flora");
     ImGui::Checkbox("Favorites only", &favoritesOnly_);
     Tooltip("Show only the flora that you starred.");
@@ -272,7 +284,7 @@ void FloraPanelTab::HandleItemClick_(const Flora& flora, const uint64_t key, con
 
 void FloraPanelTab::BuildFilteredFloraIndices_(std::vector<size_t>& filteredIndices) const {
     const auto& items = flora_->GetFloraItems();
-    const std::string_view searchStr = searchBuf_;
+    const TextSearch::Query query(searchBuf_);
     const auto& favoriteFloraIds = favorites_->GetFavoriteFloraIds();
 
     filteredIndices.clear();
@@ -288,16 +300,8 @@ void FloraPanelTab::BuildFilteredFloraIndices_(std::vector<size_t>& filteredIndi
             continue;
         }
 
-        if (!searchStr.empty()) {
-            const bool nameMatch =
-                ContainsCaseInsensitive(flora.visibleName, searchStr) ||
-                ContainsCaseInsensitive(flora.exemplarName, searchStr) ||
-                ContainsCaseInsensitive(FormatHexId(flora.instanceId.value()), searchStr) ||
-                ContainsCaseInsensitive(FormatHexId(flora.groupId.value()), searchStr) ||
-                packFilter_.PackNameContains(packs, searchStr);
-            if (!nameMatch) {
-                continue;
-            }
+        if (i < floraSearchTexts_.size() && !query.Matches(floraSearchTexts_[i])) {
+            continue;
         }
 
         filteredIndices.push_back(i);

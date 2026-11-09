@@ -91,6 +91,11 @@ void PropPanelTab::OnRender() {
         if (PanelUi::NoResults("No props match these filters.")) {
             ClearFilters_();
         }
+        else if (const auto suggestion = suggester_.Suggest(filterHelper_.searchBuffer);
+                 suggestion && PanelUi::DidYouMean(*suggestion)) {
+            filterHelper_.searchBuffer = *suggestion;
+            filteredPropsDirty_ = true;
+        }
     }
     // Table in scrollable child region so filters stay visible
     else if (gridView_) {
@@ -212,6 +217,7 @@ void PropPanelTab::RenderFilterUI_() {
         filterHelper_.searchBuffer = searchBuf;
         filtersChanged = true;
     }
+    PanelUi::Tooltip(PanelUi::kSearchHelp);
 
     filtersChanged = packFilter_.Render("##PropPack", "props") || filtersChanged;
 
@@ -271,11 +277,20 @@ void PropPanelTab::RebuildPropViewsCache_() {
     packFilter_.Begin(catalog);
     allPropViewsCache_.clear();
     allPropViewsCache_.reserve(props.size());
+    // Reserved, as the views point into it.
+    propSearchTexts_.clear();
+    propSearchTexts_.reserve(props.size());
+    suggester_.Clear();
     for (const auto& prop : props) {
         const auto rows = catalog ? catalog->ExemplarRows(prop.groupId.value(), prop.instanceId.value())
                                   : std::span<const PackCatalogRepository::ExemplarRow>{};
         packFilter_.Count(rows);
-        allPropViewsCache_.push_back(PropView{&prop, rows});
+        propSearchTexts_.push_back(TextSearch::Normalize(prop.visibleName + ' ' + prop.exemplarName +
+                                                         TextSearch::HexId(prop.instanceId.value()) +
+                                                         TextSearch::HexId(prop.groupId.value()) +
+                                                         PackSearchText(catalog, rows)));
+        suggester_.Add(propSearchTexts_.back());
+        allPropViewsCache_.push_back(PropView{&prop, rows, &propSearchTexts_.back()});
     }
     cachedPropCount_ = props.size();
     filteredPropsDirty_ = true;
@@ -300,6 +315,7 @@ void PropPanelTab::EnsureFilteredPropsCache_() {
     filteredPropsCache_ = filterHelper_.ApplyFiltersAndSort(
         allPropViewsCache_, favorites_->GetFavoritePropIds(), sortSpecs_);
     filteredPropsDirty_ = false;
+    filterHelper_.query = TextSearch::Query(filterHelper_.searchBuffer);
 }
 
 void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredProps,

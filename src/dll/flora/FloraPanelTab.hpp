@@ -76,6 +76,8 @@ private:
     // By the flora item's index; empty spans when the catalog does not know it.
     std::vector<std::span<const PackCatalogRepository::ExemplarRow>> floraPacks_{};
     size_t indexedFloraCount_{SIZE_MAX};
+    std::vector<std::string> floraSearchTexts_{};
+    TextSearch::Suggester suggester_{};
 
     struct PendingPaintState {
         uint32_t typeId{0};

@@ -116,9 +116,7 @@ void PropFilterHelper::ResetFilters() {
 }
 
 bool PropFilterHelper::PassesTextFilter_(const PropView& view) const {
-    return ContainsCaseInsensitive(view.prop->visibleName, searchBuffer) ||
-        ContainsCaseInsensitive(view.prop->exemplarName, searchBuffer) ||
-        (packFilter && packFilter->PackNameContains(view.packs, searchBuffer));
+    return query.Empty() || (view.searchText && query.Matches(*view.searchText));
 }
 
 bool PropFilterHelper::PassesSizeFilter_(const PropView& view) const {

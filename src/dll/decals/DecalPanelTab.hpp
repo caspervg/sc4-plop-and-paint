@@ -71,18 +71,21 @@ private:
     ImVec2       uvPickerDragStartUv_{0.0f, 0.0f};
 
     // Filter state
-    char    iidFilterBuf_[17]{};
+    char    searchBuf_[64]{};
     bool    favoritesOnly_{false};
     int     wealthFilter_{0};
     int     dilapidationFilter_{0};
     TextureKindFilter kindFilter_{};
     PackFilter packFilter_{};
     size_t     indexedPackCount_{SIZE_MAX};
+    // By index into the instance IDs.
+    std::vector<std::string> searchTexts_{};
+    TextSearch::Suggester suggester_{};
 
     // The textures shown, and what they were filtered with.
     std::vector<size_t> shown_{};
     bool        shownDirty_{true};
-    std::string appliedIid_{};
+    std::string appliedSearch_{};
     bool        appliedFavoritesOnly_{false};
     size_t      appliedFavoriteCount_{0};
     int         appliedWealth_{0};

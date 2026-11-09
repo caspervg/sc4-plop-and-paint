@@ -1,6 +1,7 @@
 #include "PaintStatusPanel.hpp"
 
 #include "../decals/DecalPainterInputControl.hpp"
+#include "../common/PanelUi.hpp"
 #include "../decals/FractionalAngles.hpp"
 #include "../props/PropPainterInputControl.hpp"
 #include "imgui.h"
@@ -11,7 +12,7 @@ namespace {
     void StateRow(const char* label, const char* value) {
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        ImGui::TextDisabled("%s", label);
+        PanelUi::SecondaryText("%s", label);
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(value);
     }
@@ -21,7 +22,7 @@ namespace {
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(keys);
         ImGui::TableNextColumn();
-        ImGui::TextDisabled("%s", action);
+        PanelUi::SecondaryText("%s", action);
     }
 }
 
@@ -32,7 +33,7 @@ void PaintStatusPanel::OnRender() {
 
     const auto& settings = activeControl_->GetSettings();
 
-    ImGui::SetNextWindowBgAlpha(0.7f);
+    ImGui::SetNextWindowBgAlpha(0.85f);
     constexpr ImGuiWindowFlags kFlags =
         ImGuiWindowFlags_NoTitleBar |
         ImGuiWindowFlags_NoResize |
@@ -134,8 +135,8 @@ void PaintStatusPanel::OnRender() {
         if (activeControl_->HasGroundSketch()) {
             KeyRow("Click", "Start over");
         }
-        KeyRow("Enter", !sketch ? "Keep what you placed" : line ? "Place along the line" : "Fill the shape");
-        KeyRow("Esc", activeControl_->HasPendingSketch() ? "Clear the sketch" : "Remove what you did not keep, and stop");
+        KeyRow("Enter", !sketch ? "Confirm what you placed" : line ? "Place along the line" : "Fill the shape");
+        KeyRow("Esc", activeControl_->HasPendingSketch() ? "Clear the sketch" : "Stop and keep what you placed");
         if (!direct) {
             KeyRow("Backspace", "Remove the last point");
         }

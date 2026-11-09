@@ -153,7 +153,7 @@ protected:
             std::snprintf(howTo, sizeof(howTo), "Click to add polygon corners. Press Enter to fill the polygon with %s. Press Backspace to remove the last corner.", itemsName);
         }
         else {
-            std::snprintf(howTo, sizeof(howTo), "Click to place %s. Press Enter to keep the %s that you placed.", itemsName, itemsName);
+            std::snprintf(howTo, sizeof(howTo), "Click to place %s. Press Esc to stop and keep the %s that you placed.", itemsName, itemsName);
         }
         if (settings.pickFromGround) {
             std::snprintf(howTo, sizeof(howTo), "Click ground that you painted. Press Enter to place the %s. Click other painted ground to change your choice.", itemsName);

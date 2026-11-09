@@ -163,6 +163,13 @@ target_include_directories(GroundSnappingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 target_link_libraries(GroundSnappingTests PRIVATE Clipper2::Clipper2 tinysplinecxx::tinysplinecxx)
 add_test(NAME GroundSnappingTests COMMAND GroundSnappingTests)
 
+add_executable(TextSearchTests
+    ${CMAKE_SOURCE_DIR}/tests/TextSearchTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/TextSearch.cpp
+)
+target_include_directories(TextSearchTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME TextSearchTests COMMAND TextSearchTests)
+
 add_executable(PackSearchTests ${CMAKE_SOURCE_DIR}/tests/PackSearchTests.cpp)
 target_include_directories(PackSearchTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME PackSearchTests COMMAND PackSearchTests)

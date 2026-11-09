@@ -700,7 +700,7 @@ bool SC4PlopAndPaintDirector::SwitchPropPaintingTarget(uint32_t propId, const st
 
 void SC4PlopAndPaintDirector::StopPropPainting() {
     if (propPainterControl_) {
-        propPainterControl_->CancelAllPlacements();
+        propPainterControl_->FinishPlacements();
     }
 
     if (pView3D_ && propPainterControl_) {
@@ -813,7 +813,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
 
 void SC4PlopAndPaintDirector::StopFloraPainting() {
     if (floraPlacerControl_) {
-        floraPlacerControl_->CancelAllPlacements();
+        floraPlacerControl_->FinishPlacements();
     }
 
     if (pView3D_ && floraPlacerControl_) {
@@ -977,7 +977,7 @@ void SC4PlopAndPaintDirector::StopDecalPainting() {
     RememberDecalPlacementSettings_();
 
     if (decalPainterControl_) {
-        decalPainterControl_->CancelAllPlacements();
+        decalPainterControl_->FinishPlacements();
     }
 
     if (pView3D_ && decalPainterControl_) {

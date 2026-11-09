@@ -94,6 +94,7 @@ void FloraCollectionsPanelTab::OnRender() {
         return;
     }
 
+    IndexPacks_(collections);
     RenderFilterUI_();
     ImGui::Separator();
 
@@ -124,6 +125,9 @@ void FloraCollectionsPanelTab::OnRender() {
         if (PanelUi::NoResults("No collections match these filters.")) {
             ClearFilters_();
         }
+        else if (const auto suggestion = suggester_.Suggest(nameFilterBuf_); suggestion && PanelUi::DidYouMean(*suggestion)) {
+            std::snprintf(nameFilterBuf_, sizeof(nameFilterBuf_), "%s", suggestion->c_str());
+        }
     }
     else {
         // The list takes about a third of the panel and the flora the rest. Both stay usable in
@@ -143,7 +147,8 @@ void FloraCollectionsPanelTab::RenderResultLine_(const size_t shown, const size_
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Showing %zu of %zu collections", shown, total);
     const int active = static_cast<int>(nameFilterBuf_[0] != '\0') + static_cast<int>(iidFilterBuf_[0] != '\0') +
-                       static_cast<int>(typeFilter_ != 0) + static_cast<int>(favoritesOnly_);
+                       static_cast<int>(typeFilter_ != 0) + static_cast<int>(favoritesOnly_) +
+                       static_cast<int>(packFilter_.IsActive());
     if (active > 0) {
         ImGui::SameLine();
         ImGui::TextDisabled("%d filter%s on", active, active == 1 ? "" : "s");
@@ -162,6 +167,7 @@ void FloraCollectionsPanelTab::ClearFilters_() {
     iidFilterBuf_[0] = '\0';
     typeFilter_ = 0;
     favoritesOnly_ = false;
+    packFilter_.Clear();
 }
 
 void FloraCollectionsPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
@@ -187,9 +193,39 @@ ImGuiTexture FloraCollectionsPanelTab::LoadFloraTexture_(const uint64_t key) con
     return texture;
 }
 
+void FloraCollectionsPanelTab::IndexPacks_(const std::vector<FloraRepository::FloraCollection>& collections) {
+    if (collections.size() == indexedPackCount_) {
+        return;
+    }
+    indexedPackCount_ = collections.size();
+
+    const PackCatalogRepository* catalog = director_->GetPackCatalog();
+    packFilter_.Begin(catalog);
+    collectionPacks_.clear();
+    collectionTexts_.clear();
+    suggester_.Clear();
+    collectionPacks_.reserve(collections.size());
+    for (const auto& collection : collections) {
+        std::vector<PackCatalogRepository::ExemplarRow> rows;
+        for (const Flora* flora : collection.members) {
+            if (flora && catalog) {
+                const auto memberRows = catalog->ExemplarRows(flora->groupId.value(), flora->instanceId.value());
+                rows.insert(rows.end(), memberRows.begin(), memberRows.end());
+            }
+        }
+        collectionPacks_.push_back(MergePackRows(std::move(rows)));
+        packFilter_.Count(collectionPacks_.back());
+        collectionTexts_.push_back(TextSearch::Normalize(collection.name));
+        suggester_.Add(collectionTexts_.back());
+    }
+}
+
 void FloraCollectionsPanelTab::RenderFilterUI_() {
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputTextWithHint("##SearchFloraCollections", "Search collection name...", nameFilterBuf_, sizeof(nameFilterBuf_));
+    PanelUi::Tooltip(PanelUi::kSearchHelp);
+
+    packFilter_.Render("##CollectionPack", "collections with flora");
 
     ImGui::SetNextItemWidth(UI::iidFilterWidth());
     ImGui::InputTextWithHint("##SearchFloraCollectionsByIid", "Filter IID (0x...)", iidFilterBuf_, sizeof(iidFilterBuf_));
@@ -209,7 +245,7 @@ void FloraCollectionsPanelTab::BuildFilteredCollectionIndices_(const std::vector
     filteredIndices.clear();
     filteredIndices.reserve(collections.size());
 
-    const std::string_view nameFilter = nameFilterBuf_;
+    const TextSearch::Query nameQuery(nameFilterBuf_);
     const std::string_view iidFilter = iidFilterBuf_;
     const auto& favoriteFloraIds = favorites_->GetFavoriteFloraIds();
 
@@ -222,10 +258,13 @@ void FloraCollectionsPanelTab::BuildFilteredCollectionIndices_(const std::vector
         if (typeFilter_ == 2 && collection.type != FloraRepository::CollectionType::MultiStage) {
             continue;
         }
-        if (!ContainsCaseInsensitive(collection.name, nameFilter)) {
+        if (i < collectionTexts_.size() && !nameQuery.Matches(collectionTexts_[i])) {
             continue;
         }
         if (!MatchesIidFilter(collection.id, iidFilter)) {
+            continue;
+        }
+        if (packFilter_.IsActive() && (i >= collectionPacks_.size() || !packFilter_.Passes(collectionPacks_[i]))) {
             continue;
         }
         if (favoritesOnly_) {

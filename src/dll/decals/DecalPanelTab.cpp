@@ -158,27 +158,6 @@ namespace {
         QuantizeUvWindowToPixels(window, sourceSize);
     }
 
-    char HexDigitUpper(const uint32_t value, const int nibbleIndexFromLeft) {
-        const int shift = (7 - nibbleIndexFromLeft) * 4;
-        const uint32_t nibble = (value >> shift) & 0xFu;
-        return static_cast<char>(nibble < 10 ? ('0' + nibble) : ('A' + (nibble - 10)));
-    }
-
-    bool MatchesHexPrefix(const uint32_t value, const char* const prefix, const size_t prefixLen) {
-        if (!prefix || prefixLen == 0 || prefixLen > 8) {
-            return true;
-        }
-
-        for (size_t i = 0; i < prefixLen; ++i) {
-            if (HexDigitUpper(value, static_cast<int>(i)) !=
-                std::toupper(static_cast<unsigned char>(prefix[i]))) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     bool MatchesWealthFilter(const uint32_t value, const int wealthFilter) {
         if (wealthFilter == 0) {
             return true;
@@ -320,6 +299,9 @@ void DecalPanelTab::OnRender() {
         if (PanelUi::NoResults("No textures match these filters.")) {
             ClearFilters_();
         }
+        else if (const auto suggestion = suggester_.Suggest(searchBuf_); suggestion && PanelUi::DidYouMean(*suggestion)) {
+            std::snprintf(searchBuf_, sizeof(searchBuf_), "%s", suggestion->c_str());
+        }
     }
     else {
         RenderDecalGrid_();
@@ -330,7 +312,7 @@ void DecalPanelTab::OnRender() {
 void DecalPanelTab::RenderResultLine_() {
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Showing %zu of %zu textures", shown_.size(), decals_->Count());
-    const int active = static_cast<int>(iidFilterBuf_[0] != '\0') + static_cast<int>(wealthFilter_ != 0) +
+    const int active = static_cast<int>(searchBuf_[0] != '\0') + static_cast<int>(wealthFilter_ != 0) +
                        static_cast<int>(dilapidationFilter_ != 0) + static_cast<int>(favoritesOnly_) +
                        static_cast<int>(kindFilter_.Active()) + static_cast<int>(packFilter_.IsActive());
     if (active > 0) {
@@ -347,7 +329,7 @@ void DecalPanelTab::RenderResultLine_() {
 }
 
 void DecalPanelTab::ClearFilters_() {
-    iidFilterBuf_[0] = '\0';
+    searchBuf_[0] = '\0';
     wealthFilter_ = 0;
     dilapidationFilter_ = 0;
     favoritesOnly_ = false;
@@ -380,7 +362,7 @@ void DecalPanelTab::RenderTools_() {
                 scrollToInstanceId_ = instanceId;
                 // Filter to the texture family: the first four nibbles are the
                 // base/overlay ID, the rest encode wealth/state/zoom variants.
-                std::snprintf(iidFilterBuf_, sizeof(iidFilterBuf_), "%04X", instanceId >> 16);
+                std::snprintf(searchBuf_, sizeof(searchBuf_), "%04X", instanceId >> 16);
                 wealthFilter_ = 0;
                 dilapidationFilter_ = 0;
                 favoritesOnly_ = false;
@@ -471,9 +453,16 @@ void DecalPanelTab::IndexPacks_() {
         return;
     }
     indexedPackCount_ = ids.size();
-    packFilter_.Begin(director_->GetPackCatalog());
+    const PackCatalogRepository* catalog = director_->GetPackCatalog();
+    packFilter_.Begin(catalog);
+    searchTexts_.clear();
+    searchTexts_.reserve(ids.size());
+    suggester_.Clear();
     for (const uint32_t instanceId : ids) {
-        packFilter_.Count(decals_->PackCandidates(instanceId));
+        const auto rows = decals_->PackCandidates(instanceId);
+        packFilter_.Count(rows);
+        searchTexts_.push_back(TextSearch::Normalize(TextSearch::HexId(instanceId) + PackSearchText(catalog, rows)));
+        suggester_.Add(searchTexts_.back());
     }
 }
 
@@ -481,17 +470,16 @@ void DecalPanelTab::RenderFilterBar_() {
     IndexPacks_();
     packFilter_.Render("##DecalPack", "textures");
 
-    ImGui::SetNextItemWidth(UI::iidFilterWidth());
-    ImGui::InputTextWithHint("##DecalIID", "IID prefix...", iidFilterBuf_, sizeof(iidFilterBuf_));
-    Tooltip("Type the start of a hex instance ID, for example 25A7.");
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputTextWithHint("##DecalSearch", "Search pack, file or ID", searchBuf_, sizeof(searchBuf_));
+    PanelUi::Tooltip(PanelUi::kSearchHelp);
 
-    NextInRow(1, UI::dropdownWidth());
     static constexpr const char* kWealthFilterLabels[] = {"Any wealth", "None", "$", "$$", "$$$", "Other"};
     ImGui::SetNextItemWidth(UI::dropdownWidth());
     ImGui::Combo("##DecalWealthFilter", &wealthFilter_, kWealthFilterLabels, IM_ARRAYSIZE(kWealthFilterLabels));
     Tooltip("Show textures with this wealth in their instance ID.");
 
-    NextInRow(2, UI::dropdownWidth());
+    NextInRow(1, UI::dropdownWidth());
     static constexpr const char* kDilapidationFilterLabels[] = {"Any state", "Normal", "Dilapidated"};
     ImGui::SetNextItemWidth(UI::dropdownWidth());
     ImGui::Combo("##DecalDilapidationFilter",
@@ -500,11 +488,11 @@ void DecalPanelTab::RenderFilterBar_() {
                  IM_ARRAYSIZE(kDilapidationFilterLabels));
     Tooltip("Show textures with this state in their instance ID.");
 
-    NextInRow(3, CheckboxWidth("Favorites only"));
+    NextInRow(2, CheckboxWidth("Favorites only"));
     ImGui::Checkbox("Favorites only##decalFavoritesOnly", &favoritesOnly_);
     Tooltip("Show only the textures that you starred.");
 
-    NextInRow(4, CheckboxWidth("Base") + ImGui::GetStyle().ItemSpacing.x + CheckboxWidth("Overlay"));
+    NextInRow(3, CheckboxWidth("Base") + ImGui::GetStyle().ItemSpacing.x + CheckboxWidth("Overlay"));
     if (kindFilter_.Render(*decals_)) {
         shownDirty_ = true;
     }
@@ -512,7 +500,7 @@ void DecalPanelTab::RenderFilterBar_() {
 
 void DecalPanelTab::RefreshShown_() {
     const size_t favoriteCount = favoritesOnly_ && favorites_ ? favorites_->GetFavoriteDecalIds().size() : 0;
-    if (!shownDirty_ && appliedIid_ == iidFilterBuf_ && appliedFavoritesOnly_ == favoritesOnly_ &&
+    if (!shownDirty_ && appliedSearch_ == searchBuf_ && appliedFavoritesOnly_ == favoritesOnly_ &&
         appliedFavoriteCount_ == favoriteCount && appliedWealth_ == wealthFilter_ &&
         appliedDilapidation_ == dilapidationFilter_ && appliedBase_ == kindFilter_.base &&
         appliedOverlay_ == kindFilter_.overlay && appliedTotal_ == decals_->Count() &&
@@ -520,7 +508,7 @@ void DecalPanelTab::RefreshShown_() {
         return;
     }
     shownDirty_ = false;
-    appliedIid_ = iidFilterBuf_;
+    appliedSearch_ = searchBuf_;
     appliedFavoritesOnly_ = favoritesOnly_;
     appliedFavoriteCount_ = favoriteCount;
     appliedWealth_ = wealthFilter_;
@@ -537,7 +525,7 @@ void DecalPanelTab::BuildFilteredIndices_(std::vector<size_t>& out) const {
     out.clear();
     out.reserve(ids.size());
 
-    const size_t iidFilterLen = std::strlen(iidFilterBuf_);
+    const TextSearch::Query query(searchBuf_);
     const auto* favoriteDecalIds = favorites_ ? &favorites_->GetFavoriteDecalIds() : nullptr;
 
     for (size_t i = 0; i < ids.size(); ++i) {
@@ -545,7 +533,7 @@ void DecalPanelTab::BuildFilteredIndices_(std::vector<size_t>& out) const {
         if (favoritesOnly_ && (!favoriteDecalIds || !favoriteDecalIds->contains(ids[i]))) {
             continue;
         }
-        if (!MatchesHexPrefix(instanceId, iidFilterBuf_, iidFilterLen)) {
+        if (i < searchTexts_.size() && !query.Matches(searchTexts_[i])) {
             continue;
         }
         if (!MatchesWealthFilter(instanceId, wealthFilter_)) {

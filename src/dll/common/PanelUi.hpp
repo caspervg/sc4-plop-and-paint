@@ -2,6 +2,7 @@
 
 #include <cfloat>
 #include <cstddef>
+#include <string>
 
 #include "imgui.h"
 
@@ -10,8 +11,11 @@ namespace PanelUi {
     // Between groups of controls on one line.
     inline constexpr float kGroupGap = 16.0f;
 
+    inline constexpr const char* kSearchHelp =
+        "Type words in any order. Put a minus before a word to leave it out, for example -winter.";
+
     inline constexpr const char* kStopPaintingHelp =
-        "Stop painting. What you did not confirm with Enter is removed.";
+        "Stop painting. What you placed stays in the city.";
 
     // Also on a disabled control, where it says why.
     inline void Tooltip(const char* text) {
@@ -20,9 +24,24 @@ namespace PanelUi {
         }
     }
 
+    // Text that is less important but must be read. The theme's "disabled" color is meant for what
+    // is out of use, and is too faint for this, above all over the city.
+    [[nodiscard]] inline ImVec4 SecondaryTextColor() {
+        constexpr float kTextShare = 0.8f;
+        const ImVec4 text = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        const ImVec4 background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        const auto blend = [](const float a, const float b) { return a * kTextShare + b * (1.0f - kTextShare); };
+        return ImVec4(blend(text.x, background.x), blend(text.y, background.y), blend(text.z, background.z), text.w);
+    }
+
+    template <typename... Args>
+    void SecondaryText(const char* format, Args... args) {
+        ImGui::TextColored(SecondaryTextColor(), format, args...);
+    }
+
     // Quiet text that wraps at the side of the panel.
     inline void Hint(const char* text) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::PushStyleColor(ImGuiCol_Text, SecondaryTextColor());
         ImGui::TextWrapped("%s", text);
         ImGui::PopStyleColor();
     }
@@ -75,6 +94,17 @@ namespace PanelUi {
     // Before BeginPopupModal: a tall dialog scrolls instead of leaving the screen.
     inline void LimitDialogHeight() {
         ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, ImGui::GetIO().DisplaySize.y * 0.9f));
+    }
+
+    // Offers a corrected search, under NoResults. True when it is chosen.
+    [[nodiscard]] inline bool DidYouMean(const std::string& suggestion) {
+        ImGui::AlignTextToFramePadding();
+        SecondaryText("Did you mean");
+        ImGui::SameLine();
+        ImGui::PushID("didYouMean");
+        const bool chosen = ImGui::SmallButton(suggestion.c_str());
+        ImGui::PopID();
+        return chosen;
     }
 
     // Says that nothing matches and offers the way back. True when the filters should be cleared.

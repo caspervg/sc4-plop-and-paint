@@ -74,6 +74,10 @@ void BuildingsPanelTab::OnRender() {
         if (PanelUi::NoResults("No buildings match these filters.")) {
             filter_.ResetFilters();
         }
+        else if (const auto suggestion = suggester_.Suggest(filter_.searchBuffer);
+                 suggestion && PanelUi::DidYouMean(*suggestion)) {
+            filter_.searchBuffer = *suggestion;
+        }
         return;
     }
 
@@ -163,6 +167,7 @@ void BuildingsPanelTab::RenderFilterUI_() {
     if (ImGui::InputTextWithHint("##SearchBuildings", "Search buildings...", searchBuf, sizeof(searchBuf))) {
         filter_.searchBuffer = searchBuf;
     }
+    PanelUi::Tooltip(PanelUi::kSearchHelp);
 
     ImGui::SameLine();
     if (director_->IsLotPicking()) {
@@ -607,6 +612,18 @@ void BuildingsPanelTab::ApplyFilters_() {
         filter_ == appliedFilter_ && context == appliedContext_) {
         return;
     }
+    if (buildings.size() != appliedBuildingCount_) {
+        lotSearchTexts_.clear();
+        suggester_.Clear();
+        for (const auto& building : buildings) {
+            for (const Lot& lot : building.lots) {
+                std::string& text = lotSearchTexts_[&lot];
+                text = TextSearch::Normalize(lot.name + ' ' + building.name + TextSearch::HexId(lot.instanceId.value()) +
+                                             TextSearch::HexId(building.instanceId.value()));
+                suggester_.Add(text);
+            }
+        }
+    }
     appliedBuildingCount_ = buildings.size();
     appliedFavoriteCount_ = favoriteCount;
     appliedFilter_ = filter_;
@@ -615,10 +632,12 @@ void BuildingsPanelTab::ApplyFilters_() {
     filteredBuildings_.clear();
     filteredBuildings_.reserve(buildings.size());
 
+    const TextSearch::Query query(filter_.searchBuffer);
     for (const auto& building : buildings) {
         // A building passes if any of its lots passes all filters
         bool hasMatchingLot = std::ranges::any_of(building.lots, [&](const Lot& lot) {
-            LotView view{&building, &lot};
+            const auto text = lotSearchTexts_.find(&lot);
+            LotView view{&building, &lot, text == lotSearchTexts_.end() ? nullptr : &text->second, &query};
             return filter_.PassesFilters(view, context) &&
                    (!filter_.favoritesOnly || favoriteLots.contains(lot.instanceId.value()));
         });

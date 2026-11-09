@@ -563,13 +563,18 @@ bool BasePainterInputControl::HandleActiveMouseMove_(const int32_t x, const int3
     return true;
 }
 
+void BasePainterInputControl::FinishPlacements() {
+    CommitPlacements();
+    ClearCollectedPoints_();
+}
+
 bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const uint32_t modifiers) {
     if (vkCode == VK_ESCAPE) {
         if (HasPendingSketch()) {
             ClearCollectedPoints_();
             return true;
         }
-        CancelAllPlacements();
+        FinishPlacements();
         cancelPending_ = true;
         return true;
     }

@@ -341,10 +341,6 @@ namespace {
                a.look.patchBlendMeters == b.look.patchBlendMeters && a.shape.wear == b.shape.wear;
     }
 
-    std::string Upper(std::string text) {
-        std::ranges::transform(text, text.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
-        return text;
-    }
 }
 
 GroundPanelTab::GroundPanelTab(SC4PlopAndPaintDirector* director,
@@ -1322,6 +1318,7 @@ void GroundPanelTab::IndexLibrary_() {
     library_.clear();
     library_.reserve(ids.size());
     packFilter_.Begin(catalog);
+    textureSuggester_.Clear();
     for (const uint32_t id : ids) {
         LibraryEntry entry{.id = id, .rows = decals_->PackCandidates(id)};
         packFilter_.Count(entry.rows);
@@ -1337,12 +1334,14 @@ void GroundPanelTab::IndexLibrary_() {
             }
             if (std::ranges::find(entry.packs, pack) == entry.packs.end()) {
                 entry.packs.push_back(pack);
-                entry.searchText += ' ' + Upper(packs[static_cast<size_t>(pack)].name);
+                entry.searchText += ' ' + packs[static_cast<size_t>(pack)].name;
             }
             if (file) {
-                entry.searchText += ' ' + Upper(*file);
+                entry.searchText += ' ' + *file;
             }
         }
+        entry.searchText = TextSearch::Normalize(entry.searchText);
+        textureSuggester_.Add(entry.searchText);
         library_.push_back(std::move(entry));
     }
 
@@ -1357,7 +1356,8 @@ const std::vector<uint32_t>& GroundPanelTab::ShownTextures_() {
     IndexLibrary_();
     const auto* favourites = favorites_ ? &favorites_->GetFavoriteDecalIds() : nullptr;
     const size_t favouriteCount = favourites ? favourites->size() : 0;
-    const std::string filter = Upper(textureFilter_);
+    const std::string filter = textureFilter_;
+    const TextSearch::Query query(filter);
     if (shownValid_ && filter == shownFilter_ && favouriteTexturesOnly_ == shownFavouritesOnly_ &&
         favouriteCount == shownFavouriteCount_ && packFilter_.Selected() == shownPack_) {
         return shownTextures_;
@@ -1374,7 +1374,7 @@ const std::vector<uint32_t>& GroundPanelTab::ShownTextures_() {
         if (!inPack ||
             (favouriteTexturesOnly_ && (!favourites || !favourites->contains(entry.id))) ||
             !kindFilter_.Allows(*decals_, entry.id) ||
-            (!filter.empty() && entry.searchText.find(filter) == std::string::npos)) {
+            !query.Matches(entry.searchText)) {
             continue;
         }
         shownTextures_.push_back(entry.id);
@@ -1449,6 +1449,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
     RenderPackFilter_();
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputTextWithHint("##filter", "Search name, pack or ID", textureFilter_, sizeof(textureFilter_));
+    PanelUi::Tooltip(PanelUi::kSearchHelp);
     ImGui::Checkbox("Favorites only", &favouriteTexturesOnly_);
     ImGui::SameLine();
     if (kindFilter_.Render(*decals_)) {
@@ -1463,6 +1464,9 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
             favouriteTexturesOnly_ = false;
             kindFilter_ = {};
             shownValid_ = false;
+        }
+        else if (const auto suggestion = textureSuggester_.Suggest(textureFilter_); suggestion && PanelUi::DidYouMean(*suggestion)) {
+            std::snprintf(textureFilter_, sizeof(textureFilter_), "%s", suggestion->c_str());
         }
         return;
     }

@@ -126,6 +126,7 @@ This tab combines built-in families from the cache with your own custom families
 Filters and top actions:
 
 - `Search family name...`
+- Pack list: families with at least one prop from a pack or file. Type to find a pack or a file in it
 - `Filter IID (0x...)`
 - `Favorites only`: only the families that you starred
 - `Clear filters`, next to the number of families shown
@@ -193,6 +194,7 @@ Collection types:
 Filters:
 
 - `Search collection name...`
+- Pack list: collections with at least one flora item from a pack or file. Type to find a pack or a file in it
 - `Filter IID (0x...)`
 - Type: `All types`, `Families`, `Multi-stage`
 - `Favorites only`
@@ -280,7 +282,7 @@ Stamp paints single texture decals on terrain and lot surfaces.
 Filters:
 
 - Pack list: textures from one pack or file. Type to find a pack or a file in it
-- `IID prefix...`: the start of a hex instance ID
+- `Search pack, file or ID`
 - Wealth and state
 - `Favorites only`
 - `Base` and `Overlay`: solid textures, and textures with transparent parts
@@ -305,6 +307,16 @@ Tools:
 
 - `Pick decal`: click a decal, or the base or overlay texture of a lot, to select it in the list
 - `Strip decals`: click a decal to remove it. Press `B` for brush mode and `Ctrl+Z` to undo a click or a whole brush stroke
+
+## Searching
+
+Every search box and pack list works the same way:
+
+- Words count in any order and any case: `aln bsc mega`
+- Punctuation does not count, and numbers match loosely: `vol 1` finds `Vol01`
+- Props, flora, buildings and textures also match on their IDs. Props, flora and textures also match on the pack and file they come from
+- Put a minus before a word to leave it out: `tree -winter`
+- If nothing matches and a word looks like a typo, a `Did you mean` button offers the corrected search
 
 ## Favorites
 
@@ -343,7 +355,7 @@ Common options:
 - `Also snap placements to grid`: snaps final placed props to the grid as well
 - `Grid step (m)`: grid size in meters. Dragging moves in 0.5 m steps, the buttons set 2, 4, 8 or 16 m, and Ctrl+click takes any value. The size you last chose is kept, also after a restart, and so are `Show grid overlay` and `Snap points to grid`: one set for props and prop families, one for flora and flora collections, one for decals and one for terrain paint
 - `Vertical offset (m)`: raises placed props and the preview above the terrain
-- `Preview`: `Outline only`, `Full model only`, or `Outline and model`
+- `Preview`: `Outline only`, `Full model only`, `Outline and model`, or `Hidden`
 
 Mode-specific options:
 
@@ -366,7 +378,7 @@ The paint options popup, shown here in polygon mode with density and density var
 
 ## How the paint tool works
 
-After you press `Start`, the paint tool takes over map input until you commit or cancel.
+After you press `Start`, the paint tool takes over map input until you stop it with `Esc` or `Stop painting`.
 
 In `Direct paint`, left-click places one prop at a time.
 
@@ -398,7 +410,7 @@ While paint mode is active:
 - `Ctrl+Z` or the back mouse button: undo the whole last pending placement group
 - `Ctrl+Backspace`: undo only the last prop in the current top group
 - `Enter`: place the current line or polygon batch, or commit pending placements
-- `Esc`: cancel the line or polygon being drawn; with none, cancel all pending placements and leave paint mode
+- `Esc`: clear the line or polygon being drawn; with none, keep what you placed and leave paint mode
 - Right-drag pans the camera as usual, also while drawing a line or polygon
 
 Flora-specific note:
@@ -416,9 +428,9 @@ While painting, a small status window also shows up to help you out and to mirro
 
 ## What "pending placements" means
 
-Painted props are first placed in a temporary highlighted state. They are visible immediately, but they are still considered pending until you commit them. While they are pending, you can undo them. Press `Enter` to commit everything currently pending, or press `Esc` to remove all pending placements instead.
+Painted props are first placed in a temporary highlighted state. They are visible immediately, and while they are pending you can undo them. Press `Enter` to commit everything currently pending. Press `Esc` or `Stop painting` to keep it all and stop painting, so undo first what you do not want.
 
-That means even in direct mode there are usually two stages: you click to place one or more props, then you press `Enter` when you are satisfied and want to make them final.
+That means even in direct mode you can click to place one or more props, undo the ones you do not want, then press `Enter` to go on or `Esc` to finish.
 
 ## Typical flows
 
@@ -438,7 +450,7 @@ That means even in direct mode there are usually two stages: you click to place 
 5. Press `Start`.
 6. Click to place props.
 7. Use `Ctrl+Z` or `Ctrl+Backspace` if needed.
-8. Press `Enter` to commit, or `Esc` to cancel.
+8. Press `Enter` to commit, or `Esc` to keep them and stop.
 
 **Paint a row of props**
 
@@ -447,7 +459,7 @@ That means even in direct mode there are usually two stages: you click to place 
 3. Press `Start`.
 4. Click each control point along the line.
 5. Press `Enter` to generate the placements.
-6. Press `Enter` again to commit them, or undo or cancel instead.
+6. Press `Enter` again to commit them, or undo instead.
 
 **Paint a filled area**
 
@@ -569,7 +581,7 @@ When painting or stripping, you do not need to stop and start over for small cor
 
 1. While painting, use `Ctrl+Z` to remove the most recent group, or `Ctrl+Backspace` to trim the last prop from that group.
 2. While stripping, use `Ctrl+Z` to restore the most recently removed city, lot, or street prop.
-3. Use `Esc` if you want to abandon the current paint batch or leave strip mode.
+3. Use `Esc` to stop painting or to leave strip mode. What you placed stays, so undo first what you do not want.
 
 This makes it practical to work iteratively instead of treating each pass as all-or-nothing.
 
@@ -591,4 +603,4 @@ Thumbnail color options accept `RRGGBB` or `RRGGBBAA`. Set either one to an empt
 
 ## Stopping paint mode
 
-Press `Esc` to cancel pending placements and leave paint mode immediately. If you reopen the panel while painting, the `Props`, `Prop Families`, `Flora`, and `Flora Collections` tabs also show a `Stop painting` button.
+Press `Esc` to keep what you placed and leave paint mode immediately. If you reopen the panel while painting, the `Props`, `Prop Families`, `Flora`, and `Flora Collections` tabs also show a `Stop painting` button.

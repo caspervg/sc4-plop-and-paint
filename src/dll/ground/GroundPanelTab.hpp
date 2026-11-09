@@ -125,6 +125,7 @@ private:
     TextureKindFilter kindFilter_{};
     std::vector<uint32_t> shownTextures_{};
     std::string shownFilter_{};
+    TextSearch::Suggester textureSuggester_{};
     bool shownFavouritesOnly_ = false;
     size_t shownFavouriteCount_ = 0;
     int32_t shownPack_ = 0;
