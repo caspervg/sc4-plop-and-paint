@@ -233,7 +233,8 @@ void PropPainterInputControl::UpdatePreviewOccupant_() {
     cursorPreview_.Show({{placement.itemId, placement.position, placement.rotation, valid, DirectFootprint_(placement)}},
                         ModelPreview::CurrentView(view3D));
     const bool hasModel = cursorPreview_.HasModel(placement.itemId);
-    cursorPreview_.SetArrow(ShowsDirectionArrow_(valid) && hasModel, placement.position, placement.rotation);
+    cursorPreview_.SetArrow(ShowsDirectionArrow_(valid) && hasModel, placement.position, placement.rotation,
+                            ItemSize_(placement.itemId));
     lastPreviewPosition_ = placement.position;
     lastPreviewRotation_ = placement.rotation;
     previewPositionValid_ = true;

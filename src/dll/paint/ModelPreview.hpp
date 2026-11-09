@@ -59,7 +59,7 @@ public:
     [[nodiscard]] bool HasModel(uint32_t typeID) const;
 
     // The game's lot direction arrow on the ground, turned like the item. Hide stops it too.
-    void SetArrow(bool visible, const cS3DVector3& position, int32_t rotation);
+    void SetArrow(bool visible, const cS3DVector3& position, int32_t rotation, float itemSizeMeters);
 
     // Draws models with pnp_preview_model from SC4PlopAndPaint.dat when the game has it. That
     // effect keeps the item's height. Set before the first Show.
