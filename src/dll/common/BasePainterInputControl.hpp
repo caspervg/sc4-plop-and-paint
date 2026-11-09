@@ -61,6 +61,8 @@ public:
     [[nodiscard]] bool HasPendingSketch() const;
     // The sketch was taken from painted ground, so it is complete.
     [[nodiscard]] bool HasGroundSketch() const { return sketchFromGround_; }
+    // Waiting for a click on painted ground.
+    [[nodiscard]] bool IsPickingGround() const { return settings_.pickFromGround && collectedPoints_.empty(); }
     [[nodiscard]] bool HasPendingCancel() const { return cancelPending_; }
     [[nodiscard]] bool HasPendingPlacements() const;
     [[nodiscard]] bool SupportsVerticalAdjustment() const;
@@ -233,6 +235,8 @@ private:
     void RebuildPreviewOverlay_();
     void ExecuteLinePlacement_();
     void ExecutePolygonPlacement_();
+    // Outlines the painted ground under the cursor, which a click would take.
+    void ShowGroundUnderCursor_();
     [[nodiscard]] std::vector<PlannedPaint> ComputePolygonPlacements_(const std::vector<cS3DVector3>& vertices,
                                                                       WeightedPicker* picker,
                                                                       uint32_t singleTypeID,

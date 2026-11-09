@@ -116,6 +116,9 @@ void PaintStatusPanel::OnRender() {
     if (settings.mode == PaintMode::Polygon) {
         ImGui::TextUnformatted(settings.polygonFill == PolygonFillStyle::Rows ? "Ctrl+-/+ step along row" : "Ctrl+-/+ variation");
     }
+    if (activeControl_->IsPickingGround()) {
+        ImGui::TextUnformatted("Click painted ground to choose it");
+    }
     if (activeControl_->HasGroundSketch()) {
         ImGui::TextUnformatted("Enter place  click start over");
     }

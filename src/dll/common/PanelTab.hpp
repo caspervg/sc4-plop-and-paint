@@ -103,15 +103,40 @@ protected:
     // startIndex: 0 when the controls start a line, or their place after the buttons on it.
     // The paint dialog's settings: what comes first is what changes the result most. itemsName is
     // what is placed, such as "props". heightControls: the items can be raised and lowered.
-    static void RenderPaintOptions_(PropPaintSettings& settings, const char* itemsName, const bool heightControls) {
+    void RenderPaintOptions_(PropPaintSettings& settings, const char* itemsName, const bool heightControls) const {
         ImGui::TextUnformatted("Mode");
-        int mode = static_cast<int>(settings.mode);
+        // Painted ground is a fill or a line like the others: only where the sketch comes from differs.
+        constexpr int kOnPaintedGround = 3;
+        if (settings.mode == PaintMode::Direct) {
+            settings.pickFromGround = false;
+        }
+        int mode = settings.pickFromGround ? kOnPaintedGround : static_cast<int>(settings.mode);
         ImGui::RadioButton("Direct paint", &mode, static_cast<int>(PaintMode::Direct));
-        ImGui::SameLine();
         ImGui::RadioButton("Paint along line", &mode, static_cast<int>(PaintMode::Line));
-        ImGui::SameLine();
         ImGui::RadioButton("Paint inside polygon", &mode, static_cast<int>(PaintMode::Polygon));
-        SetPaintMode(settings, static_cast<PaintMode>(mode));
+        const bool hasPaintedGround = director_ && director_->HasPaintedGround();
+        ImGui::BeginDisabled(!hasPaintedGround);
+        ImGui::RadioButton("Paint on painted ground", &mode, kOnPaintedGround);
+        ImGui::EndDisabled();
+        PanelUi::Tooltip(hasPaintedGround ? "Click ground that you painted to fill it, or to plant along its edge."
+                                          : "First paint some ground in the Terrain Paint tab.");
+        if (mode == kOnPaintedGround) {
+            if (settings.mode == PaintMode::Direct) {
+                SetPaintMode(settings, PaintMode::Polygon);
+            }
+            settings.pickFromGround = true;
+            ImGui::Indent();
+            int shape = static_cast<int>(settings.mode);
+            ImGui::RadioButton("Fill it", &shape, static_cast<int>(PaintMode::Polygon));
+            ImGui::SameLine();
+            ImGui::RadioButton("Along its edge", &shape, static_cast<int>(PaintMode::Line));
+            ImGui::Unindent();
+            SetPaintMode(settings, static_cast<PaintMode>(shape));
+        }
+        else {
+            settings.pickFromGround = false;
+            SetPaintMode(settings, static_cast<PaintMode>(mode));
+        }
 
         // Keeps the dialog the same width in every mode.
         char howTo[160];
@@ -129,6 +154,9 @@ protected:
         }
         else {
             std::snprintf(howTo, sizeof(howTo), "Click to place %s. Press Enter to keep the %s that you placed.", itemsName, itemsName);
+        }
+        if (settings.pickFromGround) {
+            std::snprintf(howTo, sizeof(howTo), "Click ground that you painted. Press Enter to place the %s. Click other painted ground to change your choice.", itemsName);
         }
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextUnformatted(howTo);

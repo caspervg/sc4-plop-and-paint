@@ -327,7 +327,7 @@ Painting can be started from the `Props` tab for a single fixed prop, from the `
 
 Common options:
 
-- `Mode`: `Direct paint`, `Paint along line`, or `Paint inside polygon`
+- `Mode`: `Direct paint`, `Paint along line`, `Paint inside polygon`, or `Paint on painted ground`. With the last one, choose `Fill it` or `Along its edge`, then click ground that you painted in the `Terrain Paint` tab and press Enter. The shape under the cursor is outlined before you click. The `F` key does the same in line and polygon mode
 - `Rotation`: fixed 0 / 90 / 180 / 270 degrees
 - `Show grid overlay`: shows the preview grid on the terrain
 - `Snap points to grid`: snaps the points you click to the grid

@@ -51,6 +51,8 @@ struct PropPaintSettings {
     std::vector<FamilyEntry> activePalette{};
     float densityVariation = 0.0f;
     bool placeFloraOverObjects = false;  // flora may stand on roads, lots and props
+    // Line or Polygon mode: a click takes the painted ground under it as the sketch.
+    bool pickFromGround = false;
     PolygonFillStyle polygonFill = PolygonFillStyle::Scatter;
     float edgeMarginMeters = 0.0f;
     float rowSpacingMeters = 6.0f;

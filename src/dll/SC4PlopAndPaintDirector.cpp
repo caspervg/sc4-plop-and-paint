@@ -1377,6 +1377,10 @@ float SC4PlopAndPaintDirector::GetDefaultGridStepMeters() const noexcept {
     return defaultGridStepMeters_;
 }
 
+bool SC4PlopAndPaintDirector::HasPaintedGround() const {
+    return groundDocument_ && !groundDocument_->Objects().empty();
+}
+
 PaintGridChoice SC4PlopAndPaintDirector::GetGridChoice(PaintGridChoice PaintGridChoices::* const kind) const {
     PaintGridChoice choice = favoritesRepository_ ? favoritesRepository_->GetGridChoices().*kind : PaintGridChoice{};
     choice.step = choice.step.value_or(defaultGridStepMeters_);
@@ -1976,6 +1980,7 @@ bool SC4PlopAndPaintDirector::PlantOnGround(const uint32_t objectId, const bool 
         prop ? static_cast<BasePainterInputControl*>(propPainterControl_) : floraPlacerControl_;
     PropPaintSettings settings = control ? control->GetSettings() : PropPaintSettings{};
     SetPaintMode(settings, along ? PaintMode::Line : PaintMode::Polygon);
+    settings.pickFromGround = false;
     ApplyGridChoice(prop ? &PaintGridChoices::props : &PaintGridChoices::flora, settings);
     settings.activePalette = entry.palette;
     settings.randomSeed = 0;

@@ -499,6 +499,16 @@ bool BasePainterInputControl::HandleActiveMouseDownL_(const int32_t x, const int
         if (!UpdateCursorWorldFromScreen_(x, z)) {
             return false;
         }
+        if (settings_.pickFromGround) {
+            // A click takes the painted ground under it. A click on bare ground does nothing.
+            if (groundShapeLookup_) {
+                if (const auto shape = groundShapeLookup_({currentCursorWorld_.fX, currentCursorWorld_.fZ},
+                                                          state_ == ControlState::ActiveLine)) {
+                    UseGroundShape(*shape);
+                }
+            }
+            return true;
+        }
         {
             const cS3DVector3 terrainPos = currentCursorWorld_;
             const float captureOffset = ShouldUseCustomSketchHeights_() ? settings_.sketchCaptureOffsetMeters : 0.0f;
@@ -586,8 +596,14 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
 
     if (vkCode == VK_BACK && (state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon)) {
         if (!collectedPoints_.empty()) {
-            collectedPoints_.pop_back();
-            DropFillMask_();
+            // A shape from painted ground goes as a whole: it has no points of its own to take back.
+            if (sketchFromGround_) {
+                ClearCollectedPoints_();
+            }
+            else {
+                collectedPoints_.pop_back();
+                DropFillMask_();
+            }
             if (state_ == ControlState::ActivePolygon) {
                 polygonPreviewDirty_ = true;
             }
@@ -1177,6 +1193,11 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
     std::vector<cS3DVector3> points = GetResolvedCollectedPoints();
     std::vector<cS3DVector3> terrainAnchors = GetCollectedPointTerrainAnchors();
 
+    if (IsPickingGround()) {
+        ShowGroundUnderCursor_();
+        return;
+    }
+
     std::vector<cS3DVector3> previewPoints = points;
     std::vector<cS3DVector3> previewTerrainAnchors = terrainAnchors;
     if (cursorValid_ && !sketchFromGround_) {
@@ -1295,6 +1316,33 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
                                  PaintOverlay::kPolygonFillColor,
                                  !sketchFromGround_);
     ShowPlannedModels_(showModels ? polygonPlacements : std::vector<PaintOverlay::PreviewPlacement>{});
+}
+
+void BasePainterInputControl::ShowGroundUnderCursor_() {
+    const bool along = state_ == ControlState::ActiveLine;
+    // ponytail: looks the shape up on every mouse move. Cache it by object if big shapes stutter.
+    const auto shape = cursorValid_ && groundShapeLookup_
+                           ? groundShapeLookup_({currentCursorWorld_.fX, currentCursorWorld_.fZ}, along)
+                           : std::nullopt;
+    std::vector<cS3DVector3> outline;
+    if (shape) {
+        cISTETerrain* const terrain = GetTerrain_();
+        outline.reserve(shape->points.size() + 1);
+        for (const Ground::Vec2 p : shape->points) {
+            outline.emplace_back(p.x, terrain ? SampleStableTerrainHeight(terrain, p.x, p.z) : 0.0f, p.z);
+        }
+        if (along && shape->closed && !outline.empty()) {
+            outline.push_back(outline.front());  // all the way round
+        }
+    }
+    if (along) {
+        overlay_.BuildLinePreview(outline, {}, currentCursorWorld_, currentCursorWorld_, cursorValid_, GetTerrain_(), settings_, {}, false);
+    }
+    else {
+        overlay_.BuildPolygonPreview(outline, {}, currentCursorWorld_, currentCursorWorld_, cursorValid_, GetTerrain_(), settings_, {},
+                                     PaintOverlay::kPolygonFillColor, false);
+    }
+    ShowPlannedModels_({});
 }
 
 size_t BasePainterInputControl::PendingPlacementCount_() const {

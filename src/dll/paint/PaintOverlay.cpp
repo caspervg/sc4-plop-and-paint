@@ -309,7 +309,7 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
         EmitScreenLine_({points.back(), cursorPos}, kPathWidthPx, kCursorColor, false, kLayerShape);
     }
 
-    for (const auto& pt : points) {
+    for (const auto& pt : followCursor ? points : std::vector<cS3DVector3>{}) {
         EmitMarker_(pt, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 
@@ -358,7 +358,7 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
         }
     }
 
-    for (const auto& vertex : vertices) {
+    for (const auto& vertex : followCursor ? vertices : std::vector<cS3DVector3>{}) {
         EmitMarker_(vertex, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 

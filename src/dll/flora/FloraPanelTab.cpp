@@ -511,74 +511,10 @@ void FloraPanelTab::RenderPaintModal_() {
     ImGui::Text("Flora: %s", pendingPaint_.name.c_str());
     ImGui::Separator();
 
-    ImGui::TextUnformatted("Mode");
-    int mode = static_cast<int>(pendingPaint_.settings.mode);
-    ImGui::RadioButton("Direct paint",        &mode, static_cast<int>(PaintMode::Direct));
-    ImGui::RadioButton("Paint along line",    &mode, static_cast<int>(PaintMode::Line));
-    ImGui::RadioButton("Paint inside polygon",&mode, static_cast<int>(PaintMode::Polygon));
-    SetPaintMode(pendingPaint_.settings, static_cast<PaintMode>(mode));
+    RenderPaintOptions_(pendingPaint_.settings, "flora", false);
 
     ImGui::Checkbox("Place on roads and lots", &pendingPaint_.settings.placeFloraOverObjects);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Flora can stand on roads, buildings, props and other flora.\n"
-                          "Flora does not go into water that it cannot grow in.");
-    }
-
-    ImGui::Separator();
-    ImGui::TextUnformatted("Rotation");
-    int rotation = pendingPaint_.settings.rotation & 3;
-    ImGui::RadioButton("0 deg", &rotation, 0);
-    ImGui::SameLine();
-    ImGui::RadioButton("90 deg", &rotation, 1);
-    ImGui::SameLine();
-    ImGui::RadioButton("180 deg", &rotation, 2);
-    ImGui::SameLine();
-    ImGui::RadioButton("270 deg", &rotation, 3);
-    pendingPaint_.settings.rotation = rotation;
-
-    ImGui::Separator();
-    ImGui::TextUnformatted("Grid");
-    ImGui::Checkbox("Show grid overlay", &pendingPaint_.settings.showGrid);
-    ImGui::Checkbox("Snap points to grid", &pendingPaint_.settings.snapPointsToGrid);
-    if (pendingPaint_.settings.snapPointsToGrid) {
-        ImGui::Checkbox("Also snap placements to grid", &pendingPaint_.settings.snapPlacementsToGrid);
-    }
-    else {
-        pendingPaint_.settings.snapPlacementsToGrid = false;
-        ImGui::BeginDisabled();
-        bool dummy = false;
-        ImGui::Checkbox("Also snap placements to grid", &dummy);
-        ImGui::EndDisabled();
-    }
-    RenderGridStepControl_(pendingPaint_.settings.gridStepMeters);
-    static constexpr const char* kPreviewModeLabels[] = {
-        "Outline only",
-        "Full flora only",
-        "Outline + full flora"
-    };
-    int previewMode = static_cast<int>(pendingPaint_.settings.previewMode);
-    ImGui::Combo("Direct preview", &previewMode, kPreviewModeLabels, IM_ARRAYSIZE(kPreviewModeLabels));
-    pendingPaint_.settings.previewMode = static_cast<PreviewMode>(previewMode);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("This setting also changes the line and polygon previews.");
-    }
-
-    if (pendingPaint_.settings.mode == PaintMode::Line) {
-        ImGui::Separator();
-        RenderSpacingControl_(pendingPaint_.settings.spacingMeters);
-        ImGui::Checkbox("Align to path direction", &pendingPaint_.settings.alignToPath);
-        ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
-        ImGui::SliderFloat("Lateral jitter (m)", &pendingPaint_.settings.randomOffset, 0.0f, 5.0f, "%.1f");
-        ImGui::TextWrapped("Click to add line points. Press Enter to place the flora. Press Backspace to remove the last point.");
-    }
-    else if (pendingPaint_.settings.mode == PaintMode::Polygon) {
-        ImGui::Separator();
-        RenderPolygonFillControls(pendingPaint_.settings);
-        ImGui::TextWrapped("Click to add polygon corners. Press Enter to fill the polygon with flora. Press Backspace to remove the last corner.");
-    }
-    else {
-        ImGui::TextWrapped("Click to place flora. Press Enter to keep the flora that you placed.");
-    }
+    PanelUi::Tooltip("Flora can stand on roads, buildings, props and other flora. Flora does not go into water that it cannot grow in.");
 
     if (ImGui::Button("Start")) {
         ReleaseImGuiInputCapture_();

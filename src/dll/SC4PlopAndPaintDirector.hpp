@@ -146,6 +146,8 @@ public:
     [[nodiscard]] float GetDefaultGridStepMeters() const noexcept;
     // The grid last chosen for this kind of painter, with the defaults from the INI file for what
     // was not chosen yet.
+    // Whether there is painted ground to fill or to plant along.
+    [[nodiscard]] bool HasPaintedGround() const;
     [[nodiscard]] PaintGridChoice GetGridChoice(PaintGridChoice PaintGridChoices::* kind) const;
     void ApplyGridChoice(PaintGridChoice PaintGridChoices::* kind, PropPaintSettings& settings) const;
     void SaveGridChoice(PaintGridChoice PaintGridChoices::* kind, const PaintGridChoice& choice);
