@@ -88,7 +88,8 @@ void BuildingsPanelTab::OnRender() {
     const float minimumBuildings = UI::iconRowHeight() * 3.0f + line;
     if (!selectedBuilding_) {
         RenderBuildingsTable_(std::max(available - line * 3.0f, minimumBuildings));
-        Hint("Select a building to see its lots. Double-click a building that has one lot to plop it.");
+        Hint("Select a building to see its lots. Double-click a building that has one lot to plop it. "
+             "While you plop, one click changes to it.");
         return;
     }
     const float lotRows = static_cast<float>(selectedBuilding_->lots.size()) + 1.5f;
@@ -274,6 +275,7 @@ void BuildingsPanelTab::RenderFilterUI_() {
 }
 
 void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
+    director_->IsLotPlopping();  // watches for the game's tool to take over after a plop starts
     constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
         ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
         ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_Sortable |
@@ -379,7 +381,7 @@ void BuildingsPanelTab::RenderBuildingRow_(const Building& building, const bool 
                           ImGuiSelectableFlags_AllowDoubleClick,
                           ImVec2(0, rowHeight))) {
         selectedBuilding_ = &building;
-        if (ImGui::IsMouseDoubleClicked(0) && building.lots.size() == 1) {
+        if ((ImGui::IsMouseDoubleClicked(0) || director_->IsLotPlopping()) && building.lots.size() == 1) {
             ReleaseImGuiInputCapture_();
             director_->TriggerLotPlop(building.lots[0].instanceId.value());
         }
@@ -434,11 +436,12 @@ void BuildingsPanelTab::RenderLotRow_(const Lot& lot) {
     ImGui::PushID(static_cast<int>(lot.instanceId.value()));
     ImGui::TableNextRow();
 
-    // Name — Selectable for full-row highlight and double-click to plop
+    // Name: a selectable for the full-row highlight. A double-click plops, or one click while plopping.
     ImGui::TableNextColumn();
     if (ImGui::Selectable(lot.name.c_str(), false,
                           ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap |
-                          ImGuiSelectableFlags_AllowDoubleClick) && ImGui::IsMouseDoubleClicked(0)) {
+                          ImGuiSelectableFlags_AllowDoubleClick) &&
+        (ImGui::IsMouseDoubleClicked(0) || director_->IsLotPlopping())) {
         ReleaseImGuiInputCapture_();
         director_->TriggerLotPlop(lot.instanceId.value());
     }

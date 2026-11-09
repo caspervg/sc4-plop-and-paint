@@ -84,7 +84,10 @@ public:
     bool OnInstall() override;
     bool DoMessage(cIGZMessage2* pMsg) override;
 
-    void TriggerLotPlop(uint32_t lotInstanceId) const;
+    void TriggerLotPlop(uint32_t lotInstanceId);
+    // Whether a plop started from the panel is still going on. Plopping is the game's own tool, so
+    // this follows the view control that took over after the plop started. Call it every frame.
+    bool IsLotPlopping();
     bool StartPropPainting(uint32_t propId, const PropPaintSettings& settings, const std::string& name,
                            const std::optional<RecentPaintSource>& source = std::nullopt);
     bool SwitchPropPaintingTarget(uint32_t propId, const std::string& name,
@@ -212,6 +215,10 @@ private:
     cIGZWorldDrawService* worldDrawService_ = nullptr;
     cRZAutoRefCount<cISC4City> pCity_;
     cISC4View3DWin* pView3D_ = nullptr;
+    // Only compared, never used: the game owns these controls.
+    const cISC4ViewInputControl* controlBeforePlop_ = nullptr;
+    const cISC4ViewInputControl* plopControl_ = nullptr;
+    int plopWatchFrames_ = 0;
     cRZAutoRefCount<cIGZMessageServer2> pMS2_;
 
     std::unique_ptr<LotRepository>       lotRepository_;

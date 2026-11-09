@@ -50,7 +50,7 @@ Important behavior:
 
 - Filtering is lot-based, but the list shows buildings. A building stays visible if any of its lots matches the current filters.
 - The upper table lists buildings. Single-click selects one.
-- Double-clicking a building row auto-plops only when that building has exactly one lot.
+- Double-clicking a building row auto-plops only when that building has exactly one lot. While you are plopping from this panel, one click does the same
 - The lower table shows the selected building's lots.
 
 Building styles and wall-to-wall buildings:
@@ -64,7 +64,7 @@ Building styles and wall-to-wall buildings:
 
 Lot actions:
 
-- Double-click a lot row to plop it
+- Double-click a lot row to plop it. While you are plopping from this panel, one click changes to that lot
 - Press `Plop` to plop it
 - Use `Star` / `Unstar` to manage lot favorites
 

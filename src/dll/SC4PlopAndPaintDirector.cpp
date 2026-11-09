@@ -556,11 +556,28 @@ bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     return true;
 }
 
-void SC4PlopAndPaintDirector::TriggerLotPlop(uint32_t lotInstanceId) const {
+bool SC4PlopAndPaintDirector::IsLotPlopping() {
+    const cISC4ViewInputControl* current = pView3D_ ? pView3D_->GetCurrentViewInputControl() : nullptr;
+    if (plopWatchFrames_ > 0) {
+        --plopWatchFrames_;
+        if (current != controlBeforePlop_) {
+            plopControl_ = current;
+            plopWatchFrames_ = 0;
+        }
+    }
+    return current != nullptr && current == plopControl_;
+}
+
+void SC4PlopAndPaintDirector::TriggerLotPlop(uint32_t lotInstanceId) {
     if (!pView3D_) {
         LOG_WARN("Cannot plop: View3D not available (city not loaded?)");
         return;
     }
+
+    // The game may take a moment to change tools.
+    constexpr int kPlopWatchFrames = 10;
+    controlBeforePlop_ = pView3D_->GetCurrentViewInputControl();
+    plopWatchFrames_ = kPlopWatchFrames;
 
     cIGZCommandServerPtr pCmdServer;
     if (!pCmdServer) {
