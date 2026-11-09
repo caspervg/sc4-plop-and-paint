@@ -1050,7 +1050,7 @@ void PropPanelTab::RenderRotationModal_() {
             ImGui::Checkbox("Also snap placements to grid", &snapPlacements);
             ImGui::EndDisabled();
         }
-        ImGui::SliderFloat("Grid step (m)", &pendingPaint_.settings.gridStepMeters, 1.0f, 16.0f, "%.1f");
+        RenderGridStepControl_(pendingPaint_.settings.gridStepMeters);
         if (pendingPaint_.settings.mode == PaintMode::Line || pendingPaint_.settings.mode == PaintMode::Polygon) {
             bool customNodeHeights = pendingPaint_.settings.sketchHeightMode == SketchHeightMode::Custom;
             if (ImGui::Checkbox("Custom node heights", &customNodeHeights)) {

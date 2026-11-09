@@ -542,7 +542,7 @@ void FloraPanelTab::RenderPaintModal_() {
         ImGui::Checkbox("Also snap placements to grid", &dummy);
         ImGui::EndDisabled();
     }
-    ImGui::SliderFloat("Grid step (m)", &pendingPaint_.settings.gridStepMeters, 1.0f, 16.0f, "%.1f");
+    RenderGridStepControl_(pendingPaint_.settings.gridStepMeters);
     static constexpr const char* kPreviewModeLabels[] = {
         "Outline only",
         "Full flora only",

@@ -328,13 +328,13 @@ Common options:
 - `Show grid overlay`: shows the preview grid on the terrain
 - `Snap points to grid`: snaps the points you click to the grid
 - `Also snap placements to grid`: snaps final placed props to the grid as well
-- `Grid step (m)`: grid size in meters
+- `Grid step (m)`: grid size in meters. Dragging moves in 0.5 m steps, the buttons set 2, 4, 8 or 16 m, and Ctrl+click takes any value
 - `Vertical offset (m)`: raises placed props and the preview above the terrain
 - `Direct preview`: `Outline only`, `Full prop only`, or `Outline + full prop`
 
 Mode-specific options:
 
-- Line mode: `Spacing (m)`, `Align to path direction`, `Random rotation`, and `Lateral jitter (m)`
+- Line mode: `Spacing (m)` (moves in 0.5 m steps, with the same buttons and Ctrl+click), `Align to path direction`, `Random rotation`, and `Lateral jitter (m)`
 - Polygon mode: `Density (/100 m^2)`, `Density variation`, and `Random rotation`
 
 Polygon notes:

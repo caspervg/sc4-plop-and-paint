@@ -1,8 +1,9 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <initializer_list>
 #include <optional>
-#include <utility>
 
 #include "../SC4PlopAndPaintDirector.hpp"
 #include "../favorites/FavoritesRepository.hpp"
@@ -55,31 +56,46 @@ protected:
         }
     }
 
-    // Dragging snaps to half meters. Ctrl+click still takes any value.
-    static void RenderSpacingControl_(float& spacingMeters) {
-        constexpr auto kLabel = "Spacing (m)";
-        constexpr float kDragStep = 0.5f;
-        static constexpr std::pair<const char*, float> kPresets[] = {
-            {"2##Spacing", 2.0f}, {"4##Spacing", 4.0f}, {"8##Spacing", 8.0f}, {"16##Spacing", 16.0f}};
+    // A row of small buttons that each set one value. Returns true when one was pressed.
+    static bool RenderPresetButtons_(const char* id, float& value, const std::initializer_list<float> presets) {
+        bool pressed = false;
+        ImGui::PushID(id);
+        for (const float preset : presets) {
+            char label[16];
+            std::snprintf(label, sizeof(label), "%g", preset);
+            if (ImGui::SmallButton(label)) {
+                value = preset;
+                pressed = true;
+            }
+            ImGui::SameLine();
+        }
+        ImGui::PopID();
+        ImGui::NewLine();
+        return pressed;
+    }
 
+    // Dragging snaps to the step. Ctrl+click still takes any value.
+    static void RenderSteppedSlider_(const char* label, float& value, const float min, const float max, const float step,
+                                     const std::initializer_list<float> presets) {
         // Read before the slider: it closes the text box in the frame that applies the typed value.
         // Not ImGui::TempInputIsActive, which is inline and reads GImGui. That symbol cannot be
         // imported from the delay-loaded SC4RenderServices.dll.
         const ImGuiContext& context = *ImGui::GetCurrentContext();
-        const ImGuiID id = ImGui::GetID(kLabel);
+        const ImGuiID id = ImGui::GetID(label);
         const bool typing = context.ActiveId == id && context.TempInputId == id;
-        if (ImGui::SliderFloat(kLabel, &spacingMeters, 0.5f, 50.0f, "%.1f") && !typing) {
-            spacingMeters = std::round(spacingMeters / kDragStep) * kDragStep;
+        if (ImGui::SliderFloat(label, &value, min, max, "%.1f") && !typing) {
+            value = std::round(value / step) * step;
         }
         ImGui::SetItemTooltip("Ctrl+click to type an exact value.");
+        RenderPresetButtons_(label, value, presets);
+    }
 
-        for (const auto& [label, meters] : kPresets) {
-            if (ImGui::SmallButton(label)) {
-                spacingMeters = meters;
-            }
-            ImGui::SameLine();
-        }
-        ImGui::NewLine();
+    static void RenderSpacingControl_(float& spacingMeters) {
+        RenderSteppedSlider_("Spacing (m)", spacingMeters, 0.5f, 50.0f, 0.5f, {2.0f, 4.0f, 8.0f, 16.0f});
+    }
+
+    static void RenderGridStepControl_(float& gridStepMeters) {
+        RenderSteppedSlider_("Grid step (m)", gridStepMeters, 1.0f, 16.0f, 0.5f, {2.0f, 4.0f, 8.0f, 16.0f});
     }
 
     void RenderPropStripperControls_() const {
