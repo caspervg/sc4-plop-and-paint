@@ -94,6 +94,8 @@ public:
     bool StartFloraPainting(uint32_t floraTypeId, const PropPaintSettings& settings, const std::string& name,
                             const std::optional<RecentPaintSource>& source = std::nullopt);
     void StopFloraPainting();
+    // While flora painting is on: paints this flora with the settings in use, without the dialog.
+    bool SwitchFloraPaintingTarget(uint32_t floraTypeId, const std::string& name);
     [[nodiscard]] bool IsFloraPainting() const;
     bool StartFloraStripping();
     void StopFloraStripping();

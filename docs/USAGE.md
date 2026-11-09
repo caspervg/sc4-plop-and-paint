@@ -167,8 +167,9 @@ Filters:
 
 Per-flora actions:
 
-- `Paint`: start painting that flora item
+- `Paint`: start painting that flora item, or switch the active paint tool to it if you are already painting
 - `Star` / `Unstar`: manage flora favorites
+- A click selects a row, a double-click paints that flora, and a right-click opens a menu with both actions
 
 Important behavior:
 

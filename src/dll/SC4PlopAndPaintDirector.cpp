@@ -717,6 +717,16 @@ bool SC4PlopAndPaintDirector::IsPropPainting() const {
     return propPainting_;
 }
 
+bool SC4PlopAndPaintDirector::SwitchFloraPaintingTarget(const uint32_t floraTypeId, const std::string& name) {
+    if (!floraPlacerControl_ || !IsFloraPainting() || !pView3D_ ||
+        pView3D_->GetCurrentViewInputControl() != floraPlacerControl_) {
+        return false;
+    }
+    PropPaintSettings settings = floraPlacerControl_->GetSettings();
+    settings.activePalette.clear();  // one flora item, not the collection painted before
+    return StartFloraPainting(floraTypeId, settings, name);
+}
+
 bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
                                                  const PropPaintSettings& settings,
                                                  const std::string& name,

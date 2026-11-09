@@ -295,19 +295,20 @@ protected:
         }
     }
 
-    void RenderFloraStripperControls_() const {
+    // startIndex: 0 when the controls start a line, or their place after the buttons on it.
+    void RenderFloraStripperControls_(const size_t startIndex = 0) const {
         if (!director_) {
             return;
         }
 
         if (director_->IsFloraStripping()) {
-            ImGui::SameLine();
+            PanelUi::NextInRow(startIndex, PanelUi::ButtonWidth("Stop stripping"), PanelUi::kGroupGap);
             if (ImGui::SmallButton("Stop stripping")) {
                 director_->StopFloraStripping();
             }
         }
         else {
-            ImGui::SameLine();
+            PanelUi::NextInRow(startIndex, PanelUi::ButtonWidth("Strip flora"), PanelUi::kGroupGap);
             if (ImGui::SmallButton("Strip flora")) {
                 ReleaseImGuiInputCapture_();
                 director_->StartFloraStripping();
