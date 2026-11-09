@@ -327,7 +327,8 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
                                            const bool cursorValid,
                                            cISTETerrain* terrain,
                                            const PropPaintSettings& settings,
-                                           const std::vector<PreviewPlacement>& plannedPlacements) {
+                                           const std::vector<PreviewPlacement>& plannedPlacements,
+                                           const uint32_t fillColor) {
     ClearLayers_();
 
     if (cursorValid) {
@@ -351,7 +352,7 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
             return !NeedsOutline(placement, settings, terrain);
         });
         if (!hasFootprints) {
-            EmitFilledPolygon_(vertices, kPolygonFillColor, kLayerShape);
+            EmitFilledPolygon_(vertices, fillColor, kLayerShape);
         }
     }
 

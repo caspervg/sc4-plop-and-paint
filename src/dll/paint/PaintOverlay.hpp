@@ -102,7 +102,8 @@ public:
                              bool cursorValid,
                              cISTETerrain* terrain,
                              const PropPaintSettings& settings,
-                             const std::vector<PreviewPlacement>& plannedPlacements);
+                             const std::vector<PreviewPlacement>& plannedPlacements,
+                             uint32_t fillColor = kPolygonFillColor);
 
     // The ground paint tool: guide paths, anchor markers, and a ring of ringRadius around the
     // cursor (0 for none).

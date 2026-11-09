@@ -93,9 +93,11 @@ Strip mode:
 - `Stop stripping`: exits strip mode from the tab
 - If no source checkbox is enabled, `Strip props` is disabled
 - In strip mode, move the cursor over a prop within the preview radius and left-click to delete it
-- Press `B` to toggle brush mode and hold the left mouse button to strip everything inside the preview radius
-- `Ctrl+Z` restores the most recently removed city, lot, or street prop
-- `Esc` exits strip mode; right-drag pans the camera as usual
+- Press `B` to change between single, brush and polygon mode. The tab shows the current mode
+- In brush mode, hold the left mouse button to strip everything inside the preview radius
+- In polygon mode, click the corners of an area. Props with their origin inside the area are highlighted. Press `Enter` to remove them, or `Backspace` to remove the last corner. The tab shows how many props are selected. At most 512 are highlighted, but all of them are removed
+- `Ctrl+Z` restores the most recently removed city, lot, or street prop. In polygon mode it restores the whole area
+- `Esc` clears the polygon, and otherwise exits strip mode. Right-drag pans the camera as usual
 
 ![Props tab](images/props-cropped.jpg)
 

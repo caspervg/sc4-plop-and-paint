@@ -1272,6 +1272,10 @@ uint32_t SC4PlopAndPaintDirector::GetPropStripperSources() const {
     return propStripperControl_->GetEnabledSources();
 }
 
+std::string SC4PlopAndPaintDirector::GetPropStripperStatus() const {
+    return propStripperControl_ ? propStripperControl_->GetStatusText() : std::string{};
+}
+
 BasePainterInputControl* SC4PlopAndPaintDirector::GetActivePainterControl() const {
     if (!pView3D_) {
         return nullptr;

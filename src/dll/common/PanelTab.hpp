@@ -119,6 +119,8 @@ protected:
             if (ImGui::SmallButton("Stop stripping")) {
                 director_->StopPropStripping();
             }
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", director_->GetPropStripperStatus().c_str());
         }
         else {
             ImGui::SameLine();
@@ -135,7 +137,7 @@ protected:
             }
             if (ImGui::IsItemHovered()) {
                 if (hasAnySource) {
-                    ImGui::SetTooltip("Click props to remove them one by one.\nPress B to toggle brush mode.\nHold left mouse in brush mode to strip within the preview radius.\nCtrl+Z restores removed city, lot, and street props.\nESC stops stripping.");
+                    ImGui::SetTooltip("Click a prop to remove it.\nPress B to change between single, brush and polygon mode.\nIn brush mode, hold the left mouse button to remove all props in the circle.\nIn polygon mode, click the corners of an area, then press Enter to remove the props in it.\nPress Backspace to remove the last corner.\nPress Ctrl+Z to put back city, lot and street props.\nPress Esc to clear the polygon or to stop.");
                 }
                 else {
                     ImGui::SetTooltip("Enable at least one prop source to start stripping.");

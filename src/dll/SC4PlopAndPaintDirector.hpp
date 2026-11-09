@@ -131,6 +131,7 @@ public:
     [[nodiscard]] bool IsPropStripping() const;
     void SetPropStripperSources(uint32_t sourceFlags);
     [[nodiscard]] uint32_t GetPropStripperSources() const;
+    [[nodiscard]] std::string GetPropStripperStatus() const;
     [[nodiscard]] BasePainterInputControl* GetActivePainterControl() const;
     [[nodiscard]] const RecentPaintHistory& GetRecentPaintHistory() const;
     bool ActivateRecentPaint(size_t index);
