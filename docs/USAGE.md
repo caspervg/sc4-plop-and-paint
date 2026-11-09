@@ -225,7 +225,8 @@ Tools (pick one to start, `Stop` or Esc to end):
 
 `Paint with`: `Copy look` (or Alt+click in the city) takes the colour or textures and finish from something already painted.
 
-- `Palettes`: named sets of colours and textures that you use together. They are the same in all your cities. `New` makes a palette and `Add this look` adds the colour or the textures that you paint with now. Click a tile to paint with it, or right-click a tile to remove it. `Mix all` paints with all textures of the palette as a mix.
+- `Palettes`: named sets of colours and textures that you use together. They are the same in all your cities. `Add this look` adds the colour or the textures that you paint with now. `...` makes a new palette, or renames or deletes this one. Click a tile to paint with it, or right-click a tile to remove it. `Mix all` paints with all textures of the palette as a mix.
+- A mix shows as a row of tiles with the share of each. Click a tile to change its share or remove it. With soft patches, `Make base` chooses the texture that covers the shape.
 - `Colour`, or `Texture`: pick ground textures from the library below it.
   - Click a texture to paint with it. Ctrl+click adds it to a mix, or takes it out again. In a mix, each 16 m square of ground takes one of the textures, by its share, for natural variation.
   - Right-click a texture to make it a favourite; `Favourites only` shows just those. They are the same favourites as in `Stamp`.

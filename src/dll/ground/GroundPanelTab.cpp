@@ -1,6 +1,7 @@
 #include "GroundPanelTab.hpp"
 
 #include <algorithm>
+#include <cfloat>
 #include <chrono>
 #include <cctype>
 #include <numbers>
@@ -27,6 +28,7 @@ using PanelUi::Tooltip;
 namespace {
     constexpr float kThumbSize = 40.0f;
     constexpr float kPickerThumbSize = 56.0f;
+    constexpr float kPaletteTileSize = 32.0f;
     constexpr ImVec4 kAttentionColor(1.0f, 0.85f, 0.3f, 1.0f);
 
     struct ToolInfo {
@@ -688,10 +690,10 @@ void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bo
 void GroundPanelTab::RenderGrid_() {
     ImGui::PushID("grid");
     ImGui::SeparatorText("Grid and snapping");
-    bool changed = false;
-    changed |= ImGui::Checkbox("Show grid", &settings_.showGrid);
     const bool wasShown = settings_.showGrid;
     const bool wasSnapping = settings_.snapPointsToGrid;
+    bool changed = false;
+    changed |= ImGui::Checkbox("Show grid", &settings_.showGrid);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Show the grid (G).");
     }
@@ -894,7 +896,8 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
                 look.mix = static_cast<TextureMix>(mix);
                 committed = true;
             }
-            Tooltip("With soft patches, the first texture covers the shape.\n"
+            Tooltip("Choose soft patches for a smooth change from one texture to the next.\n"
+                    "With soft patches, the first texture covers the shape.\n"
                     "The other textures show on top in natural patches.\n"
                     "The share of each texture sets its area.");
             if (patches) {
@@ -922,21 +925,8 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     std::vector<PaintPalette>& palettes = favorites_->GetPaintPalettes();
     activePalette_ = palettes.empty() ? 0 : std::min(activePalette_, palettes.size() - 1);
 
-    const float buttonGap = ImGui::GetStyle().ItemSpacing.x;
-    ImGui::SetNextItemWidth(-(PanelUi::ButtonWidth("New") + PanelUi::ButtonWidth("Delete") + buttonGap * 2.0f));
-    if (ImGui::BeginCombo("##palette", palettes.empty() ? "No palettes yet" : palettes[activePalette_].name.c_str())) {
-        for (size_t i = 0; i < palettes.size(); ++i) {
-            ImGui::PushID(static_cast<int>(i));
-            if (ImGui::Selectable(palettes[i].name.c_str(), i == activePalette_)) {
-                activePalette_ = i;
-            }
-            ImGui::PopID();
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("New")) {
-        // Not a name that is already there: deleting palettes leaves gaps in the numbers.
+    // Not a name that is already there: deleting palettes leaves gaps in the numbers.
+    const auto makePalette = [&] {
         std::string newName;
         for (size_t number = palettes.size() + 1;; ++number) {
             newName = "Palette " + std::to_string(number);
@@ -947,33 +937,35 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
         palettes.push_back({.name = std::move(newName)});
         activePalette_ = palettes.size() - 1;
         favorites_->Save();
+    };
+
+    // One line: choose a palette and use it. What is done less often is behind "...".
+    const float buttonGap = ImGui::GetStyle().ItemSpacing.x;
+    const float buttonsWidth = palettes.empty()
+        ? PanelUi::ButtonWidth("New") + buttonGap
+        : PanelUi::ButtonWidth("Add this look") + PanelUi::ButtonWidth("Mix all") + PanelUi::ButtonWidth("...") + buttonGap * 3.0f;
+    ImGui::SetNextItemWidth(-buttonsWidth);
+    if (ImGui::BeginCombo("##palette", palettes.empty() ? "No palettes yet" : palettes[activePalette_].name.c_str())) {
+        for (size_t i = 0; i < palettes.size(); ++i) {
+            ImGui::PushID(static_cast<int>(i));
+            if (ImGui::Selectable(palettes[i].name.c_str(), i == activePalette_)) {
+                activePalette_ = i;
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
     }
-    Tooltip("Make a palette. Palettes are the same in all your cities.");
     if (palettes.empty()) {
-        ImGui::PopID();
-        return;
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Delete")) {
-        ImGui::OpenPopup("deletePalette");
-    }
-    if (PanelUi::ConfirmDeletePopup("deletePalette", palettes[activePalette_].name.c_str())) {
-        palettes.erase(palettes.begin() + static_cast<std::ptrdiff_t>(activePalette_));
-        favorites_->Save();
+        ImGui::SameLine();
+        if (ImGui::SmallButton("New")) {
+            makePalette();
+        }
+        Tooltip("Make a palette. Palettes are the same in all your cities.");
         ImGui::PopID();
         return;
     }
 
     PaintPalette& palette = palettes[activePalette_];
-    char name[64];
-    std::snprintf(name, sizeof(name), "%s", palette.name.c_str());
-    ImGui::SetNextItemWidth(-(PanelUi::ButtonWidth("Add this look") + PanelUi::ButtonWidth("Mix all") + buttonGap * 2.0f));
-    if (ImGui::InputText("##paletteName", name, sizeof(name)) && name[0] != 0) {
-        palette.name = name;
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        favorites_->Save();
-    }
     ImGui::SameLine();
     // Texture is chosen but no texture is picked yet: there is nothing to add.
     const bool nothingToAdd = look.textures.empty() && state.wantsTexture;
@@ -993,28 +985,66 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     }
     ImGui::EndDisabled();
     Tooltip(nothingToAdd ? "First pick a texture." : "Add the colour or the textures that you paint with now to this palette.");
-    if (palette.textures.size() >= 2) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Mix all")) {
-            if (look.textures.empty()) {
-                state.plainColour = look.color;
-                look.color = {1.0f, 1.0f, 1.0f};
-            }
-            look.textures.clear();
-            for (const PaintPaletteTexture& entry : palette.textures) {
-                if (look.textures.size() < kTerrainPaintMaxTextures) {
-                    look.textures.push_back(TextureChoice{entry.instanceId.value(), entry.weight});
-                }
-            }
-            state.wantsTexture = true;
-            committed = true;
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(palette.textures.size() < 2);
+    if (ImGui::SmallButton("Mix all")) {
+        if (look.textures.empty()) {
+            state.plainColour = look.color;
+            look.color = {1.0f, 1.0f, 1.0f};
         }
-        Tooltip("Paint with all textures of this palette as a mix, up to 8 textures.");
+        look.textures.clear();
+        for (const PaintPaletteTexture& entry : palette.textures) {
+            if (look.textures.size() < kTerrainPaintMaxTextures) {
+                look.textures.push_back(TextureChoice{entry.instanceId.value(), entry.weight});
+            }
+        }
+        chosenTexture_ = 0;
+        state.wantsTexture = true;
+        committed = true;
+    }
+    ImGui::EndDisabled();
+    Tooltip(palette.textures.size() < 2 ? "This palette needs two or more textures."
+                                        : "Paint with all textures of this palette as a mix, up to 8 textures.");
+
+    ImGui::SameLine();
+    if (ImGui::SmallButton("...")) {
+        ImGui::OpenPopup("paletteMenu");
+    }
+    Tooltip("Make a palette, or rename or delete this one.");
+    bool newRequested = false;
+    bool deleteConfirmed = false;
+    if (ImGui::BeginPopup("paletteMenu")) {
+        newRequested = ImGui::Selectable("New palette");
+        ImGui::Separator();
+        char name[64];
+        std::snprintf(name, sizeof(name), "%s", palette.name.c_str());
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        if (ImGui::InputText("##paletteName", name, sizeof(name)) && name[0] != 0) {
+            palette.name = name;
+            favorites_->Save();
+        }
+        Tooltip("The name of this palette. Click to change it.");
+        if (ImGui::SmallButton("Delete this palette")) {
+            ImGui::OpenPopup("deletePalette");
+        }
+        deleteConfirmed = PanelUi::ConfirmDeletePopup("deletePalette", palette.name.c_str());
+        if (deleteConfirmed) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     if (palette.colours.empty() && palette.textures.empty()) {
         Hint("This palette is empty. Choose a colour or a texture, then click Add this look.");
     }
+
+    // At most two rows of tiles, which scroll: a big palette does not push the rest down.
+    const ImGuiStyle& tileStyle = ImGui::GetStyle();
+    const float tileHeight = kPaletteTileSize + tileStyle.FramePadding.y * 2.0f + tileStyle.ItemSpacing.y;
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, tileHeight * 2.0f));
+    const bool hasTiles = !palette.colours.empty() || !palette.textures.empty();
+    const bool tilesOpen = hasTiles && ImGui::BeginChild("##paletteTiles", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY);
 
     // Tiles on one line until they reach the side of the panel.
     float tileRight = 0.0f;
@@ -1027,7 +1057,7 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     };
 
     std::optional<size_t> removeColour;
-    for (size_t i = 0; i < palette.colours.size(); ++i) {
+    for (size_t i = 0; tilesOpen && i < palette.colours.size(); ++i) {
         const std::array<float, 3> colour = palette.colours[i];
         ImGui::PushID(static_cast<int>(i));
         nextTile(22.0f);
@@ -1051,12 +1081,12 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     }
 
     std::optional<size_t> removeTexture;
-    for (size_t i = 0; i < palette.textures.size(); ++i) {
+    for (size_t i = 0; tilesOpen && i < palette.textures.size(); ++i) {
         const uint32_t id = palette.textures[i].instanceId.value();
         ImGui::PushID(static_cast<int>(id));
         const bool inUse = std::ranges::find(look.textures, id, &TextureChoice::instance) != look.textures.end();
-        nextTile(kThumbSize + ImGui::GetStyle().FramePadding.x * 2.0f);
-        if (TextureTile_(id, kThumbSize, inUse)) {
+        nextTile(kPaletteTileSize + ImGui::GetStyle().FramePadding.x * 2.0f);
+        if (TextureTile_(id, kPaletteTileSize, inUse)) {
             if (look.textures.empty()) {
                 state.plainColour = look.color;
                 look.color = {1.0f, 1.0f, 1.0f};
@@ -1076,6 +1106,10 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
         ImGui::PopID();
     }
 
+    if (hasTiles) {
+        ImGui::EndChild();
+    }
+
     if (removeColour) {
         palette.colours.erase(palette.colours.begin() + static_cast<std::ptrdiff_t>(*removeColour));
         favorites_->Save();
@@ -1083,6 +1117,13 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     if (removeTexture) {
         palette.textures.erase(palette.textures.begin() + static_cast<std::ptrdiff_t>(*removeTexture));
         favorites_->Save();
+    }
+    if (deleteConfirmed) {
+        palettes.erase(palettes.begin() + static_cast<std::ptrdiff_t>(activePalette_));
+        favorites_->Save();
+    }
+    if (newRequested) {
+        makePalette();
     }
     ImGui::PopID();
 }
@@ -1124,45 +1165,101 @@ void GroundPanelTab::RenderChosenTextures_(Look& look, bool& changed, bool& comm
         ImGui::TextColored(kAttentionColor, "Pick a texture below.");
         return;
     }
-    if (look.textures.size() > 1) {
-        ImGui::TextWrapped(look.mix == TextureMix::Patches
-                               ? "A mix: the first covers the shape, the others lie on it in patches, by their share."
-                               : "A mix: each 16 m square of ground takes one of these, by its share.");
-    }
+    const bool mixed = look.textures.size() > 1;
+    const bool patches = mixed && look.mix == TextureMix::Patches;
+    chosenTexture_ = std::min(chosenTexture_, look.textures.size() - 1);
 
     float total = 0.0f;
     for (const TextureChoice& choice : look.textures) {
         total += std::max(0.0f, choice.weight);
     }
+    const auto shareOf = [&](const TextureChoice& choice) {
+        return total > 0.0f ? 100.0f * std::max(0.0f, choice.weight) / total : 0.0f;
+    };
+    const auto nameOf = [&](const TextureChoice& choice) {
+        const std::string* file = decals_ ? decals_->OriginalFile(choice.instance) : nullptr;
+        char id[16];
+        std::snprintf(id, sizeof(id), "0x%08X", choice.instance);
+        return file ? *file : std::string(id);
+    };
+    // A small label on the corner of the tile drawn last.
+    const auto tileLabel = [](const char* text, const bool bottomRight) {
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        const ImVec2 size = ImGui::CalcTextSize(text);
+        const ImVec2 at = bottomRight ? ImVec2(max.x - size.x - 3.0f, max.y - size.y - 2.0f) : ImVec2(min.x + 3.0f, min.y + 2.0f);
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(ImVec2(at.x - 2.0f, at.y - 1.0f), ImVec2(at.x + size.x + 2.0f, at.y + size.y + 1.0f),
+                            IM_COL32(0, 0, 0, 190), 2.0f);
+        draw->AddText(at, IM_COL32(255, 255, 255, 255), text);
+    };
+
+    // A strip of tiles, and the details of one: the same height however many textures are mixed.
+    std::optional<size_t> removed;
+    const float tileWidth = kThumbSize + ImGui::GetStyle().FramePadding.x * 2.0f;
     for (size_t i = 0; i < look.textures.size(); ++i) {
+        const TextureChoice& choice = look.textures[i];
         ImGui::PushID(static_cast<int>(i));
-        TextureChoice& choice = look.textures[i];
-        TextureTile_(choice.instance, kThumbSize, false);
+        NextInRow(i, tileWidth);
+        if (TextureTile_(choice.instance, kThumbSize, mixed && i == chosenTexture_)) {
+            chosenTexture_ = i;
+        }
+        if (mixed) {
+            char share[8];
+            std::snprintf(share, sizeof(share), "%.0f%%", shareOf(choice));
+            tileLabel(share, true);
+        }
+        if (patches && i == 0) {
+            tileLabel("Base", false);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s\n%s", nameOf(choice).c_str(), mixed ? "Click to change its share. Right-click to remove it." : "Right-click to remove it.");
+        }
+        if (ImGui::BeginPopupContextItem("chosenMenu")) {
+            if (ImGui::MenuItem("Remove")) {
+                removed = i;
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+
+    TextureChoice& chosen = look.textures[chosenTexture_];
+    if (mixed) {
+        ImGui::TextUnformatted(nameOf(chosen).c_str());
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+        ImGui::DragFloat("##share", &chosen.weight, 0.05f, 0.0f, 100.0f, "Share %.2f");
+        Track(changed, committed);
+        ImGui::SameLine();
+        ImGui::Text("%.0f%%", shareOf(chosen));
+    }
+    else {
         ImGui::SameLine();
         ImGui::BeginGroup();
-        if (const std::string* file = decals_ ? decals_->OriginalFile(choice.instance) : nullptr) {
-            ImGui::TextUnformatted(file->c_str());
-            ImGui::TextDisabled("%s  0x%08X", decals_->PackOf(choice.instance)->name.c_str(), choice.instance);
-        }
-        else {
-            ImGui::Text("0x%08X", choice.instance);
-        }
-        if (look.textures.size() > 1) {
-            ImGui::SetNextItemWidth(90.0f);
-            ImGui::DragFloat("##share", &choice.weight, 0.05f, 0.0f, 100.0f, "share %.2f");
-            Track(changed, committed);
-            ImGui::SameLine();
-            ImGui::Text("%.0f%%", total > 0.0f ? 100.0f * std::max(0.0f, choice.weight) / total : 0.0f);
-            ImGui::SameLine();
-        }
-        const bool remove = ImGui::SmallButton("Remove");
+        ImGui::TextUnformatted(nameOf(chosen).c_str());
+    }
+    if (mixed) {
+        ImGui::SameLine();
+    }
+    if (ImGui::SmallButton("Remove")) {
+        removed = chosenTexture_;
+    }
+    if (!mixed) {
         ImGui::EndGroup();
-        ImGui::PopID();
-        if (remove) {
-            look.textures.erase(look.textures.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+    if (patches && chosenTexture_ > 0) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Make base")) {
+            std::rotate(look.textures.begin(), look.textures.begin() + static_cast<std::ptrdiff_t>(chosenTexture_),
+                        look.textures.begin() + static_cast<std::ptrdiff_t>(chosenTexture_) + 1);
+            chosenTexture_ = 0;
             committed = true;
-            break;
         }
+        Tooltip("The base texture covers the whole shape. The other textures lie on it in patches.");
+    }
+    if (removed) {
+        look.textures.erase(look.textures.begin() + static_cast<std::ptrdiff_t>(*removed));
+        committed = true;
     }
 }
 
