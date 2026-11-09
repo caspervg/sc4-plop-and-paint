@@ -33,6 +33,7 @@ public:
 private:
     const PackCatalogRepository* catalog_ = nullptr;
     int32_t selected_ = kAllPacks;
+    char search_[64]{};
     // By pack index; the last entry counts the items not in the catalog.
     std::vector<uint32_t> counts_{};
     size_t total_ = 0;

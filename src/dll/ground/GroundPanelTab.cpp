@@ -14,6 +14,7 @@
 
 #include "../decals/DecalTextureLoader.hpp"
 #include "../packs/PackCatalogRepository.hpp"
+#include "../packs/PackComboList.hpp"
 #include "../SC4PlopAndPaintDirector.hpp"
 #include "public/cIGZTerrainPaintService.h"
 #include "GroundPainterInputControl.hpp"
@@ -1418,23 +1419,7 @@ void GroundPanelTab::RenderPackFilter_() {
     if (!ImGui::BeginCombo("##pack", label(packFilter_).c_str(), ImGuiComboFlags_HeightLarge)) {
         return;
     }
-    const auto option = [&](const int32_t pack) {
-        if (ImGui::Selectable(label(pack).c_str(), packFilter_ == pack)) {
-            packFilter_ = pack;
-        }
-        if (pack >= 0 && ImGui::IsItemHovered()) {
-            const TexturePack& info = packs[static_cast<size_t>(pack)];
-            ImGui::SetTooltip("%s\n%s%s%s", info.author.c_str(), info.package.c_str(), info.package.empty() ? "" : "\n",
-                              info.url.c_str());
-        }
-    };
-    option(kAllPacks);
-    for (const int32_t pack : packsByName_) {
-        option(pack);
-    }
-    if (unknown > 0) {
-        option(kNoPack);
-    }
+    PackComboList(packSearch_, packs, packsByName_, unknown > 0, kAllPacks, kNoPack, packFilter_, label);
     ImGui::EndCombo();
 }
 

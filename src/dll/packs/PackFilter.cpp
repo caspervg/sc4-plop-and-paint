@@ -1,4 +1,5 @@
 #include "PackFilter.hpp"
+#include "PackComboList.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -70,24 +71,7 @@ bool PackFilter::Render(const char* const id, const char* const itemsName) {
         }
         return false;
     }
-    const auto option = [&](const int32_t pack) {
-        if (ImGui::Selectable(label(pack).c_str(), selected_ == pack)) {
-            changed = selected_ != pack;
-            selected_ = pack;
-        }
-        if (pack >= 0 && ImGui::IsItemHovered()) {
-            const TexturePack& info = packs[static_cast<size_t>(pack)];
-            ImGui::SetTooltip("%s\n%s%s%s", info.author.c_str(), info.package.c_str(), info.package.empty() ? "" : "\n",
-                              info.url.c_str());
-        }
-    };
-    option(kAllPacks);
-    for (const int32_t pack : byName_) {
-        option(pack);
-    }
-    if (counts_.back() > 0) {
-        option(kNoPack);
-    }
+    changed = PackComboList(search_, packs, byName_, counts_.back() > 0, kAllPacks, kNoPack, selected_, label);
     ImGui::EndCombo();
     return changed;
 }

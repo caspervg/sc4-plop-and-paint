@@ -132,6 +132,7 @@ private:
     static constexpr int32_t kAllPacks = -2;
     static constexpr int32_t kNoPack = -1;
     int32_t packFilter_ = kAllPacks;
+    char packSearch_[64]{};
     struct LibraryEntry {
         uint32_t id = 0;
         // Every pack that ships it; none when the catalog does not know it.

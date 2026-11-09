@@ -161,6 +161,7 @@ This tab is for individual flora items.
 Filters:
 
 - `Search flora...`: also matches the pack a flora item comes from
+- In every pack list you can type to find a pack. Enter takes the first match
 - The pack list: shows only the flora of one pack, as the [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) knows them (from `packs.cbor`). An item in several packs shows under each of them
 - `Favorites only`
 - `Clear filters`
