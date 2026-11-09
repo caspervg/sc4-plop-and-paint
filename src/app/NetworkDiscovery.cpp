@@ -130,8 +130,9 @@ namespace {
         return nullptr;
     }
 
-    // A tile's rotation and flip after the whole piece turns by a number of quarter turns. A flipped
-    // tile counts its rotation the other way round.
+    // A tile's rotation and flip after the whole piece turns by a number of quarter turns. Rotation 0
+    // heads south and each step turns clockwise: south, west, north, east. A flipped tile counts
+    // its rotation the other way round.
     constexpr uint32_t Turn(const uint32_t rotFlip, const uint32_t quarterTurns) {
         return (rotFlip + (1 | (rotFlip >> 6)) * (quarterTurns & 3)) & 0x83;
     }
@@ -185,7 +186,7 @@ namespace {
             int32_t x = cell.x - middle.x;
             int32_t z = cell.z - middle.z;
             for (uint32_t i = 0; i < turns; ++i) {
-                std::tie(x, z) = std::pair{z, -x};  // a quarter turn that takes south to east
+                std::tie(x, z) = std::pair{-z, x};  // a quarter turn clockwise, as tile rotations count
             }
             if (z != 0 || spreading.at(cell.rule->textureId) != starter.base) {
                 return std::nullopt;  // not side by side
