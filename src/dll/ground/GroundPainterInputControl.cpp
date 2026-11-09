@@ -656,6 +656,9 @@ bool GroundPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
             const std::ptrdiff_t index = std::clamp<std::ptrdiff_t>(
                 (nearest - std::begin(kSteps)) + (vkCode == VK_OEM_6 ? 1 : -1), 0, std::size(kSteps) - 1);
             settings_.gridStepMeters = kSteps[index];
+            if (onGridStepChanged_) {
+                onGridStepChanged_(settings_.gridStepMeters);
+            }
             RefreshPreview_();
             return true;
         }

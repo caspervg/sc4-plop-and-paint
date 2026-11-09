@@ -369,6 +369,7 @@ void FloraCollectionsPanelTab::RenderSelectedCollectionPanel_(const std::vector<
 
 void FloraCollectionsPanelTab::RenderPaintModal_() {
     if (pendingPaint_.open) {
+        pendingPaint_.settings.gridStepMeters = director_->GetGridStepMeters(&PaintGridSteps::flora);
         ImGui::OpenPopup("Flora Collection Paint Options");
         pendingPaint_.open = false;
     }
@@ -449,6 +450,7 @@ void FloraCollectionsPanelTab::RenderPaintModal_() {
 
     if (ImGui::Button("Start")) {
         ReleaseImGuiInputCapture_();
+        director_->SaveGridStep(&PaintGridSteps::flora, pendingPaint_.settings.gridStepMeters);
         const RecentPaintSource source{
             .sourceKind = pendingPaint_.sourceKind,
             .sourceId = pendingPaint_.sourceId

@@ -144,6 +144,9 @@ public:
     [[nodiscard]] bool GetDefaultSnapPointsToGrid() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPlacementsToGrid() const noexcept;
     [[nodiscard]] float GetDefaultGridStepMeters() const noexcept;
+    // The grid size last chosen for this kind of painter, or the default from the INI file.
+    [[nodiscard]] float GetGridStepMeters(std::optional<float> PaintGridSteps::* kind) const;
+    void SaveGridStep(std::optional<float> PaintGridSteps::* kind, float meters);
     // Which pack textures and props first shipped in; null before startup.
     [[nodiscard]] const PackCatalogRepository* GetPackCatalog() const { return packCatalog_.get(); }
     [[nodiscard]] PreviewMode GetDefaultPropPreviewMode() const noexcept;

@@ -331,7 +331,7 @@ Common options:
 - `Show grid overlay`: shows the preview grid on the terrain
 - `Snap points to grid`: snaps the points you click to the grid
 - `Also snap placements to grid`: snaps final placed props to the grid as well
-- `Grid step (m)`: grid size in meters. Dragging moves in 0.5 m steps, the buttons set 2, 4, 8 or 16 m, and Ctrl+click takes any value
+- `Grid step (m)`: grid size in meters. Dragging moves in 0.5 m steps, the buttons set 2, 4, 8 or 16 m, and Ctrl+click takes any value. The size you last chose is kept, also after a restart: one for props and prop families, one for flora and flora collections, one for decals and one for terrain paint
 - `Vertical offset (m)`: raises placed props and the preview above the terrain
 - `Preview`: `Outline only`, `Full model only`, or `Outline and model`
 

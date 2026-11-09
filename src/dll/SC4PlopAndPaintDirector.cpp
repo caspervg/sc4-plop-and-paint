@@ -278,6 +278,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         propRepository_->Load();
         floraRepository_->Load();
         favoritesRepository_->Load();
+        lastDecalPlacementSettings_.gridStepMeters =
+            favoritesRepository_->GetGridSteps().decals.value_or(lastDecalPlacementSettings_.gridStepMeters);
         propRepository_->ApplyUserSeasonalSets(favoritesRepository_->GetUserSeasonalSets());
 
         cIGZPersistResourceManagerPtr pRMForPanel;
@@ -645,6 +647,7 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
     propPainterControl_->SetWindow(pView3D_->AsIGZWin());
     propPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     propPainterControl_->SetPropRepository(propRepository_.get());
+    propPainterControl_->SetOnGridStepChanged([this](const float meters) { SaveGridStep(&PaintGridSteps::props, meters); });
     propPainterControl_->SetOnCancel([this]() {
         if (pView3D_ && propPainterControl_ &&
             pView3D_->GetCurrentViewInputControl() == propPainterControl_) {
@@ -758,6 +761,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
     floraPlacerControl_->SetWindow(pView3D_->AsIGZWin());
     floraPlacerControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     floraPlacerControl_->SetFloraRepository(floraRepository_.get());
+    floraPlacerControl_->SetOnGridStepChanged([this](const float meters) { SaveGridStep(&PaintGridSteps::flora, meters); });
     floraPlacerControl_->SetOnCancel([this]() {
         if (pView3D_ && floraPlacerControl_ &&
             pView3D_->GetCurrentViewInputControl() == floraPlacerControl_) {
@@ -921,6 +925,7 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
     decalPainterControl_->SetWindow(pView3D_->AsIGZWin());
     decalPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     decalPainterControl_->SetDecalService(terrainDecalService_);
+    decalPainterControl_->SetOnGridStepChanged([this](const float meters) { SaveGridStep(&PaintGridSteps::decals, meters); });
     decalPainterControl_->SetOnCancel([this]() {
         if (pView3D_ && decalPainterControl_ &&
             pView3D_->GetCurrentViewInputControl() == decalPainterControl_) {
@@ -1333,6 +1338,8 @@ bool SC4PlopAndPaintDirector::ActivateRecentPaint(const size_t index) {
     PropPaintSettings settings = activeControl->GetSettings();
     settings.activePalette = entry.palette;
     settings.randomSeed = 0;
+    settings.gridStepMeters = GetGridStepMeters(entry.kind == RecentPaintEntry::Kind::Prop ? &PaintGridSteps::props
+                                                                                           : &PaintGridSteps::flora);
 
     const RecentPaintSource source{
         .sourceKind = entry.sourceKind,
@@ -1366,6 +1373,17 @@ bool SC4PlopAndPaintDirector::GetDefaultSnapPlacementsToGrid() const noexcept {
 
 float SC4PlopAndPaintDirector::GetDefaultGridStepMeters() const noexcept {
     return defaultGridStepMeters_;
+}
+
+float SC4PlopAndPaintDirector::GetGridStepMeters(std::optional<float> PaintGridSteps::* const kind) const {
+    return favoritesRepository_ ? (favoritesRepository_->GetGridSteps().*kind).value_or(defaultGridStepMeters_)
+                                : defaultGridStepMeters_;
+}
+
+void SC4PlopAndPaintDirector::SaveGridStep(std::optional<float> PaintGridSteps::* const kind, const float meters) {
+    if (favoritesRepository_) {
+        favoritesRepository_->SetGridStep(kind, meters);
+    }
 }
 
 PreviewMode SC4PlopAndPaintDirector::GetDefaultPropPreviewMode() const noexcept {
@@ -1842,6 +1860,7 @@ bool SC4PlopAndPaintDirector::StartGroundPainting(const Ground::ToolSettings& se
     groundPainterControl_->SetDocument(groundDocument_.get());
     groundPainterControl_->SetSettings(settings);
     groundPainterControl_->SetOnCancel([this]() { StopGroundPainting(); });
+    groundPainterControl_->SetOnGridStepChanged([this](const float meters) { SaveGridStep(&PaintGridSteps::ground, meters); });
 
     if (!RaiseToTop_(groundPainterControl_, groundPainterControl_->IsActive()) &&
         !pView3D_->SetCurrentViewInputControl(
@@ -1931,6 +1950,7 @@ bool SC4PlopAndPaintDirector::PlantOnGround(const uint32_t objectId, const bool 
         prop ? static_cast<BasePainterInputControl*>(propPainterControl_) : floraPlacerControl_;
     PropPaintSettings settings = control ? control->GetSettings() : PropPaintSettings{};
     settings.mode = along ? PaintMode::Line : PaintMode::Polygon;
+    settings.gridStepMeters = GetGridStepMeters(prop ? &PaintGridSteps::props : &PaintGridSteps::flora);
     settings.activePalette = entry.palette;
     settings.randomSeed = 0;
     const RecentPaintSource source{.sourceKind = entry.sourceKind, .sourceId = entry.sourceId};

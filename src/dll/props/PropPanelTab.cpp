@@ -1033,6 +1033,7 @@ void PropPanelTab::RenderPropTooltipBody_(const Prop& prop) const {
 
 void PropPanelTab::RenderRotationModal_() {
     if (pendingPaint_.open) {
+        pendingPaint_.settings.gridStepMeters = director_->GetGridStepMeters(&PaintGridSteps::props);
         ImGui::OpenPopup("Prop Painter");
         pendingPaint_.open = false;
     }
@@ -1055,6 +1056,7 @@ void PropPanelTab::RenderRotationModal_() {
         ImGui::Separator();
         if (RenderStartCancel_()) {
             ReleaseImGuiInputCapture_();
+            director_->SaveGridStep(&PaintGridSteps::props, pendingPaint_.settings.gridStepMeters);
             director_->StartPropPainting(pendingPaint_.propId, pendingPaint_.settings, pendingPaint_.propName);
         }
 

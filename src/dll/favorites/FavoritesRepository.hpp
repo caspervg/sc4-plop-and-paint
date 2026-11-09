@@ -69,6 +69,10 @@ public:
     // Named sets of ground textures and colours. Change them in place, then call Save.
     [[nodiscard]] std::vector<PaintPalette>& GetPaintPalettes() { return paintPalettes_; }
 
+    // The grid size last chosen per kind of painter, kept between sessions. SetGridStep saves.
+    [[nodiscard]] const PaintGridSteps& GetGridSteps() const { return gridSteps_; }
+    void SetGridStep(std::optional<float> PaintGridSteps::* kind, float meters);
+
     // User-created seasonal sets
     [[nodiscard]] const std::vector<SeasonalSet>& GetUserSeasonalSets() const;
     bool CreateUserSeasonalSet(const std::string& name);
@@ -92,6 +96,7 @@ private:
     std::vector<PropFamily> userFamilies_;
     std::vector<SeasonalSet> userSeasonalSets_;
     std::vector<PaintPalette> paintPalettes_;
+    PaintGridSteps gridSteps_{};
     std::vector<RecentPaintEntryData> recentPaintsCache_;
     std::vector<TabViewSettings> tabViews_;
     size_t activeUserFamilyIndex_{0};

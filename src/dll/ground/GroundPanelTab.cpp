@@ -356,7 +356,7 @@ GroundPanelTab::GroundPanelTab(SC4PlopAndPaintDirector* director,
     , stampTab_(decals ? std::make_unique<DecalPanelTab>(director, decals, favorites, pRM, imguiService) : nullptr) {
     settings_.showGrid = director->GetDefaultShowGridOverlay();
     settings_.snapPointsToGrid = director->GetDefaultSnapPointsToGrid();
-    settings_.gridStepMeters = director->GetDefaultGridStepMeters();
+    settings_.gridStepMeters = director->GetGridStepMeters(&PaintGridSteps::ground);
 }
 
 void GroundPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
@@ -706,10 +706,14 @@ void GroundPanelTab::RenderGrid_() {
     }
     ImGui::TextDisabled("Grid step (m)");
     ImGui::SameLine();
-    changed |= RenderPresetButtons_("GridStep", settings_.gridStepMeters, {2.0f, 4.0f, 8.0f, 16.0f});
+    const bool presetChosen = RenderPresetButtons_("GridStep", settings_.gridStepMeters, {2.0f, 4.0f, 8.0f, 16.0f});
+    changed |= presetChosen;
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-1.0f);
     changed |= ImGui::SliderFloat("##step", &settings_.gridStepMeters, 1.0f, 16.0f, "Every %.0f m");
+    if (presetChosen || ImGui::IsItemDeactivatedAfterEdit()) {
+        director_->SaveGridStep(&PaintGridSteps::ground, settings_.gridStepMeters);
+    }
     Tooltip("The grid step. Press Ctrl+[ or Ctrl+] to change it.");
     ImGui::PopID();
     if (changed) {

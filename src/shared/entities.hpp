@@ -240,8 +240,16 @@ struct PaintPalette {
     std::vector<std::array<float, 3>> colours;
 };
 
+// The grid size last chosen for each kind of painter. Empty: not chosen yet.
+struct PaintGridSteps {
+    std::optional<float> props;
+    std::optional<float> flora;
+    std::optional<float> decals;
+    std::optional<float> ground;
+};
+
 struct AllFavorites {
-    uint32_t version = 8;
+    uint32_t version = 9;
     TabFavorites lots;
     std::optional<TabFavorites> props;
     std::optional<TabFavorites> flora;
@@ -251,5 +259,6 @@ struct AllFavorites {
     std::optional<std::vector<SeasonalSet>> seasonalSets;
     std::optional<std::vector<TabViewSettings>> tabViews;
     std::optional<std::vector<PaintPalette>> paintPalettes;
+    std::optional<PaintGridSteps> gridSteps;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

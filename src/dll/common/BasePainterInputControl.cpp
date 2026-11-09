@@ -682,6 +682,9 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         }
 
         settings_.gridStepMeters = kGridSteps[currentIdx];
+        if (onGridStepChanged_) {
+            onGridStepChanged_(settings_.gridStepMeters);
+        }
         SyncPreviewForState_();
         return true;
     }
