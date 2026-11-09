@@ -9,6 +9,9 @@ namespace PanelUi {
     // Between groups of controls on one line.
     inline constexpr float kGroupGap = 16.0f;
 
+    inline constexpr const char* kStopPaintingHelp =
+        "Stop painting. What you did not confirm with Enter is removed.";
+
     // Also on a disabled control, where it says why.
     inline void Tooltip(const char* text) {
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
@@ -33,6 +36,9 @@ namespace PanelUi {
         const float right = ImGui::GetItemRectMax().x + space + width;
         if (right < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) {
             ImGui::SameLine(0.0f, space);
+        }
+        else {
+            ImGui::AlignTextToFramePadding();  // a small button lines up with taller controls after it
         }
     }
 

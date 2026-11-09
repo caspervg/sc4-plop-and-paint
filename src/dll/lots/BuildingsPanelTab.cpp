@@ -96,6 +96,7 @@ void BuildingsPanelTab::OnRender() {
 }
 
 void BuildingsPanelTab::RenderResultLine_() {
+    ImGui::AlignTextToFramePadding();
     ImGui::Text("Showing %zu of %zu buildings", filteredBuildings_.size(), lots_->GetBuildings().size());
     const int active = filter_.ActiveFilterCount();
     if (active > 0) {

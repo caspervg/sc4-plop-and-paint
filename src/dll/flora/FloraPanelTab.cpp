@@ -102,6 +102,7 @@ void FloraPanelTab::OnRender() {
 }
 
 void FloraPanelTab::RenderResultLine_() {
+    ImGui::AlignTextToFramePadding();
     ImGui::Text("Showing %zu of %zu flora items", shown_.size(), flora_->GetFloraItems().size());
     const int active = static_cast<int>(searchBuf_[0] != '\0') + static_cast<int>(favoritesOnly_) +
                        static_cast<int>(packFilter_.IsActive());
@@ -133,6 +134,7 @@ void FloraPanelTab::RenderTools_() {
         if (ImGui::SmallButton("Stop painting")) {
             director_->StopFloraPainting();
         }
+        PanelUi::Tooltip(PanelUi::kStopPaintingHelp);
         ++index;
     }
     if (director_->IsFloraPicking()) {

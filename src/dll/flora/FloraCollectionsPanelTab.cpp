@@ -112,6 +112,7 @@ void FloraCollectionsPanelTab::OnRender() {
         if (ImGui::SmallButton("Stop painting")) {
             director_->StopFloraPainting();
         }
+        PanelUi::Tooltip(PanelUi::kStopPaintingHelp);
         RenderFloraStripperControls_(1);
     }
     else {
@@ -139,6 +140,7 @@ void FloraCollectionsPanelTab::OnRender() {
 }
 
 void FloraCollectionsPanelTab::RenderResultLine_(const size_t shown, const size_t total) {
+    ImGui::AlignTextToFramePadding();
     ImGui::Text("Showing %zu of %zu collections", shown, total);
     const int active = static_cast<int>(nameFilterBuf_[0] != '\0') + static_cast<int>(iidFilterBuf_[0] != '\0') +
                        static_cast<int>(typeFilter_ != 0) + static_cast<int>(favoritesOnly_);

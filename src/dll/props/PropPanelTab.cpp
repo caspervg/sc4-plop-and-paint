@@ -111,6 +111,7 @@ void PropPanelTab::OnRender() {
 }
 
 void PropPanelTab::RenderResultLine_() {
+    ImGui::AlignTextToFramePadding();
     ImGui::Text("Showing %zu of %zu props", filteredPropsCache_.size(), allPropViewsCache_.size());
     const int active = filterHelper_.ActiveFilterCount();
     if (active > 0) {
@@ -136,11 +137,13 @@ void PropPanelTab::ClearFilters_() {
 }
 
 void PropPanelTab::RenderTools_() {
+    ImGui::AlignTextToFramePadding();
     size_t index = 0;
     if (director_->IsPropPainting()) {
         if (ImGui::SmallButton("Stop painting")) {
             director_->StopPropPainting();
         }
+        PanelUi::Tooltip(PanelUi::kStopPaintingHelp);
         ++index;
     }
     if (director_->IsPropPicking()) {

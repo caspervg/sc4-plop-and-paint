@@ -158,6 +158,7 @@ std::vector<FamiliesPanelTab::FamilyRow> FamiliesPanelTab::BuildRows_() const {
 }
 
 void FamiliesPanelTab::RenderResultLine_(const size_t shown, const size_t total) {
+    ImGui::AlignTextToFramePadding();
     ImGui::Text("Showing %zu of %zu families", shown, total);
     const int active = static_cast<int>(!nameFilter_.empty()) + static_cast<int>(!iidFilter_.empty()) +
                        static_cast<int>(favoritesOnly_);
@@ -181,6 +182,7 @@ void FamiliesPanelTab::ClearFilters_() {
 }
 
 void FamiliesPanelTab::RenderTools_() {
+    ImGui::AlignTextToFramePadding();
     if (ImGui::SmallButton("New family")) {
         OpenNewFamily_();
     }
@@ -189,6 +191,7 @@ void FamiliesPanelTab::RenderTools_() {
         if (ImGui::SmallButton("Stop painting")) {
             director_->StopPropPainting();
         }
+        PanelUi::Tooltip(PanelUi::kStopPaintingHelp);
     }
     RenderPropStripperControls_(1);
 }
