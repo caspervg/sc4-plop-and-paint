@@ -68,6 +68,6 @@ namespace PanelUi {
     // Says that nothing matches and offers the way back. True when the filters should be cleared.
     [[nodiscard]] inline bool NoResults(const char* text) {
         Hint(text);
-        return ImGui::SmallButton("Clear filters");
+        return ImGui::SmallButton("Clear filters##noResults");  // the result line has one too
     }
 }
