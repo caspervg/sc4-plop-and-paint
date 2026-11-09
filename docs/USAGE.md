@@ -127,7 +127,8 @@ Filters and top actions:
 
 - `Search family name...`
 - `Filter IID (0x...)`
-- `Clear filters`
+- `Favorites only`: only the families that you starred
+- `Clear filters`, next to the number of families shown
 - `New family`
 - `Stop painting` while paint mode is active
 
@@ -136,12 +137,14 @@ Family list:
 - `Built-in` families are read-only and show their instance IDs
 - `Own` families are your editable custom families
 - Double-click a family row or press `Paint` to open the family paint options
+- `Star` / `Unstar` on a family row manages family favorites. The props inside a family have their own `Star` button, the same favorites as in the `Props` tab
 
 Custom family management:
 
 - Create a family with `New family`
-- Delete the selected custom family with `Delete family`
-- Add props from the `Props` tab using `Fam`
+- Rename the selected custom family in the name field above its props
+- Delete the selected custom family with `Delete family`, which asks first
+- Add props from the `Props` tab: click `...` on a prop, then `Add to family`
 - Adjust entry `Weight` values to bias random selection
 - Remove entries with the `x` button
 

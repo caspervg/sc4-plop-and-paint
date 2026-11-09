@@ -48,6 +48,7 @@ void FavoritesRepository::Load() {
     favoritePropIds_.clear();
     favoriteFloraIds_.clear();
     favoriteDecalIds_.clear();
+    favoriteFamilyKeys_.clear();
     favoriteDecalPresets_.clear();
     userFamilies_.clear();
     userSeasonalSets_.clear();
@@ -128,6 +129,11 @@ void FavoritesRepository::Load() {
             if (result->paintPalettes) {
                 paintPalettes_ = *result->paintPalettes;
             }
+            if (result->familyFavorites) {
+                for (const auto& hexId : result->familyFavorites->items) {
+                    favoriteFamilyKeys_.insert(hexId.value());
+                }
+            }
             if (result->gridChoices) {
                 gridChoices_ = *result->gridChoices;
             }
@@ -156,7 +162,7 @@ void FavoritesRepository::Save() const {
         const auto cborPath = pluginsPath / "favorites.cbor";
 
         AllFavorites allFavorites;
-        allFavorites.version = 10;
+        allFavorites.version = 11;
 
         for (const uint32_t id : favoriteLotIds_) {
             allFavorites.lots.items.emplace_back(id);
@@ -212,6 +218,14 @@ void FavoritesRepository::Save() const {
         allFavorites.tabViews = tabViews_.empty() ? std::nullopt : std::make_optional(tabViews_);
         allFavorites.paintPalettes = paintPalettes_.empty() ? std::nullopt : std::make_optional(paintPalettes_);
         allFavorites.gridChoices = gridChoices_;
+        if (!favoriteFamilyKeys_.empty()) {
+            TabFavorites familyFavorites;
+            familyFavorites.items.reserve(favoriteFamilyKeys_.size());
+            for (const uint64_t key : favoriteFamilyKeys_) {
+                familyFavorites.items.emplace_back(key);
+            }
+            allFavorites.familyFavorites = std::move(familyFavorites);
+        }
 
         if (const auto saveResult = rfl::cbor::save(cborPath.string(), allFavorites)) {
             LOG_INFO("Saved {} favorite lots, {} favorite decals, {} user families to {}",
@@ -263,6 +277,13 @@ bool FavoritesRepository::IsLotFavorite(const uint32_t lotInstanceId) const {
 
 const std::unordered_set<uint32_t>& FavoritesRepository::GetFavoriteLotIds() const {
     return favoriteLotIds_;
+}
+
+void FavoritesRepository::ToggleFamilyFavorite(const uint64_t key) {
+    if (!favoriteFamilyKeys_.erase(key)) {
+        favoriteFamilyKeys_.insert(key);
+    }
+    Save();
 }
 
 void FavoritesRepository::ToggleLotFavorite(const uint32_t lotInstanceId) {
@@ -496,6 +517,9 @@ bool FavoritesRepository::CreateUserFamily(const std::string& name) {
 bool FavoritesRepository::DeleteUserFamily(const size_t index) {
     if (index >= userFamilies_.size()) {
         return false;
+    }
+    if (userFamilies_[index].persistentId.has_value()) {
+        favoriteFamilyKeys_.erase(FamilyFavoriteKey(false, userFamilies_[index].persistentId->value()));
     }
     userFamilies_.erase(userFamilies_.begin() + static_cast<std::ptrdiff_t>(index));
     if (userFamilies_.empty()) {

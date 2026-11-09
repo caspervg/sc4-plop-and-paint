@@ -284,6 +284,12 @@ void PropPanelTab::EnsureFilteredPropsCache_() {
         RebuildPropViewsCache_();
     }
 
+    const size_t favoriteCount = filterHelper_.favoritesOnly ? favorites_->GetFavoritePropIds().size() : 0;
+    if (favoriteCount != appliedFavoriteCount_) {
+        appliedFavoriteCount_ = favoriteCount;
+        filteredPropsDirty_ = true;
+    }
+
     if (!filteredPropsDirty_) {
         return;
     }

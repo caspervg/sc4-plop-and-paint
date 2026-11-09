@@ -96,5 +96,7 @@ private:
     // Counted with the views, so once per props.cbor.
     PackFilter packFilter_{};
     bool filteredPropsDirty_{true};
+    // Stars can also change in the Prop Families tab.
+    size_t appliedFavoriteCount_{0};
     uint64_t selectedPropKey_{0};
 };

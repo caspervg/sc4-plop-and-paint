@@ -266,7 +266,7 @@ struct PaintGridChoices {
 };
 
 struct AllFavorites {
-    uint32_t version = 10;
+    uint32_t version = 11;
     TabFavorites lots;
     std::optional<TabFavorites> props;
     std::optional<TabFavorites> flora;
@@ -278,5 +278,6 @@ struct AllFavorites {
     std::optional<std::vector<PaintPalette>> paintPalettes;
     std::optional<PaintGridSteps> gridSteps;  // only read: what version 9 saved
     std::optional<PaintGridChoices> gridChoices;
+    std::optional<TabFavorites> familyFavorites;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

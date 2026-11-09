@@ -24,6 +24,13 @@ public:
     [[nodiscard]] const TabViewSettings* GetTabView(std::string_view tab) const;
     void SetTabView(TabViewSettings settings);
 
+    // Family favorites: built-in families by their ID, own families by their persistent ID.
+    [[nodiscard]] static uint64_t FamilyFavoriteKey(const bool builtIn, const uint64_t id) {
+        return (builtIn ? uint64_t{1} << 63 : uint64_t{0}) | id;
+    }
+    [[nodiscard]] bool IsFamilyFavorite(uint64_t key) const { return favoriteFamilyKeys_.contains(key); }
+    void ToggleFamilyFavorite(uint64_t key);
+
     // Lot favorites
     [[nodiscard]] bool IsLotFavorite(uint32_t lotInstanceId) const;
     [[nodiscard]] const std::unordered_set<uint32_t>& GetFavoriteLotIds() const;
@@ -92,6 +99,7 @@ private:
     std::unordered_set<uint64_t> favoritePropIds_;
     std::unordered_set<uint64_t> favoriteFloraIds_;
     std::unordered_set<uint32_t> favoriteDecalIds_;
+    std::unordered_set<uint64_t> favoriteFamilyKeys_;
     std::unordered_map<uint32_t, std::vector<NamedDecalPreset>> favoriteDecalPresets_;
     std::vector<PropFamily> userFamilies_;
     std::vector<SeasonalSet> userSeasonalSets_;
