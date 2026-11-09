@@ -152,6 +152,10 @@ void PaintStatusPanel::OnRender() {
         }
         else {
             KeyRow("R / middle mouse", "Turn 90 degrees");
+            if (const auto stop = activeControl_->NextStop()) {
+                std::snprintf(value, sizeof(value), "Next mode: %s", PaintStopName(*stop));
+                KeyRow("M", value);
+            }
         }
 
         KeyRow("G / Shift+S", "Grid / snap on or off");

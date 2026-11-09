@@ -4,8 +4,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <set>
+#include <utility>
 #include <vector>
 
+#include "paint/PaintSettings.hpp"
 #include "paint/PolygonPlacer.hpp"
 
 namespace {
@@ -105,6 +107,22 @@ int main() {
                                                                 nullptr, 1, PolygonHeightSamplingMode::Terrain, nullptr, 7, 12);
         CHECK(placed.size() == 12);
     }
+
+    // The M key: every stop in turn, and back to the start.
+    const auto next = [](const PaintMode mode, const bool ground, const bool sketching, const bool painted) {
+        const PaintStop stop = NextPaintStop(mode, ground, sketching, painted);
+        return std::pair(stop.mode, stop.fromGround);
+    };
+    using Stop = std::pair<PaintMode, bool>;
+    CHECK(next(PaintMode::Direct, false, false, true) == Stop(PaintMode::Line, false));
+    CHECK(next(PaintMode::Line, false, false, true) == Stop(PaintMode::Polygon, false));
+    CHECK(next(PaintMode::Polygon, false, false, true) == Stop(PaintMode::Polygon, true));
+    CHECK(next(PaintMode::Polygon, true, false, true) == Stop(PaintMode::Direct, false));
+    // Without painted ground that stop is skipped.
+    CHECK(next(PaintMode::Polygon, false, false, false) == Stop(PaintMode::Direct, false));
+    // A sketch stays a sketch.
+    CHECK(next(PaintMode::Line, false, true, true) == Stop(PaintMode::Polygon, false));
+    CHECK(next(PaintMode::Polygon, false, true, true) == Stop(PaintMode::Line, false));
 
     std::puts("ok");
     return 0;

@@ -57,6 +57,9 @@ public:
     // Makes the shape the sketch, as F does; false outside Line and Polygon mode.
     bool UseGroundShape(const GroundShape& shape);
     [[nodiscard]] bool CanUseGroundShapes() const { return static_cast<bool>(groundShapeLookup_); }
+    void SetHasPaintedGround(std::function<bool()> hasPaintedGround) { hasPaintedGround_ = std::move(hasPaintedGround); }
+    // Where M goes next. Nothing while a shape from painted ground waits to be placed.
+    [[nodiscard]] std::optional<PaintStop> NextStop() const;
 
     [[nodiscard]] const PropPaintSettings& GetSettings() const { return settings_; }
     [[nodiscard]] bool HasPendingSketch() const;
@@ -239,6 +242,7 @@ private:
     void ExecutePolygonPlacement_();
     // Outlines the painted ground under the cursor, which a click would take.
     void ShowGroundUnderCursor_();
+    void CycleMode_();
     [[nodiscard]] std::vector<PlannedPaint> ComputePolygonPlacements_(const std::vector<cS3DVector3>& vertices,
                                                                       WeightedPicker* picker,
                                                                       uint32_t singleTypeID,
@@ -258,6 +262,7 @@ private:
     std::function<void()> onGridChanged_{};
     std::function<void(size_t)> onQuickSwap_{};
     GroundShapeLookup groundShapeLookup_{};
+    std::function<bool()> hasPaintedGround_{};
     // From painted ground: placements outside it are left out. Clicking or removing a point by
     // hand drops it, as the sketch is no longer that shape.
     Ground::Area fillMask_{};

@@ -121,6 +121,25 @@ bool BasePainterInputControl::OnMouseDownX(const int32_t /*x*/, const int32_t /*
     return true;
 }
 
+std::optional<PaintStop> BasePainterInputControl::NextStop() const {
+    if (sketchFromGround_) {
+        return std::nullopt;
+    }
+    return NextPaintStop(settings_.mode, settings_.pickFromGround, HasPendingSketch(),
+                         hasPaintedGround_ && hasPaintedGround_());
+}
+
+void BasePainterInputControl::CycleMode_() {
+    const auto stop = NextStop();
+    if (!stop) {
+        return;
+    }
+    SetPaintMode(settings_, stop->mode);
+    settings_.pickFromGround = stop->fromGround;
+    polygonPreviewDirty_ = true;
+    TransitionTo_(ActiveStateForMode_(stop->mode), "M key");
+}
+
 void BasePainterInputControl::Turn_() {
     settings_.rotation = (settings_.rotation + 1) & 3;
     if (state_ == ControlState::ActivePolygon) {
@@ -567,6 +586,11 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
 
     if (vkCode == 'R') {
         Turn_();
+        return true;
+    }
+
+    if (vkCode == 'M' && (modifiers & (MOD_CONTROL | MOD_SHIFT)) == 0) {
+        CycleMode_();
         return true;
     }
 

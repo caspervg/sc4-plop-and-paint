@@ -646,6 +646,7 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
         ActivateRecentPaint(index);
     }) : std::function<void(size_t)>());
     propPainterControl_->SetGroundShapeLookup(MakeGroundShapeLookup_());
+    propPainterControl_->SetHasPaintedGround([this]() { return HasPaintedGround(); });
     propPainterControl_->SetCity(pCity_);
     propPainterControl_->SetWindow(pView3D_->AsIGZWin());
     propPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
@@ -772,6 +773,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
         ActivateRecentPaint(index);
     }) : std::function<void(size_t)>());
     floraPlacerControl_->SetGroundShapeLookup(MakeGroundShapeLookup_());
+    floraPlacerControl_->SetHasPaintedGround([this]() { return HasPaintedGround(); });
     floraPlacerControl_->SetCity(pCity_);
     floraPlacerControl_->SetWindow(pView3D_->AsIGZWin());
     floraPlacerControl_->SetWorldDrawService(GetOverlayWorldDrawService_());

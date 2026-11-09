@@ -71,3 +71,36 @@ inline void SetPaintMode(PropPaintSettings& settings, const PaintMode mode) {
         settings.randomRotation = mode == PaintMode::Polygon;
     }
 }
+
+// A stop of the M key: a paint mode, and whether it takes its shape from painted ground.
+struct PaintStop {
+    PaintMode mode = PaintMode::Direct;
+    bool fromGround = false;
+};
+
+// The stop after this one: Direct, Line, Polygon, then filling painted ground if there is any.
+// A sketch in progress keeps its points, so it can only go between Line and Polygon.
+[[nodiscard]] constexpr PaintStop NextPaintStop(const PaintMode mode, const bool fromGround, const bool sketching,
+                                                const bool hasPaintedGround) {
+    if (sketching) {
+        return {mode == PaintMode::Line ? PaintMode::Polygon : PaintMode::Line, false};
+    }
+    if (fromGround) {
+        return {PaintMode::Direct, false};
+    }
+    switch (mode) {
+    case PaintMode::Direct:
+        return {PaintMode::Line, false};
+    case PaintMode::Line:
+        return {PaintMode::Polygon, false};
+    default:
+        return hasPaintedGround ? PaintStop{PaintMode::Polygon, true} : PaintStop{PaintMode::Direct, false};
+    }
+}
+
+[[nodiscard]] constexpr const char* PaintStopName(const PaintStop stop) {
+    if (stop.fromGround) {
+        return "Fill painted ground";
+    }
+    return stop.mode == PaintMode::Direct ? "Direct" : stop.mode == PaintMode::Line ? "Line" : "Polygon";
+}
