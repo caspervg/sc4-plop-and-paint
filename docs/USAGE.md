@@ -233,7 +233,7 @@ Tools (pick one to start, `Stop` or Esc to end):
 - `Texture size` and `Texture turn` scale and turn the texture. `Texture shift` moves it, to line it up with a kerb or a lot; Shift+drag in `Select` does the same in the city.
 - `Mix` (with two or more textures): `By 16 m square`, or `In soft patches`: the first texture covers the shape and the others lie on it in natural, blended patches, each by its share. `Patch size` sets how big they are, `Patch blend` how far their edges fade.
 - `Follow the line` (lines with a texture): the texture runs along the line and spans its width, like a dirt track or a kerb. `Texture length` is how often it repeats along the line.
-- `Finish`: opacity, a soft edge (how far in from the edge the paint fades out), worn paint (patches missing, as on an old road), a rough edge (an uneven, natural outline that wanders this far in and out, for grass, dirt and gravel; not for markings) and the depth (raise it when the paint flickers or hides under lot textures; 4 and up draws over the game's shadows).
+- `Finish`: opacity, a soft edge (how far in from the edge the paint fades out), worn paint (patches missing, as on an old road), a rough edge (an uneven, natural outline that wanders this far in and out, for grass, dirt and gravel; not for markings) and, under `Advanced`, the depth (raise it when the paint flickers or hides under lot textures; 4 and up draws over the game's shadows).
 
 Colour and opacity changes show in the city while the slider moves; changes to the shape show every so often and apply when you let go.
 

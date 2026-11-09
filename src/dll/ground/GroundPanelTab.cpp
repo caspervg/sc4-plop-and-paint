@@ -23,6 +23,8 @@ using Document = Ground::GroundPaintDocument;
 namespace {
     constexpr float kThumbSize = 40.0f;
     constexpr float kPickerThumbSize = 56.0f;
+    constexpr float kGroupGap = 16.0f;
+    constexpr ImVec4 kAttentionColor(1.0f, 0.85f, 0.3f, 1.0f);
 
     struct ToolInfo {
         Tool tool;
@@ -123,6 +125,9 @@ namespace {
                                                     : hovered ? ImGuiCol_ButtonHovered
                                                               : ImGuiCol_Button);
         draw->AddRectFilled(min, max, background, 4.0f);
+        if (active) {
+            draw->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_CheckMark), 4.0f, 0, 2.0f);
+        }
 
         // Fitted into the button, holes drawn over in the background colour.
         const Bounds bounds = BoundsOf(picture);
@@ -169,24 +174,29 @@ namespace {
     }
 
     // Keeps a row of fixed-size buttons inside the panel: the next one goes on this line if it fits.
-    void NextInRow(const size_t index, const float width) {
+    void NextInRow(const size_t index, const float width, const float gap = -1.0f) {
         if (index == 0) {
             return;
         }
-        const float right = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width;
+        const float space = gap >= 0.0f ? gap : ImGui::GetStyle().ItemSpacing.x;
+        const float right = ImGui::GetItemRectMax().x + space + width;
         if (right < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) {
-            ImGui::SameLine();
+            ImGui::SameLine(0.0f, space);
         }
     }
 
     // Shows the active button pressed.
     bool ToggleButton(const char* label, const bool active) {
         if (active) {
+            // An outline too: the colour alone is easy to miss.
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImGui::GetStyleColorVec4(ImGuiCol_CheckMark));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         }
         const bool clicked = ImGui::Button(label);
         if (active) {
-            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(2);
         }
         return clicked;
     }
@@ -198,10 +208,18 @@ namespace {
                                   static_cast<float>(count));
     }
 
+    // Also on a disabled control, where it says why.
     void Tooltip(const char* text) {
-        if (ImGui::IsItemHovered()) {
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
             ImGui::SetTooltip("%s", text);
         }
+    }
+
+    // Quiet text that wraps at the side of the panel.
+    void Hint(const char* text) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", text);
+        ImGui::PopStyleColor();
     }
 
     std::string ObjectLabel(const PaintObject& object) {
@@ -513,6 +531,9 @@ void GroundPanelTab::OnRender() {
     else if (painting) {
         bool changed = false;
         bool committed = false;
+        ImGui::PushID("shape");
+        RenderShapeSettings_();
+        ImGui::PopID();
         if (settings_.tool != Tool::Erase) {
             ImGui::SeparatorText("Paint with");
             if (GroundPainterInputControl* armable = director_->GetGroundPainter()) {
@@ -528,9 +549,6 @@ void GroundPanelTab::OnRender() {
             RenderLookEditor_(settings_.look, settings_.tool == Tool::Line, toolLook_, changed, committed);
             ImGui::PopID();
         }
-        ImGui::PushID("shape");
-        RenderShapeSettings_();
-        ImGui::PopID();
         if (settings_.tool != Tool::Erase) {
             RenderFinish_(settings_.look, settings_.wear, settings_.tool == Tool::Marking ? nullptr : &settings_.roughness,
                           changed, committed);
@@ -557,9 +575,19 @@ void GroundPanelTab::OnRender() {
 
 void GroundPanelTab::RenderToolRow_() {
     const bool painting = director_->IsGroundPainting();
+    const bool available = director_->IsGroundPaintAvailable() && director_->GetGroundDocument();
+    // The buttons wrap in a narrow panel, with a wider gap between the groups.
+    size_t index = 0;
+    const auto place = [&](const char* label, const bool firstOfGroup) {
+        NextInRow(index++, ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f,
+                  firstOfGroup ? kGroupGap : -1.0f);
+    };
     const auto toolButtons = [&](const auto& tools) {
+        bool first = true;
         for (const ToolInfo& info : tools) {
+            place(info.label, std::exchange(first, false));
             const bool active = painting && !stamping_ && settings_.tool == info.tool;
+            ImGui::BeginDisabled(!available);
             if (ToggleButton(info.label, active)) {
                 // Clicking the tool in use puts it away.
                 if (active) {
@@ -569,19 +597,14 @@ void GroundPanelTab::RenderToolRow_() {
                     SelectTool_(info.tool);
                 }
             }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s", info.tip);
-            }
-            ImGui::SameLine();
+            ImGui::EndDisabled();
+            Tooltip(info.tip);
         }
     };
 
     toolButtons(kPaintTools);
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
     toolButtons(kEditTools);
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
+    place("Stamp decals", true);
     if (ToggleButton("Stamp decals", stamping_)) {
         stamping_ = !stamping_;
         if (stamping_) {
@@ -608,14 +631,18 @@ void GroundPanelTab::RenderStatus_() {
     const ImGuiStyle& style = ImGui::GetStyle();
     const float wrap = ImGui::GetContentRegionAvail().x - style.WindowPadding.x * 2.0f;
     // Room for a measure line always while painting, so the box does not jump as it comes and goes.
+    constexpr const char* kStopHint = "Press Esc once to cancel the shape. Press Esc again to stop. Right-drag to move the camera.";
     const float height = ImGui::CalcTextSize(text.c_str(), nullptr, false, wrap).y +
-                         ImGui::GetTextLineHeightWithSpacing() * (painting ? 2.0f : 0.0f) + style.WindowPadding.y * 2.0f;
+                         (painting ? ImGui::GetTextLineHeightWithSpacing() + style.ItemSpacing.y * 2.0f +
+                                         ImGui::CalcTextSize(kStopHint, nullptr, false, wrap).y
+                                   : 0.0f) +
+                         style.WindowPadding.y * 2.0f;
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
     if (ImGui::BeginChild("##status", ImVec2(0, height), true, ImGuiWindowFlags_NoScrollbar)) {
         ImGui::TextWrapped("%s", text.c_str());
         if (painting) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", measure.empty() ? " " : measure.c_str());
-            ImGui::TextDisabled("Press Esc once to cancel the shape. Press Esc again to stop. Right-drag to move the camera.");
+            ImGui::TextColored(kAttentionColor, "%s", measure.empty() ? " " : measure.c_str());
+            Hint(kStopHint);
         }
     }
     ImGui::EndChild();
@@ -653,37 +680,43 @@ void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bo
         ImGui::SetTooltip("Remove patches of paint, as on an old road.");
     }
 
-    // The second row: a rough edge (not for markings, whose lines should stay crisp) and depth.
-    const float halfWidth = (ImGui::GetContentRegionAvail().x - spacing) / 2.0f;
+    // A rough edge is not for markings, whose lines should stay crisp.
     if (roughness) {
-        ImGui::SetNextItemWidth(halfWidth);
+        ImGui::SetNextItemWidth(-1.0f);
         ImGui::DragFloat("##rough", roughness, 0.02f, 0.0f, 16.0f, *roughness > 0.0f ? "Rough edge %.2f m" : "Smooth edge");
         Track(changed, committed);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Make the outline uneven and natural, for example for grass, dirt or gravel.\n"
                               "Drag to the right to set how far the edge moves in and out.");
         }
-        ImGui::SameLine();
     }
-    ImGui::SetNextItemWidth(roughness ? halfWidth : -1.0f);
-    ImGui::SliderInt("##depth", &look.depthOffset, -1, 8, look.depthOffset < 0 ? "Depth: default" : "Depth %d");
-    Track(changed, committed);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Increase this value if the paint flickers or goes under lot textures.\n"
-                          "At 4 or more, the paint shows on top of the shadows of the game.");
+    // Rarely needed, but a value that is set still shows while this is closed.
+    char advanced[48];
+    std::snprintf(advanced, sizeof(advanced), look.depthOffset < 0 ? "Advanced###advanced" : "Advanced: depth %d###advanced",
+                  look.depthOffset);
+    if (ImGui::TreeNode(advanced)) {
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::SliderInt("##depth", &look.depthOffset, -1, 8, look.depthOffset < 0 ? "Depth: default" : "Depth %d");
+        Track(changed, committed);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Increase this value if the paint flickers or goes under lot textures.\n"
+                              "At 4 or more, the paint shows on top of the shadows of the game.");
+        }
+        ImGui::TreePop();
     }
     ImGui::PopID();
 }
 
 void GroundPanelTab::RenderGrid_() {
     ImGui::PushID("grid");
+    ImGui::SeparatorText("Grid and snapping");
     bool changed = false;
-    changed |= ImGui::Checkbox("Grid", &settings_.showGrid);
+    changed |= ImGui::Checkbox("Show grid", &settings_.showGrid);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Show the grid (G).");
     }
     ImGui::SameLine();
-    changed |= ImGui::Checkbox("Snap", &settings_.snapPointsToGrid);
+    changed |= ImGui::Checkbox("Snap to grid", &settings_.snapPointsToGrid);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Snap points to the grid (Shift+S).");
     }
@@ -694,15 +727,13 @@ void GroundPanelTab::RenderGrid_() {
                           "Points also snap to lines parallel or square to the last edge.\n"
                           "Hold Shift for 15° steps from the last point.");
     }
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(-1.0f);
-    changed |= ImGui::SliderFloat("##step", &settings_.gridStepMeters, 1.0f, 16.0f, "Every %.0f m");
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("The grid step. Press Ctrl+[ or Ctrl+] to change it.");
-    }
     ImGui::TextDisabled("Grid step (m)");
     ImGui::SameLine();
     changed |= RenderPresetButtons_("GridStep", settings_.gridStepMeters, {2.0f, 4.0f, 8.0f, 16.0f});
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1.0f);
+    changed |= ImGui::SliderFloat("##step", &settings_.gridStepMeters, 1.0f, 16.0f, "Every %.0f m");
+    Tooltip("The grid step. Press Ctrl+[ or Ctrl+] to change it.");
     ImGui::PopID();
     if (changed) {
         SettingsChanged_();
@@ -917,7 +948,15 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("New")) {
-        palettes.push_back({.name = "Palette " + std::to_string(palettes.size() + 1)});
+        // Not a name that is already there: deleting palettes leaves gaps in the numbers.
+        std::string newName;
+        for (size_t number = palettes.size() + 1;; ++number) {
+            newName = "Palette " + std::to_string(number);
+            if (std::ranges::none_of(palettes, [&](const PaintPalette& other) { return other.name == newName; })) {
+                break;
+            }
+        }
+        palettes.push_back({.name = std::move(newName)});
         activePalette_ = palettes.size() - 1;
         favorites_->Save();
     }
@@ -928,8 +967,24 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Delete")) {
-        palettes.erase(palettes.begin() + static_cast<std::ptrdiff_t>(activePalette_));
-        favorites_->Save();
+        ImGui::OpenPopup("deletePalette");
+    }
+    bool deleted = false;
+    if (ImGui::BeginPopup("deletePalette")) {
+        ImGui::Text("Delete \"%s\"? You cannot undo this.", palettes[activePalette_].name.c_str());
+        if (ImGui::SmallButton("Delete palette")) {
+            palettes.erase(palettes.begin() + static_cast<std::ptrdiff_t>(activePalette_));
+            favorites_->Save();
+            deleted = true;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine(0.0f, kGroupGap);
+        if (ImGui::SmallButton("Cancel")) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    if (deleted) {
         ImGui::PopID();
         return;
     }
@@ -945,6 +1000,9 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
         favorites_->Save();
     }
     ImGui::SameLine();
+    // Texture is chosen but no texture is picked yet: there is nothing to add.
+    const bool nothingToAdd = look.textures.empty() && state.wantsTexture;
+    ImGui::BeginDisabled(nothingToAdd);
     if (ImGui::SmallButton("Add this look")) {
         if (look.textures.empty() && std::ranges::find(palette.colours, look.color) == palette.colours.end()) {
             palette.colours.push_back(look.color);
@@ -958,7 +1016,8 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
         }
         favorites_->Save();
     }
-    Tooltip("Add the colour or the textures that you paint with now to this palette.");
+    ImGui::EndDisabled();
+    Tooltip(nothingToAdd ? "First pick a texture." : "Add the colour or the textures that you paint with now to this palette.");
     if (palette.textures.size() >= 2) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Mix all")) {
@@ -976,6 +1035,10 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
             committed = true;
         }
         Tooltip("Paint with all textures of this palette as a mix, up to 8 textures.");
+    }
+
+    if (palette.colours.empty() && palette.textures.empty()) {
+        Hint("This palette is empty. Choose a colour or a texture, then click Add this look.");
     }
 
     // Tiles on one line until they reach the side of the panel.
@@ -1002,10 +1065,13 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
             committed = true;
         }
         tileRight = ImGui::GetItemRectMax().x;
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-            removeColour = i;
+        Tooltip("Click to paint with this colour. Right-click for more.");
+        if (ImGui::BeginPopupContextItem("tileMenu")) {
+            if (ImGui::MenuItem("Remove from palette")) {
+                removeColour = i;
+            }
+            ImGui::EndPopup();
         }
-        Tooltip("Click to paint with this colour. Right-click to remove it from this palette.");
         ImGui::PopID();
     }
 
@@ -1024,11 +1090,14 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
             UseTexture_(look, id, ImGui::GetIO().KeyCtrl, committed);
         }
         tileRight = ImGui::GetItemRectMax().x;
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-            removeTexture = i;
-        }
         Tooltip("Click to paint with this texture. Ctrl+click to add it to the mix or remove it from the mix. "
-                "Right-click to remove it from this palette.");
+                "Right-click for more.");
+        if (ImGui::BeginPopupContextItem("tileMenu")) {
+            if (ImGui::MenuItem("Remove from palette")) {
+                removeTexture = i;
+            }
+            ImGui::EndPopup();
+        }
         ImGui::PopID();
     }
 
@@ -1077,7 +1146,7 @@ void GroundPanelTab::RenderTextureLayout_(Look& look, const bool following, bool
 
 void GroundPanelTab::RenderChosenTextures_(Look& look, bool& changed, bool& committed) {
     if (look.textures.empty()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Pick a texture below.");
+        ImGui::TextColored(kAttentionColor, "Pick a texture below.");
         return;
     }
     if (look.textures.size() > 1) {
@@ -1345,9 +1414,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
         for (size_t i = 0; i < recentTextures_.size(); ++i) {
             const uint32_t id = recentTextures_[i];
             ImGui::PushID(static_cast<int>(id));
-            if (i > 0) {
-                ImGui::SameLine();
-            }
+            NextInRow(i, kThumbSize + ImGui::GetStyle().FramePadding.x * 2.0f);
             const bool clicked = TextureTile_(id, kThumbSize, inUse(id));
             const bool ctrl = tileClicked(id);
             ImGui::PopID();
@@ -1369,12 +1436,23 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
     }
 
     const std::vector<uint32_t>& shown = ShownTextures_();
-    ImGui::TextDisabled("%zu textures. Click a texture to paint with it. Ctrl+click to mix textures. Right-click to set a favourite.",
-                        shown.size());
+    if (shown.empty()) {
+        Hint("No textures match this search and these filters.");
+        if (ImGui::SmallButton("Clear search and filters")) {
+            textureFilter_[0] = 0;
+            packFilter_ = kAllPacks;
+            favouriteTexturesOnly_ = false;
+            kindFilter_ = {};
+            shownValid_ = false;
+        }
+        return;
+    }
+    Hint((std::to_string(shown.size()) + " textures. Click a texture to paint with it. Ctrl+click to mix textures. "
+                                         "Right-click to set a favourite.").c_str());
 
-    // About seven rows. Drag its bottom edge for more or fewer.
+    // About five rows. Drag its bottom edge for more or fewer.
     const ImGuiStyle& gridStyle = ImGui::GetStyle();
-    const float gridHeight = 7.0f * (kPickerThumbSize + gridStyle.FramePadding.y * 2.0f + gridStyle.ItemSpacing.y) +
+    const float gridHeight = 5.0f * (kPickerThumbSize + gridStyle.FramePadding.y * 2.0f + gridStyle.ItemSpacing.y) +
                              gridStyle.WindowPadding.y * 2.0f;
     if (ImGui::BeginChild("##textures", ImVec2(0, gridHeight), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY)) {
         const ImGuiStyle& style = ImGui::GetStyle();
@@ -1413,34 +1491,45 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
 }
 
 void GroundPanelTab::RenderSelection_(Document& document) {
-    const std::vector<uint32_t>& selection = document.Selection();
-    if (selection.empty()) {
+    if (document.Selection().empty()) {
         editingId_ = 0;
         return;
     }
 
-    const uint32_t first = selection.front();
+    const uint32_t first = document.Selection().front();
     RenderSelectionActions_(document);
     if (document.Selection().empty() || document.Selection().front() != first) {
         editingId_ = 0;
         return;
     }
     RenderTransform_(document);
+    RenderInspector_(document, first);
 
+    const std::vector<uint32_t> selection = document.Selection();
+    if (!selection.empty()) {
+        RenderShapeTools_(document, selection);
+        RenderPlanting_(selection.front());
+    }
+}
+
+void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) {
     const PaintObject* const object = document.Find(first);
-    if (!object || selection.size() != 1) {
+    if (!object || document.Selection().size() != 1) {
         editingId_ = 0;
         return;
     }
-    if (editingId_ != first ||
-        (!ImGui::IsAnyItemActive() && (object->drawOrder != editing_.drawOrder || !(object->shape == editing_.shape)))) {
+    // Takes in what changed elsewhere, such as an undo or a point dragged in the city, so that the
+    // next edit here does not put the old values back. Not while a control here is in use.
+    const bool newObject = editingId_ != first;
+    if (newObject || (!ImGui::IsAnyItemActive() && document.Revision() != editingRevision_)) {
         editingId_ = first;
         editing_ = *object;
+        editingRevision_ = document.Revision();
+    }
+    if (newObject) {
         selectionLook_ = {};
-        if (!object->look.textures.empty()) {
-            // Painted with a texture: its colour is the tint; the plain colour starts white.
-            selectionLook_.wantsTexture = true;
-        }
+        // Painted with a texture: its colour is the tint; the plain colour starts white.
+        selectionLook_.wantsTexture = !object->look.textures.empty();
     }
 
     bool changed = false;
@@ -1452,12 +1541,7 @@ void GroundPanelTab::RenderSelection_(Document& document) {
     }
     Track(changed, committed);
 
-    ImGui::SeparatorText("Paint with");
     ShapeSpec& shape = editing_.shape;
-    ImGui::PushID("look");
-    RenderLookEditor_(editing_.look, shape.kind == ShapeKind::Line, selectionLook_, changed, committed);
-    ImGui::PopID();
-
     if (shape.kind != ShapeKind::Merged) {
         ImGui::SeparatorText(shape.kind == ShapeKind::Marking ? "Marking" : "Shape");
     }
@@ -1540,11 +1624,16 @@ void GroundPanelTab::RenderSelection_(Document& document) {
     case ShapeKind::Merged:
         break;
     }
+    ImGui::SeparatorText("Paint with");
+    ImGui::PushID("look");
+    RenderLookEditor_(editing_.look, shape.kind == ShapeKind::Line, selectionLook_, changed, committed);
+    ImGui::PopID();
     RenderFinish_(editing_.look, shape.wear, shape.kind == ShapeKind::Marking ? nullptr : &shape.roughness, changed,
                   committed);
 
     if (committed) {
         document.Update({editing_});
+        editingRevision_ = document.Revision();
     }
     else if (changed) {
         // Shown while the control is held: a new style at once, a new cut every so often.
@@ -1560,18 +1649,27 @@ void GroundPanelTab::RenderSelectionActions_(Document& document) {
     const std::vector<uint32_t> selection = document.Selection();
     const uint32_t first = selection.front();
     ImGui::Text("%zu selected", selection.size());
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Up")) document.MoveUp(first);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Down")) document.MoveDown(first);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Top")) document.MoveToTop(first);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Bottom")) document.MoveToBottom(first);
+
+    // The order works on one shape: it would otherwise move only the first of several.
+    const bool one = selection.size() == 1;
+    const auto orderButton = [&](const char* label, const char* tip, void (Document::*move)(uint32_t)) {
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!one);
+        if (ImGui::SmallButton(label)) {
+            (document.*move)(first);
+        }
+        ImGui::EndDisabled();
+        Tooltip(one ? tip : "Select one shape to change its order.");
+    };
+    orderButton("Up", "Draw it over the shape above it.", &Document::MoveUp);
+    orderButton("Down", "Draw it under the shape below it.", &Document::MoveDown);
+    orderButton("Top", "Draw it over all other shapes.", &Document::MoveToTop);
+    orderButton("Bottom", "Draw it under all other shapes.", &Document::MoveToBottom);
 
     if (ImGui::SmallButton("Copy")) {
         document.Duplicate(selection, {4.0f, 4.0f});
     }
+    Tooltip("Add a copy next to it.");
     ImGui::SameLine();
     const bool grouped = std::ranges::any_of(selection, [&](const uint32_t id) {
         const PaintObject* const object = document.Find(id);
@@ -1584,21 +1682,20 @@ void GroundPanelTab::RenderSelectionActions_(Document& document) {
         ImGui::BeginDisabled(selection.size() < 2);
         if (ImGui::SmallButton("Group")) document.Group(selection);
         ImGui::EndDisabled();
+        Tooltip(selection.size() < 2 ? "Select two or more shapes. Hold Ctrl and click to add a shape."
+                                     : "Select these shapes as one from now on.");
     }
     ImGui::SameLine();
     ImGui::BeginDisabled(selection.size() < 2);
     if (ImGui::SmallButton("Merge")) document.Merge(selection);
     ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Join the selected shapes into one.\nThe new shape gets the look of the top shape.\nYou cannot edit their points after this.");
-    }
-    ImGui::SameLine();
+    Tooltip(selection.size() < 2 ? "Select two or more shapes. Hold Ctrl and click to add a shape."
+                                 : "Join the selected shapes into one.\nThe new shape gets the look of the top shape.\nYou cannot edit their points after this.");
+    ImGui::SameLine(0.0f, kGroupGap);
     if (ImGui::SmallButton("Delete")) {
         document.Remove(selection);
-        return;
     }
-    RenderShapeTools_(document, selection);
-    RenderPlanting_(selection.front());
+    Tooltip("Remove it from the city. Press Ctrl+Z to bring it back.");
 }
 
 void GroundPanelTab::RenderPlanting_(const uint32_t objectId) {
@@ -1632,7 +1729,7 @@ void GroundPanelTab::RenderPlanting_(const uint32_t objectId) {
         ImGui::SetTooltip("The painter opens in Line mode along this line, or around the edge of this shape.\n"
                           "Press - or + to change the spacing. Press Enter to place the items.");
     }
-    ImGui::TextDisabled("In Line or Polygon mode of the prop and flora painters, press F over painted ground to do the same.");
+    Hint("In Line or Polygon mode of the prop and flora painters, press F over painted ground to do the same.");
     ImGui::PopID();
 }
 
@@ -1650,10 +1747,11 @@ void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uin
     }
     ImGui::PushID("shapeTools");
 
-    ImGui::SetNextItemWidth(110.0f);
+    const float fieldWidth = ShareOfLine(3);
+    ImGui::SetNextItemWidth(fieldWidth);
     ImGui::DragFloat("##borderWidth", &borderWidth_, 0.02f, 0.05f, 50.0f, "%.2f m wide");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(110.0f);
+    ImGui::SetNextItemWidth(fieldWidth);
     int side = static_cast<int>(borderSide_);
     if (ImGui::Combo("##borderSide", &side, "outside\0inside\0on the edge\0")) {
         borderSide_ = static_cast<BorderSide>(side);
@@ -1667,10 +1765,10 @@ void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uin
                           "It starts with the same look. You can then give it a different look.");
     }
 
-    ImGui::SetNextItemWidth(110.0f);
+    ImGui::SetNextItemWidth(fieldWidth);
     ImGui::DragInt("##columns", &repeatColumns_, 0.05f, 1, 50, "%d across");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(110.0f);
+    ImGui::SetNextItemWidth(fieldWidth);
     ImGui::DragInt("##rows", &repeatRows_, 0.05f, 1, 50, "%d down");
     ImGui::SameLine();
     ImGui::BeginDisabled(repeatColumns_ * repeatRows_ < 2);
@@ -1678,7 +1776,8 @@ void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uin
         document.Repeat(selection, repeatColumns_, repeatRows_, {repeatStep_.x, 0.0f}, {0.0f, repeatStep_.z});
     }
     ImGui::EndDisabled();
-    ImGui::SetNextItemWidth(226.0f + ImGui::GetStyle().ItemSpacing.x);
+    Tooltip(repeatColumns_ * repeatRows_ < 2 ? "Set more than 1 across or down." : "Add the copies.");
+    ImGui::SetNextItemWidth(fieldWidth * 2.0f + ImGui::GetStyle().ItemSpacing.x);
     ImGui::DragFloat2("Step##repeat", &repeatStep_.x, 0.05f, -500.0f, 500.0f, "%.2f m");
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("The distance from each copy to the last copy, across (x) and down (z).\n"
@@ -1707,14 +1806,15 @@ void GroundPanelTab::RenderTransform_(Document& document) {
     // The two controls show the change while dragged and make it when let go.
     bool active = false;
     bool done = false;
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::DragFloat("Turn", &turnDegrees_, 0.5f, -180.0f, 180.0f, "%.1f deg");
+    const float halfWidth = ShareOfLine(2);
+    ImGui::SetNextItemWidth(halfWidth);
+    ImGui::DragFloat("##turn", &turnDegrees_, 0.5f, -180.0f, 180.0f, "Turn %.1f deg");
     const bool turnStarted = ImGui::IsItemActivated();
     active |= ImGui::IsItemActive();
     done |= ImGui::IsItemDeactivated();
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::DragFloat("Scale", &scalePercent_, 0.25f, 10.0f, 1000.0f, "%.0f %%");
+    ImGui::SetNextItemWidth(halfWidth);
+    ImGui::DragFloat("##scale", &scalePercent_, 0.25f, 10.0f, 1000.0f, "Scale %.0f %%");
     const bool scaleStarted = ImGui::IsItemActivated();
     active |= ImGui::IsItemActive();
     done |= ImGui::IsItemDeactivated();
@@ -1754,14 +1854,14 @@ void GroundPanelTab::RenderLayers_(Document& document) {
         document.Undo();
     }
     ImGui::EndDisabled();
+    Tooltip("Press Ctrl+Z, or the back mouse button.");
     ImGui::SameLine();
     ImGui::BeginDisabled(!document.CanRedo());
     if (ImGui::SmallButton("Redo")) {
         document.Redo();
     }
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextDisabled("Press Ctrl+Z or Ctrl+Y, or use the back and forward mouse buttons, to undo and redo.");
+    Tooltip("Press Ctrl+Y, or the forward mouse button.");
     if (objects.empty()) {
         ImGui::TextDisabled("Nothing painted yet.");
         return;
@@ -1787,58 +1887,63 @@ void GroundPanelTab::RenderLayers_(Document& document) {
     // reorders the list.
     std::optional<PaintObject> changed;
     std::optional<std::pair<uint32_t, bool>> clicked;
-    for (auto it = objects.rbegin(); it != objects.rend(); ++it) {
-        const PaintObject& object = *it;
-        ImGui::PushID(static_cast<int>(object.id));
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        bool shown = !object.hidden;
-        if (ImGui::Checkbox("##shown", &shown)) {
-            changed = object;
-            changed->hidden = !shown;
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(objects.size()));
+    while (clipper.Step()) {
+        for (int rowIndex = clipper.DisplayStart; rowIndex < clipper.DisplayEnd; ++rowIndex) {
+            const PaintObject& object = objects[objects.size() - 1 - static_cast<size_t>(rowIndex)];
+            ImGui::PushID(static_cast<int>(object.id));
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            bool shown = !object.hidden;
+            if (ImGui::Checkbox("##shown", &shown)) {
+                changed = object;
+                changed->hidden = !shown;
+            }
+            ImGui::TableNextColumn();
+            bool locked = object.locked;
+            if (ImGui::Checkbox("##locked", &locked)) {
+                changed = object;
+                changed->locked = locked;
+            }
+            ImGui::TableNextColumn();
+            // What it is painted with: its texture, or its colour. A click selects, as on the name.
+            const float swatch = ImGui::GetTextLineHeight();
+            bool swatchClicked;
+            if (!object.look.textures.empty()) {
+                swatchClicked = TextureTile_(object.look.textures.front().instance, swatch, false);
+            }
+            else {
+                const auto& c = object.look.color;
+                swatchClicked = ImGui::ColorButton("##colour", ImVec4(c[0], c[1], c[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
+                                                   ImVec2(swatch, swatch));
+            }
+            ImGui::TableNextColumn();
+            const bool selected = ImGui::Selectable(ObjectLabel(object).c_str(), document.IsSelected(object.id),
+                                                    ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap);
+            if (selected || swatchClicked) {
+                clicked = std::pair{object.id, ImGui::GetIO().KeyCtrl};
+            }
+            // What kind of shape, and its group, quietly after the name.
+            std::string detail = object.name.empty() ? "" : ShapeKindName(object.shape.kind);
+            if (object.shape.kind == ShapeKind::Marking && !object.name.empty()) {
+                detail = MarkingKindName(object.shape.marking.kind);
+            }
+            if (object.group != 0) {
+                detail += (detail.empty() ? "" : ", ") + std::string("group ") + std::to_string(object.group);
+            }
+            if (object.shape.wear > 0.0f) {
+                detail += detail.empty() ? "worn" : ", worn";
+            }
+            if (UsesPatches(object.look)) {
+                detail += detail.empty() ? "patches" : ", patches";
+            }
+            if (!detail.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", detail.c_str());
+            }
+            ImGui::PopID();
         }
-        ImGui::TableNextColumn();
-        bool locked = object.locked;
-        if (ImGui::Checkbox("##locked", &locked)) {
-            changed = object;
-            changed->locked = locked;
-        }
-        ImGui::TableNextColumn();
-        // What it is painted with: its texture, or its colour.
-        const float swatch = ImGui::GetTextLineHeight();
-        if (!object.look.textures.empty()) {
-            TextureTile_(object.look.textures.front().instance, swatch, false);
-        }
-        else {
-            const auto& c = object.look.color;
-            ImGui::ColorButton("##colour", ImVec4(c[0], c[1], c[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
-                               ImVec2(swatch, swatch));
-        }
-        ImGui::TableNextColumn();
-        const bool selected = ImGui::Selectable(ObjectLabel(object).c_str(), document.IsSelected(object.id),
-                                                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap);
-        if (selected) {
-            clicked = std::pair{object.id, ImGui::GetIO().KeyCtrl};
-        }
-        // What kind of shape, and its group, quietly after the name.
-        std::string detail = object.name.empty() ? "" : ShapeKindName(object.shape.kind);
-        if (object.shape.kind == ShapeKind::Marking && !object.name.empty()) {
-            detail = MarkingKindName(object.shape.marking.kind);
-        }
-        if (object.group != 0) {
-            detail += (detail.empty() ? "" : ", ") + std::string("group ") + std::to_string(object.group);
-        }
-        if (object.shape.wear > 0.0f) {
-            detail += detail.empty() ? "worn" : ", worn";
-        }
-        if (UsesPatches(object.look)) {
-            detail += detail.empty() ? "patches" : ", patches";
-        }
-        if (!detail.empty()) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", detail.c_str());
-        }
-        ImGui::PopID();
     }
     ImGui::EndTable();
 

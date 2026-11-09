@@ -66,6 +66,8 @@ private:
     void TextureTooltip_(uint32_t instanceId) const;
     void RenderShapeSettings_();
     void RenderSelection_(Ground::GroundPaintDocument& document);
+    // The name, shape and look of the one selected object.
+    void RenderInspector_(Ground::GroundPaintDocument& document, uint32_t first);
     void RenderSelectionActions_(Ground::GroundPaintDocument& document);
     // Border, repeat and mirror for the selection.
     void RenderShapeTools_(Ground::GroundPaintDocument& document, const std::vector<uint32_t>& selection);
@@ -99,6 +101,9 @@ private:
     // The selected object being edited, applied when a control is let go.
     uint32_t editingId_ = 0;
     Ground::PaintObject editing_{};
+    // The document's revision editing_ was taken at: later changes, such as an undo or a point
+    // dragged in the city, replace it.
+    uint64_t editingRevision_ = 0;
 
     // Border, repeat and mirror settings; the repeat step is reset for each new selection.
     float borderWidth_ = 1.0f;
