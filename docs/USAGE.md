@@ -277,7 +277,7 @@ Shortcuts, by key and with a mouse that has a middle and back/forward buttons:
 
 ### Stamp
 
-Stamp paints single texture decals on terrain and lot surfaces.
+Stamp paints single texture decals on terrain and lot surfaces. Its search and pack list stay the same when you change between `Stamp decals` and the other Terrain Paint tools.
 
 Filters:
 

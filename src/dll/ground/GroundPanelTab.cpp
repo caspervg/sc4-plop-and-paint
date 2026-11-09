@@ -482,6 +482,18 @@ void GroundPanelTab::OnRender() {
     ImGui::PushID("tools");
     RenderToolRow_();
     ImGui::PopID();
+    // Both modes list the same textures, so the search goes along when the mode changes.
+    if (stampTab_ && stamping_ != shownStamping_) {
+        if (stamping_) {
+            stampTab_->SetSearch(textureFilter_, packFilter_.Selected());
+        }
+        else {
+            std::snprintf(textureFilter_, sizeof(textureFilter_), "%s", stampTab_->SearchText());
+            packFilter_.Select(stampTab_->SelectedPack());
+        }
+    }
+    shownStamping_ = stamping_;
+
     if (stamping_) {
         ImGui::Separator();
         if (stampTab_) {

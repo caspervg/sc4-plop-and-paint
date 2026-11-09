@@ -98,6 +98,7 @@ private:
     // When the selection's edit was last shown in the city with a new cut.
     std::chrono::steady_clock::time_point lastLivePreview_{};
     bool stamping_ = false;
+    bool shownStamping_ = false;
 
     // The selected object being edited, applied when a control is let go.
     uint32_t editingId_ = 0;

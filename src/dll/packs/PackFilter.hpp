@@ -51,6 +51,8 @@ public:
 
     [[nodiscard]] int32_t Selected() const { return selected_; }
     void Clear() { selected_ = kAllPacks; }
+    // A value from Selected() of a filter over the same catalog.
+    void Select(const int32_t choice) { selected_ = choice; }
     [[nodiscard]] bool IsActive() const { return selected_ != kAllPacks; }
 
 private:

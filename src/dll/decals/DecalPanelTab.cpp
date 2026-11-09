@@ -442,6 +442,11 @@ void DecalPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
     }
 }
 
+void DecalPanelTab::SetSearch(const char* const text, const int32_t pack) {
+    std::snprintf(searchBuf_, sizeof(searchBuf_), "%s", text);
+    packFilter_.Select(pack);
+}
+
 void DecalPanelTab::OnShutdown() {
     thumbnailCache_.Clear();
     ClearUvPickerTexture_();

@@ -26,6 +26,11 @@ public:
     void OnDeviceReset(uint32_t deviceGeneration) override;
     void OnShutdown() override;
 
+    // Terrain Paint hands these over when it changes to and from this mode.
+    void SetSearch(const char* text, int32_t pack);
+    [[nodiscard]] const char* SearchText() const { return searchBuf_; }
+    [[nodiscard]] int32_t SelectedPack() const { return packFilter_.Selected(); }
+
 private:
     void IndexPacks_();
     void RenderFilterBar_();
