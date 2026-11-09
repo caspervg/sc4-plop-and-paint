@@ -89,6 +89,18 @@ std::vector<LotView> LotFilterHelper::ApplyFiltersAndSort(const std::vector<LotV
     return filtered;
 }
 
+int LotFilterHelper::ActiveFilterCount() const {
+    const auto fullRange = [](const int (&range)[2]) {
+        return range[0] == LotSize::kMinSize && range[1] == LotSize::kMaxSize;
+    };
+    return static_cast<int>(!searchBuffer.empty()) + static_cast<int>(!fullRange(sizeX)) +
+           static_cast<int>(!fullRange(sizeZ)) + static_cast<int>(!selectedOccupantGroups.empty()) +
+           static_cast<int>(!selectedBuildingStyles.empty()) + static_cast<int>(selectedZoneType.has_value()) +
+           static_cast<int>(selectedWealthType.has_value()) + static_cast<int>(selectedGrowthStage.has_value()) +
+           static_cast<int>(wallToWallFilter != WallToWallFilter::Any) + static_cast<int>(activeStylesOnly) +
+           static_cast<int>(favoritesOnly);
+}
+
 void LotFilterHelper::ResetFilters() {
     searchBuffer.clear();
 

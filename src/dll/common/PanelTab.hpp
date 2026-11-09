@@ -10,6 +10,7 @@
 #include "../lots/LotRepository.hpp"
 #include "../props/PropRepository.hpp"
 #include "Constants.hpp"
+#include "PanelUi.hpp"
 #include "ThumbnailGrid.hpp"
 #include "ThumbnailUi.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"

@@ -19,11 +19,14 @@
 
 using namespace Ground;
 using Document = Ground::GroundPaintDocument;
+using PanelUi::Hint;
+using PanelUi::kGroupGap;
+using PanelUi::NextInRow;
+using PanelUi::Tooltip;
 
 namespace {
     constexpr float kThumbSize = 40.0f;
     constexpr float kPickerThumbSize = 56.0f;
-    constexpr float kGroupGap = 16.0f;
     constexpr ImVec4 kAttentionColor(1.0f, 0.85f, 0.3f, 1.0f);
 
     struct ToolInfo {
@@ -173,18 +176,6 @@ namespace {
         return clicked;
     }
 
-    // Keeps a row of fixed-size buttons inside the panel: the next one goes on this line if it fits.
-    void NextInRow(const size_t index, const float width, const float gap = -1.0f) {
-        if (index == 0) {
-            return;
-        }
-        const float space = gap >= 0.0f ? gap : ImGui::GetStyle().ItemSpacing.x;
-        const float right = ImGui::GetItemRectMax().x + space + width;
-        if (right < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) {
-            ImGui::SameLine(0.0f, space);
-        }
-    }
-
     // Shows the active button pressed.
     bool ToggleButton(const char* label, const bool active) {
         if (active) {
@@ -206,20 +197,6 @@ namespace {
         const float spacing = ImGui::GetStyle().ItemSpacing.x;
         return std::max(1.0f, (ImGui::GetContentRegionAvail().x - spacing * static_cast<float>(count - 1)) /
                                   static_cast<float>(count));
-    }
-
-    // Also on a disabled control, where it says why.
-    void Tooltip(const char* text) {
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-            ImGui::SetTooltip("%s", text);
-        }
-    }
-
-    // Quiet text that wraps at the side of the panel.
-    void Hint(const char* text) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("%s", text);
-        ImGui::PopStyleColor();
     }
 
     std::string ObjectLabel(const PaintObject& object) {

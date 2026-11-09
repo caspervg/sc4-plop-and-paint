@@ -64,6 +64,10 @@ public:
                                                            const BuildingStyleContext& buildingStyleContext = {}) const;
 
     void ResetFilters();
+    // How many filters narrow the list now.
+    [[nodiscard]] int ActiveFilterCount() const;
+
+    bool operator==(const LotFilterHelper&) const = default;
 
 private:
     [[nodiscard]] bool PassesTextFilter_(const LotView& lot) const;

@@ -8,6 +8,12 @@
 #include "../common/Utils.hpp"
 #include "../utils/Logger.h"
 
+using PanelUi::CheckboxWidth;
+using PanelUi::Hint;
+using PanelUi::kGroupGap;
+using PanelUi::NextInRow;
+using PanelUi::Tooltip;
+
 namespace {
     std::string CollapseConsecutiveNewlines(const std::string& text) {
         std::string result;
@@ -54,7 +60,8 @@ void BuildingsPanelTab::OnRender() {
     const auto& buildings = lots_->GetBuildings();
 
     if (buildings.empty()) {
-        ImGui::TextUnformatted("No buildings loaded. Make sure that lots.cbor is in the Plugins folder.");
+        ImGui::TextWrapped("No buildings loaded. Run the cache builder to make lots.cbor in the Plugins folder, "
+                           "then restart the game.");
         return;
     }
 
@@ -62,18 +69,46 @@ void BuildingsPanelTab::OnRender() {
     ImGui::Separator();
 
     ApplyFilters_();
-    ImGui::Text("Showing %zu of %zu buildings", filteredBuildings_.size(), buildings.size());
+    RenderResultLine_();
+    if (filteredBuildings_.empty()) {
+        if (PanelUi::NoResults("No buildings match these filters.")) {
+            filter_.ResetFilters();
+        }
+        return;
+    }
 
-    // Calculate available height for tables
-    const float availHeight = ImGui::GetContentRegionAvail().y;
-    const float buildingTableHeight = availHeight * 0.6f;
-    const float lotsTableHeight = availHeight * 0.4f - ImGui::GetTextLineHeightWithSpacing();
-
-    RenderBuildingsTable_(buildingTableHeight);
-
+    // The building list takes what the lots do not need. Both stay usable in a short panel,
+    // which then scrolls.
+    const float line = ImGui::GetTextLineHeightWithSpacing();
+    const float available = ImGui::GetContentRegionAvail().y;
+    const float minimumBuildings = UI::iconRowHeight() * 3.0f + line;
+    if (!selectedBuilding_) {
+        RenderBuildingsTable_(std::max(available - line * 3.0f, minimumBuildings));
+        Hint("Select a building to see its lots. Double-click a building that has one lot to plop it.");
+        return;
+    }
+    const float lotRows = static_cast<float>(selectedBuilding_->lots.size()) + 1.5f;
+    const float lotsHeight = std::clamp(lotRows * ImGui::GetFrameHeightWithSpacing(), line * 4.0f,
+                                        std::max(line * 4.0f, available * 0.4f));
+    RenderBuildingsTable_(std::max(available - lotsHeight - line * 2.0f, minimumBuildings));
     ImGui::Separator();
+    RenderLotsDetailTable_(lotsHeight);
+}
 
-    RenderLotsDetailTable_(lotsTableHeight);
+void BuildingsPanelTab::RenderResultLine_() {
+    ImGui::Text("Showing %zu of %zu buildings", filteredBuildings_.size(), lots_->GetBuildings().size());
+    const int active = filter_.ActiveFilterCount();
+    if (active > 0) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d filter%s on", active, active == 1 ? "" : "s");
+    }
+    ImGui::SameLine(0.0f, kGroupGap);
+    ImGui::BeginDisabled(active == 0);
+    if (ImGui::SmallButton("Clear filters")) {
+        filter_.ResetFilters();
+    }
+    ImGui::EndDisabled();
+    Tooltip(active == 0 ? "No filters are on." : "Show all buildings again.");
 }
 
 void BuildingsPanelTab::OnDeviceReset(uint32_t deviceGeneration) {
@@ -122,7 +157,7 @@ void BuildingsPanelTab::RenderFilterUI_() {
     }
 
     // Leave room on the right for the pick button.
-    constexpr float kPickButtonWidth = 100.0f;
+    const float kPickButtonWidth = ImGui::CalcTextSize("Stop picking").x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::SetNextItemWidth(-(kPickButtonWidth + ImGui::GetStyle().ItemSpacing.x));
     if (ImGui::InputTextWithHint("##SearchBuildings", "Search buildings...", searchBuf, sizeof(searchBuf))) {
         filter_.searchBuffer = searchBuf;
@@ -160,9 +195,9 @@ void BuildingsPanelTab::RenderFilterUI_() {
         }
     }
 
-    ImGui::SameLine();
 
     // Wealth filter
+    NextInRow(1, UI::dropdownWidth());
     const char* wealthOptions[] = {"Any wealth", "$", "$$", "$$$"};
     int currentWealth = filter_.selectedWealthType.has_value() ? filter_.selectedWealthType.value() : 0;
     ImGui::SetNextItemWidth(UI::dropdownWidth());
@@ -174,9 +209,9 @@ void BuildingsPanelTab::RenderFilterUI_() {
         }
     }
 
-    ImGui::SameLine();
 
     // Growth stage filter
+    NextInRow(2, UI::dropdownWidth());
     const char* growthStages[] = {
         "Any stage", "Plopped (255)", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"
     };
@@ -199,38 +234,33 @@ void BuildingsPanelTab::RenderFilterUI_() {
             filter_.selectedGrowthStage = static_cast<uint8_t>(currentGrowthStageIndex - 2);
         }
     }
+    Tooltip("The growth stage of the lot. Plopped lots have stage 255.");
 
-    ImGui::SameLine();
-
+    NextInRow(3, UI::dropdownWidth());
     const char* wallToWallOptions[] = {"Any W2W", "W2W only", "Non-W2W only"};
     int currentWallToWall = static_cast<int>(filter_.wallToWallFilter);
     ImGui::SetNextItemWidth(UI::dropdownWidth());
     if (ImGui::Combo("##WallToWall", &currentWallToWall, wallToWallOptions, 3)) {
         filter_.wallToWallFilter = static_cast<LotFilterHelper::WallToWallFilter>(currentWallToWall);
     }
+    Tooltip("W2W means wall-to-wall: buildings made to stand against each other.");
 
-    ImGui::SameLine();
+    NextInRow(4, CheckboxWidth("Favorites only"));
     ImGui::Checkbox("Favorites only", &filter_.favoritesOnly);
 
-    // Size filters
-    ImGui::Text("Width:");
+    // Size filters, in tiles. Each label stays with its slider when the row wraps.
+    const float sizeWidth = ImGui::CalcTextSize("Width (tiles)").x + ImGui::GetStyle().ItemSpacing.x + UI::wideInputWidth();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Width (tiles)");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(UI::wideInputWidth());
     ImGui::SliderInt2("##SizeX", filter_.sizeX, LotSize::kMinSize, LotSize::kMaxSize);
-    ImGui::SameLine();
-    ImGui::Text("Depth:");
+    NextInRow(1, sizeWidth, kGroupGap);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Depth (tiles)");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(UI::wideInputWidth());
     ImGui::SliderInt2("##SizeZ", filter_.sizeZ, LotSize::kMinSize, LotSize::kMaxSize);
-
-    ImGui::SameLine();
-    ImGui::Spacing();
-    ImGui::SameLine();
-
-    if (ImGui::Button("Clear filters")) {
-        filter_.ResetFilters();
-        searchBuf[0] = '\0';
-    }
 
     ImGui::Separator();
     RenderBuildingStyleFilter_();
@@ -245,7 +275,7 @@ void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
 
     if (ImGui::BeginTable("BuildingsTable", 4, tableFlags, ImVec2(0, tableHeight))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Thumb",
+        ImGui::TableSetupColumn("##Thumb",
                                 ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort,
                                 UI::iconColumnWidth());
         ImGui::TableSetupColumn("Name",
@@ -258,23 +288,12 @@ void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
                                 UI::lotsCountColumnWidth());
         ImGui::TableHeadersRow();
 
-        // Handle sorting
         if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsDirty) {
             if (specs->SpecsCount > 0) {
                 sortDescending_ = specs->Specs[0].SortDirection == ImGuiSortDirection_Descending;
+                SortBuildings_();
             }
             specs->SpecsDirty = false;
-        }
-
-        // Sort buildings
-        if (sortDescending_) {
-            std::ranges::sort(filteredBuildings_, [](const Building* a, const Building* b) {
-                return a->name > b->name;
-            });
-        } else {
-            std::ranges::sort(filteredBuildings_, [](const Building* a, const Building* b) {
-                return a->name < b->name;
-            });
         }
 
         // Use clipper for virtualized scrolling
@@ -314,11 +333,6 @@ void BuildingsPanelTab::RenderBuildingsTable_(const float tableHeight) {
 }
 
 void BuildingsPanelTab::RenderLotsDetailTable_(const float tableHeight) {
-    if (!selectedBuilding_) {
-        ImGui::TextDisabled("Select a building above to see its lots");
-        return;
-    }
-
     ImGui::Text("Lots for: %s (%zu lots)", selectedBuilding_->name.c_str(), selectedBuilding_->lots.size());
 
     constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
@@ -379,8 +393,26 @@ void BuildingsPanelTab::RenderBuildingRow_(const Building& building, const bool 
     // Description column
     ImGui::TableNextColumn();
     if (!building.description.empty()) {
+        // As many whole lines as fit, so that every row has the same height and the list does not
+        // jump while it scrolls. The rest is in the tooltip.
         const auto res = CollapseConsecutiveNewlines(building.description);
-        ImGui::TextWrapped("%s", res.c_str());
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float lineHeight = ImGui::GetTextLineHeight();
+        const float height = std::max(lineHeight, std::floor(rowHeight / lineHeight) * lineHeight -
+                                                      ImGui::GetStyle().CellPadding.y * 2.0f);
+        const ImVec4 clip(pos.x, pos.y, pos.x + width, pos.y + height);
+        ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(), pos, ImGui::GetColorU32(ImGuiCol_Text),
+                                            res.c_str(), nullptr, width, &clip);
+        ImGui::Dummy(ImVec2(width, height));
+        // The row's selectable spans this cell, so this tests the rectangle rather than the item.
+        if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax())) {
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+            ImGui::TextUnformatted(res.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
     }
 
     // Lots count column
@@ -428,12 +460,10 @@ void BuildingsPanelTab::RenderLotRow_(const Lot& lot) {
 }
 
 void BuildingsPanelTab::RenderOccupantGroupFilter_() {
-    std::string preview;
-    if (filter_.selectedOccupantGroups.empty()) {
-        preview = "All Occupant Groups";
-    } else {
-        preview = std::to_string(filter_.selectedOccupantGroups.size()) + " selected";
-    }
+    // The count shows while the section is closed, so a filter on is never out of sight.
+    const std::string header = filter_.selectedOccupantGroups.empty()
+        ? std::string("Occupant Groups###OccupantGroups")
+        : std::format("Occupant Groups ({} selected)###OccupantGroups", filter_.selectedOccupantGroups.size());
 
     std::function<void(const OccupantGroup&)> renderOGNode = [&](const OccupantGroup& og) {
         if (!og.children.empty()) {
@@ -457,9 +487,8 @@ void BuildingsPanelTab::RenderOccupantGroupFilter_() {
         }
     };
 
-    if (ImGui::CollapsingHeader("Occupant Groups")) {
+    if (ImGui::CollapsingHeader(header.c_str())) {
         ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, UI::treeIndentSpacing());
-        ImGui::Text("%s", preview.c_str());
 
         if (ImGui::BeginChild("##OGTree", ImVec2(0, UI::ogTreeHeight()), true)) {
             for (const auto& og : OCCUPANT_GROUP_TREE) {
@@ -468,9 +497,11 @@ void BuildingsPanelTab::RenderOccupantGroupFilter_() {
         }
         ImGui::EndChild();
 
-        if (ImGui::SmallButton("Clear OGs")) {
+        ImGui::BeginDisabled(filter_.selectedOccupantGroups.empty());
+        if (ImGui::SmallButton("Clear occupant groups")) {
             filter_.selectedOccupantGroups.clear();
         }
+        ImGui::EndDisabled();
         ImGui::PopStyleVar();
     }
 }
@@ -486,22 +517,23 @@ void BuildingsPanelTab::RenderBuildingStyleFilter_() {
         });
     }
 
-    std::string preview = filter_.selectedBuildingStyles.empty()
-        ? "All building styles"
-        : std::to_string(filter_.selectedBuildingStyles.size()) + " selected";
+    // The count shows while the section is closed, so a filter on is never out of sight.
+    const size_t selectedStyles = filter_.selectedBuildingStyles.size();
+    const std::string header =
+        selectedStyles == 0 && !filter_.activeStylesOnly ? std::string("Building Styles###BuildingStyles")
+        : selectedStyles == 0 ? std::string("Building Styles (active styles only)###BuildingStyles")
+                              : std::format("Building Styles ({} selected)###BuildingStyles", selectedStyles);
 
-    if (ImGui::CollapsingHeader("Building Styles")) {
-        ImGui::TextUnformatted(preview.c_str());
-
+    if (ImGui::CollapsingHeader(header.c_str())) {
         const bool styleApiAvailable = buildingStyleService_->HasStyleInfoApi();
         const bool runtimeCatalogReady = styleApiAvailable && !buildingStyleService_->GetAvailableStyles().empty();
 
         if (cacheNeedsRebuild_) {
-            ImGui::TextDisabled("Rebuild the plugin cache to get the style data of your buildings.");
+            Hint("Rebuild the plugin cache to get the style data of your buildings.");
         }
 
         if (!styleApiAvailable) {
-            ImGui::TextDisabled("Only the Maxis styles show. The More Building Styles DLL is not installed.");
+            Hint("Only the Maxis styles show. The More Building Styles DLL is not installed.");
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("To use custom styles, install SC4MoreBuildingStyles.dll.\n"
                                   "Also install the Building Style Control and the style definition files for your setup.");
@@ -509,7 +541,7 @@ void BuildingsPanelTab::RenderBuildingStyleFilter_() {
         }
         else {
             if (!runtimeCatalogReady) {
-                ImGui::TextDisabled("Load a city to see the custom styles and the active styles.");
+                Hint("Load a city to see the custom styles and the active styles.");
             }
 
             ImGui::BeginDisabled(!context.activeStylesKnown);
@@ -541,10 +573,12 @@ void BuildingsPanelTab::RenderBuildingStyleFilter_() {
         }
         ImGui::EndChild();
 
+        ImGui::BeginDisabled(selectedStyles == 0 && !filter_.activeStylesOnly);
         if (ImGui::SmallButton("Clear styles")) {
             filter_.selectedBuildingStyles.clear();
             filter_.activeStylesOnly = false;
         }
+        ImGui::EndDisabled();
     }
 }
 
@@ -564,6 +598,18 @@ void BuildingsPanelTab::RenderFavButton_(const uint32_t lotInstanceId) const {
 void BuildingsPanelTab::ApplyFilters_() {
     const auto& buildings = lots_->GetBuildings();
     const auto& favoriteLots = favorites_->GetFavoriteLotIds();
+    const auto& context = GetBuildingStyleContext_();
+
+    // Thousands of buildings: only when something changed, not every frame.
+    const size_t favoriteCount = filter_.favoritesOnly ? favoriteLots.size() : 0;
+    if (buildings.size() == appliedBuildingCount_ && favoriteCount == appliedFavoriteCount_ &&
+        filter_ == appliedFilter_ && context == appliedContext_) {
+        return;
+    }
+    appliedBuildingCount_ = buildings.size();
+    appliedFavoriteCount_ = favoriteCount;
+    appliedFilter_ = filter_;
+    appliedContext_ = context;
 
     filteredBuildings_.clear();
     filteredBuildings_.reserve(buildings.size());
@@ -572,7 +618,7 @@ void BuildingsPanelTab::ApplyFilters_() {
         // A building passes if any of its lots passes all filters
         bool hasMatchingLot = std::ranges::any_of(building.lots, [&](const Lot& lot) {
             LotView view{&building, &lot};
-            return filter_.PassesFilters(view, GetBuildingStyleContext_()) &&
+            return filter_.PassesFilters(view, context) &&
                    (!filter_.favoritesOnly || favoriteLots.contains(lot.instanceId.value()));
         });
 
@@ -580,6 +626,8 @@ void BuildingsPanelTab::ApplyFilters_() {
             filteredBuildings_.push_back(&building);
         }
     }
+
+    SortBuildings_();
 
     // Clear selection if it was filtered out
     if (selectedBuilding_) {
@@ -589,6 +637,15 @@ void BuildingsPanelTab::ApplyFilters_() {
         if (!found) {
             selectedBuilding_ = nullptr;
         }
+    }
+}
+
+void BuildingsPanelTab::SortBuildings_() {
+    if (sortDescending_) {
+        std::ranges::sort(filteredBuildings_, [](const Building* a, const Building* b) { return a->name > b->name; });
+    }
+    else {
+        std::ranges::sort(filteredBuildings_, [](const Building* a, const Building* b) { return a->name < b->name; });
     }
 }
 

@@ -43,8 +43,8 @@ Filters:
 - `Favorites only`
 - `Width` and `Depth` min/max sliders
 - `Building Styles`: expandable list of styles with `Clear styles`
-- `Occupant Groups`: expandable tree filter with `Clear OGs`
-- `Clear filters`: resets all of the above
+- `Occupant Groups`: expandable tree filter with `Clear occupant groups`
+- `Clear filters`: next to the number of buildings shown, resets all of the above. The line also says how many filters are on, and the `Building Styles` and `Occupant Groups` headers show what is selected while they are closed
 
 Important behavior:
 

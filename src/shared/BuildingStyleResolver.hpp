@@ -15,6 +15,8 @@ struct BuildingStyleContext {
     bool activeStylesKnown = false;
     // The More Building Styles DLL is missing, so the game does not read the Building Styles property.
     bool explicitStylesIgnored = false;
+
+    bool operator==(const BuildingStyleContext&) const = default;
 };
 
 class BuildingStyleResolver {
