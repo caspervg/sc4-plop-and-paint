@@ -17,7 +17,7 @@ namespace {
     constexpr bool kDefaultLogToFile = true;
     constexpr bool kDefaultCheckForUpdates = true;
     constexpr bool kDefaultEnableDrawOverlay = true;
-    constexpr auto kDefaultPropPreviewMode = PreviewMode::Combined;
+    constexpr auto kDefaultPropPreviewMode = PreviewMode::FullModel;
     constexpr bool kDefaultShowGridOverlay = true;
     constexpr bool kDefaultSnapPointsToGrid = false;
     constexpr bool kDefaultSnapPlacementsToGrid = false;
@@ -273,7 +273,7 @@ void Settings::Load(const std::filesystem::path& settingsFilePath) {
             defaultPropPreviewMode_ = ParsePropPreviewMode(text, valid);
             if (!valid) {
                 defaultPropPreviewMode_ = kDefaultPropPreviewMode;
-                LOG_ERROR("Invalid DefaultPropPreviewMode value '{}' in {}. Using default outline.", text,
+                LOG_ERROR("Invalid DefaultPropPreviewMode value '{}' in {}. Using the default mode.", text,
                           settingsFilePath.string());
             }
         }

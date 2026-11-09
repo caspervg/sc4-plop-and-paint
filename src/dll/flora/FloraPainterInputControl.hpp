@@ -3,7 +3,7 @@
 
 #include "../../shared/entities.hpp"
 #include "../common/BasePainterInputControl.hpp"
-#include "cISC4FloraOccupant.h"
+#include "../paint/ModelPreview.hpp"
 #include "cISC4FloraSimulator.h"
 #include "cISC4Occupant.h"
 #include "cRZAutoRefCount.h"
@@ -22,28 +22,31 @@ protected:
     bool PlaceAtWorld_(const cS3DVector3& pos, int32_t rotation, uint32_t typeID) override;
     void RemoveOccupant_(cISC4Occupant* occupant) override;
     void OnCityChanged_(cISC4City* pCity) override;
+    void OnPlaced_(const cS3DVector3& position, const int32_t rotation, const uint32_t typeID) override {
+        // ponytail: with random rotation the game picks the facing, so the pop can face another way.
+        cursorPreview_.Pop(typeID, position, rotation, ItemSize_(typeID), ModelPreview::CurrentView(view3D));
+    }
     [[nodiscard]] bool ShouldShowModelPreview_() const override;
     [[nodiscard]] bool HasActivePreviewOccupant_() const override;
     void CreatePreviewOccupant_() override;
     void DestroyPreviewOccupant_() override;
-    void HidePreviewForPick_() override;
-    void UpdatePreviewOccupantRotation_() override;
     void UpdatePreviewOccupant_() override;
     void PopulatePreviewBounds_(PaintOverlay::PreviewPlacement& placement, uint32_t typeID) const override;
+    void ShowPlannedModels_(const std::vector<PaintOverlay::PreviewPlacement>& placements) override;
     [[nodiscard]] bool IsDirectPreviewPlacementValid_(const PlannedPaint& placement) const override;
     [[nodiscard]] bool ShouldForceDirectOverlay_() const override;
     [[nodiscard]] bool SupportsVerticalAdjustment_() const override { return false; }
 
 private:
-    [[nodiscard]] bool IsFloraPlacementValid_(uint32_t typeID,
-                                              const cS3DVector3& position,
-                                              cISC4Occupant* ignoredOccupant = nullptr) const;
+    [[nodiscard]] bool IsFloraPlacementValid_(uint32_t typeID, const cS3DVector3& position) const;
     void RefreshStaticFloraData_();
 
     cRZAutoRefCount<cISC4FloraSimulator> floraSimulator_;
     const FloraRepository* floraRepository_{nullptr};
     cSC4StaticFloraData* selectedFloraData_{nullptr};
 
-    cRZAutoRefCount<cISC4FloraOccupant> previewFlora_{};
-    cRZAutoRefCount<cISC4Occupant> previewOccupant_{};
+    // The model under the cursor, and the ones planned along a line or in a polygon.
+    ModelPreview cursorPreview_;
+    ModelPreview plannedPreview_;
+    bool cursorPreviewActive_{false};
 };

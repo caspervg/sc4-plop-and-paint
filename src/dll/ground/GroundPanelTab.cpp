@@ -700,6 +700,9 @@ void GroundPanelTab::RenderGrid_() {
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("The grid step. Press Ctrl+[ or Ctrl+] to change it.");
     }
+    ImGui::TextDisabled("Grid step (m)");
+    ImGui::SameLine();
+    changed |= RenderPresetButtons_("GridStep", settings_.gridStepMeters, {2.0f, 4.0f, 8.0f, 16.0f});
     ImGui::PopID();
     if (changed) {
         SettingsChanged_();
@@ -856,6 +859,12 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
     RenderChosenTextures_(look, changed, committed);
     if (!look.textures.empty()) {
         RenderTextureLayout_(look, followsLine && look.followPath, changed, committed);
+        ImGui::TextDisabled("Size (m)");
+        ImGui::SameLine();
+        if (RenderPresetButtons_("TextureSize", look.textureSizeMeters, {8.0f, 16.0f, 32.0f, 64.0f})) {
+            changed = true;
+            committed = true;
+        }
         if (look.textures.size() > 1) {
             const bool patches = look.mix == TextureMix::Patches;
             const float width = ShareOfLine(patches ? 3 : 1);

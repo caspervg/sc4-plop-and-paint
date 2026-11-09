@@ -1,5 +1,8 @@
 #pragma once
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <initializer_list>
 #include <optional>
 
 #include "../SC4PlopAndPaintDirector.hpp"
@@ -53,6 +56,48 @@ protected:
         }
     }
 
+    // A row of small buttons that each set one value. Returns true when one was pressed.
+    static bool RenderPresetButtons_(const char* id, float& value, const std::initializer_list<float> presets) {
+        bool pressed = false;
+        ImGui::PushID(id);
+        for (const float preset : presets) {
+            char label[16];
+            std::snprintf(label, sizeof(label), "%g", preset);
+            if (ImGui::SmallButton(label)) {
+                value = preset;
+                pressed = true;
+            }
+            ImGui::SameLine();
+        }
+        ImGui::PopID();
+        ImGui::NewLine();
+        return pressed;
+    }
+
+    // Dragging snaps to the step. Ctrl+click still takes any value.
+    static void RenderSteppedSlider_(const char* label, float& value, const float min, const float max, const float step,
+                                     const std::initializer_list<float> presets) {
+        // Read before the slider: it closes the text box in the frame that applies the typed value.
+        // Not ImGui::TempInputIsActive, which is inline and reads GImGui. That symbol cannot be
+        // imported from the delay-loaded SC4RenderServices.dll.
+        const ImGuiContext& context = *ImGui::GetCurrentContext();
+        const ImGuiID id = ImGui::GetID(label);
+        const bool typing = context.ActiveId == id && context.TempInputId == id;
+        if (ImGui::SliderFloat(label, &value, min, max, "%.1f") && !typing) {
+            value = std::round(value / step) * step;
+        }
+        ImGui::SetItemTooltip("Ctrl+click to type an exact value.");
+        RenderPresetButtons_(label, value, presets);
+    }
+
+    static void RenderSpacingControl_(float& spacingMeters) {
+        RenderSteppedSlider_("Spacing (m)", spacingMeters, 0.5f, 50.0f, 0.5f, {2.0f, 4.0f, 8.0f, 16.0f});
+    }
+
+    static void RenderGridStepControl_(float& gridStepMeters) {
+        RenderSteppedSlider_("Grid step (m)", gridStepMeters, 1.0f, 16.0f, 0.5f, {2.0f, 4.0f, 8.0f, 16.0f});
+    }
+
     void RenderPropStripperControls_() const {
         if (!director_) {
             return;
@@ -90,6 +135,8 @@ protected:
             if (ImGui::SmallButton("Stop stripping")) {
                 director_->StopPropStripping();
             }
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", director_->GetPropStripperStatus().c_str());
         }
         else {
             ImGui::SameLine();
@@ -106,7 +153,7 @@ protected:
             }
             if (ImGui::IsItemHovered()) {
                 if (hasAnySource) {
-                    ImGui::SetTooltip("Click a prop to remove it.\nPress B to turn brush mode on or off.\nIn brush mode, hold the left mouse button to remove all props in the circle.\nPress Ctrl+Z to put back city, lot and street props.\nPress Esc to stop.");
+                    ImGui::SetTooltip("Click a prop to remove it.\nPress B to change between single, brush and polygon mode.\nIn brush mode, hold the left mouse button to remove all props in the circle.\nIn polygon mode, click the corners of an area, then press Enter to remove the props in it.\nPress Backspace to remove the last corner.\nPress Ctrl+Z to put back city, lot and street props.\nPress Esc to clear the polygon or to stop.");
                 }
                 else {
                     ImGui::SetTooltip("Turn on at least one prop source before you start.");

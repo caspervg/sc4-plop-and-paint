@@ -232,6 +232,46 @@ void PaintOverlay::AddRectOutline(const float minX, const float minZ, const floa
     Upload_();
 }
 
+bool PaintOverlay::IsRaised(const cS3DVector3& position, cISTETerrain* terrain) {
+    if (!terrain) {
+        return false;
+    }
+    // The cursor sits on the rendered mesh and snapped points on the bilinear height. On slopes
+    // these differ by more than the threshold, so only count what is above both.
+    const float ground = std::max(terrain->GetAltitude(position.fX, position.fZ),
+                                  SampleStableTerrainHeight(terrain, position.fX, position.fZ));
+    return position.fY - ground > kStiltGapThreshold;
+}
+
+bool PaintOverlay::NeedsOutline(const PreviewPlacement& preview, const PropPaintSettings& settings,
+                                cISTETerrain* terrain) {
+    return settings.previewMode != PreviewMode::FullModel || !preview.hasModel ||
+        IsRaised(preview.placement.position, terrain);
+}
+
+std::array<float, 4> PaintOverlay::WorldFootprint(const PreviewPlacement& preview) {
+    const bool hasBounds = preview.maxX > preview.minX && preview.maxZ > preview.minZ;
+    const cS3DVector3 a = RotateLocalPoint(
+        cS3DVector3(hasBounds ? preview.minX : -preview.width * 0.5f, 0.0f, hasBounds ? preview.minZ : -preview.depth * 0.5f),
+        preview.placement.rotation);
+    const cS3DVector3 b = RotateLocalPoint(
+        cS3DVector3(hasBounds ? preview.maxX : preview.width * 0.5f, 0.0f, hasBounds ? preview.maxZ : preview.depth * 0.5f),
+        preview.placement.rotation);
+    const cS3DVector3& position = preview.placement.position;
+    return {position.fX + std::min(a.fX, b.fX), position.fZ + std::min(a.fZ, b.fZ),
+            position.fX + std::max(a.fX, b.fX), position.fZ + std::max(a.fZ, b.fZ)};
+}
+
+namespace {
+    // Families can hold empty props on purpose, as gaps in a forest.
+    bool NeedsPlanOutline(const PaintOverlay::PreviewPlacement& preview, const PropPaintSettings& settings,
+                          cISTETerrain* terrain) {
+        const bool emptyFamilyItem = settings.previewMode == PreviewMode::FullModel && !preview.hasModel &&
+            !settings.activePalette.empty();
+        return !emptyFamilyItem && PaintOverlay::NeedsOutline(preview, settings, terrain);
+    }
+}
+
 void PaintOverlay::BuildDirectPreview(const bool cursorValid,
                                           const cS3DVector3& cursorPos,
                                           cISTETerrain* terrain,
@@ -273,7 +313,9 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
     }
 
     for (const auto& placement : plannedPlacements) {
-        EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
+        if (NeedsPlanOutline(placement, settings, terrain)) {
+            EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
+        }
     }
     Upload_();
 }
@@ -285,7 +327,8 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
                                            const bool cursorValid,
                                            cISTETerrain* terrain,
                                            const PropPaintSettings& settings,
-                                           const std::vector<PreviewPlacement>& plannedPlacements) {
+                                           const std::vector<PreviewPlacement>& plannedPlacements,
+                                           const uint32_t fillColor) {
     ClearLayers_();
 
     if (cursorValid) {
@@ -304,7 +347,13 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
 
     if (vertices.size() >= 3) {
         EmitScreenLine_({vertices.back(), vertices.front()}, kPolygonCloseWidthPx, kLineColor, false, kLayerShape);
-        EmitFilledPolygon_(vertices, kPolygonFillColor, kLayerShape);
+        // Footprints already mark the area, and the fill would tint them.
+        const bool hasFootprints = std::ranges::any_of(plannedPlacements, [&](const PreviewPlacement& placement) {
+            return !NeedsOutline(placement, settings, terrain);
+        });
+        if (!hasFootprints) {
+            EmitFilledPolygon_(vertices, fillColor, kLayerShape);
+        }
     }
 
     for (const auto& vertex : vertices) {
@@ -312,7 +361,9 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
     }
 
     for (const auto& placement : plannedPlacements) {
-        EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
+        if (NeedsPlanOutline(placement, settings, terrain)) {
+            EmitPreviewPlacement_(placement, terrain, kLayerMarkers);
+        }
     }
     Upload_();
 }

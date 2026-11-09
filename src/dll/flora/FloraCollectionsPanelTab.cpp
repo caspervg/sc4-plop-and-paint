@@ -413,7 +413,7 @@ void FloraCollectionsPanelTab::RenderPaintModal_() {
         ImGui::Checkbox("Also snap placements to grid", &dummy);
         ImGui::EndDisabled();
     }
-    ImGui::SliderFloat("Grid step (m)", &pendingPaint_.settings.gridStepMeters, 1.0f, 16.0f, "%.1f");
+    RenderGridStepControl_(pendingPaint_.settings.gridStepMeters);
     static constexpr const char* kPreviewModeLabels[] = {
         "Outline only",
         "Full flora only",
@@ -425,7 +425,7 @@ void FloraCollectionsPanelTab::RenderPaintModal_() {
 
     if (pendingPaint_.settings.mode == PaintMode::Line) {
         ImGui::Separator();
-        ImGui::SliderFloat("Spacing (m)", &pendingPaint_.settings.spacingMeters, 0.5f, 50.0f, "%.1f");
+        RenderSpacingControl_(pendingPaint_.settings.spacingMeters);
         ImGui::Checkbox("Align to path direction", &pendingPaint_.settings.alignToPath);
         ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
         ImGui::SliderFloat("Lateral jitter (m)", &pendingPaint_.settings.randomOffset, 0.0f, 5.0f, "%.1f");

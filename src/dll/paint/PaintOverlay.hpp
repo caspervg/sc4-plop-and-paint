@@ -26,6 +26,7 @@ public:
     struct PreviewPlacement {
         PlannedPaint placement{};
         bool valid = true;
+        bool hasModel = true; // false: a full model preview has nothing to show for it
         bool hasContinuousRotation = false;
         float continuousRotationRadians = 0.0f;
         float width = 0.0f;
@@ -68,6 +69,16 @@ public:
     void AddRectOutline(float minX, float minZ, float maxX, float maxZ,
                         cISTETerrain* terrain, uint32_t color);
 
+    // Above the terrain by enough that the outline draws stilts.
+    [[nodiscard]] static bool IsRaised(const cS3DVector3& position, cISTETerrain* terrain);
+    // The full model preview shows the model and its footprint, unless the outline adds something
+    // they cannot show.
+    [[nodiscard]] static bool NeedsOutline(const PreviewPlacement& preview, const PropPaintSettings& settings,
+                                           cISTETerrain* terrain);
+
+    // The placed item's bounds on the ground, as x1, z1, x2, z2 in meters.
+    [[nodiscard]] static std::array<float, 4> WorldFootprint(const PreviewPlacement& preview);
+
     void BuildDirectPreview(bool cursorValid,
                             const cS3DVector3& cursorPos,
                             cISTETerrain* terrain,
@@ -91,7 +102,8 @@ public:
                              bool cursorValid,
                              cISTETerrain* terrain,
                              const PropPaintSettings& settings,
-                             const std::vector<PreviewPlacement>& plannedPlacements);
+                             const std::vector<PreviewPlacement>& plannedPlacements,
+                             uint32_t fillColor = kPolygonFillColor);
 
     // The ground paint tool: guide paths, anchor markers, and a ring of ringRadius around the
     // cursor (0 for none).

@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "../paint/PaintOverlay.hpp"
@@ -53,11 +54,14 @@ public:
     // Pushed onto the view and not shut down since; it may be below a vanilla tool.
     [[nodiscard]] bool IsActive() const { return active_; }
     void SetWorldDrawService(cIGZWorldDrawService* service);
+    // The current mode, and in polygon mode how many props would be removed.
+    [[nodiscard]] std::string GetStatusText() const;
 
 private:
     enum class StripMode {
         Single,
-        Brush
+        Brush,
+        Polygon
     };
 
     bool UpdateCursorWorldFromScreen_(int32_t screenX, int32_t screenZ);
@@ -73,7 +77,15 @@ private:
     };
 
     void AppendCandidateProps_(std::vector<CollectedProp>& candidates, SourceKind source) const;
+    static void AppendOccupants_(std::vector<CollectedProp>& candidates, SC4List<cISC4Occupant*>& rawCandidates,
+                                 SourceKind source);
+    static void RemoveDuplicates_(std::vector<CollectedProp>& candidates);
     void CollectCandidateProps_(std::vector<CollectedProp>& candidates) const;
+    void CollectPropsInPolygon_(std::vector<CollectedProp>& props) const;
+    void RefreshPolygonSelection_();
+    void ClearPolygonHighlights_();
+    void ClearPolygon_();
+    void DeletePropsInPolygon_();
     bool TryRemoveProp_(cISC4Occupant* occupant, uint32_t propType, SourceKind source) const;
     void SetHoveredProp_(cISC4Occupant* occupant);
     void ClearHoveredProp_();
@@ -102,6 +114,9 @@ private:
     bool leftMouseDown_ = false;
     uint32_t enabledSources_{SourceFlagCity};
     StripMode stripMode_{StripMode::Single};
+    std::vector<cS3DVector3> polygonPoints_;
+    std::vector<cRZAutoRefCount<cISC4Occupant>> polygonHighlights_;
+    size_t polygonSelectionCount_ = 0;
     cS3DVector3 currentCursorWorld_{};
     bool cursorValid_ = false;
 

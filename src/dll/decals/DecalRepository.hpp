@@ -49,16 +49,20 @@ public:
     [[nodiscard]] decals::TextureKind KindOf(uint32_t instanceId) const;
     // Reads textures not classified yet for up to the budget, in ID order. True when all are done.
     // Every texture is read from its file, so this is spread over frames, and only done on demand.
+    // The results go in textures.cbor, and are used until the outside cache is rebuilt.
     bool ClassifySome(std::chrono::microseconds budget);
     [[nodiscard]] size_t ClassifiedCount() const { return classified_; }
 
 private:
     [[nodiscard]] const PackCatalogRepository::TextureRow* Preferred_(uint32_t instanceId) const;
+    void RestoreKinds_();
+    void SaveKinds_();
 
     std::vector<uint32_t> instanceIds_;
     // By the place of the texture in instanceIds_.
     std::vector<decals::TextureKind> kinds_;
     size_t classified_ = 0;
+    bool kindsChanged_ = false;
     const PackCatalogRepository* packs_ = nullptr;
     cIGZPersistResourceManager* pRM_ = nullptr;
     // The chosen candidate of textures with several, by its place among them, once looked up.

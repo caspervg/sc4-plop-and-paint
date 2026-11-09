@@ -1,15 +1,20 @@
 #include "PropStripperInputControl.hpp"
 
+#include <algorithm>
 #include <cmath>
-#include <limits>
 #include <unordered_set>
 #include <windows.h>
 
 #include "cISC4PropOccupant.h"
 #include "cISTETerrain.h"
+#include "PropHit.hpp"
 #include "PropRepository.hpp"
 #include "SC4List.h"
 #include "SC4Rect.h"
+#include "cISC4Lot.h"
+#include "cISC4LotManager.h"
+#include "../ground/GroundGeometry.hpp"
+#include "../paint/PaintSettings.hpp"
 #include "../utils/Logger.h"
 
 namespace {
@@ -17,6 +22,8 @@ namespace {
     constexpr float kPickRadiusMeters = 3.0f;
     constexpr float kSetSiblingEpsilonMeters = 0.25f;
     constexpr uint32_t kHoverHighlight = 0x9u;
+    constexpr size_t kMaxPolygonHighlights = 512;
+    constexpr uint32_t kPolygonFillColor = 0x40FF3333;
 
     const char* SourceKindToString(const PropStripperInputControl::SourceKind sourceKind) {
         switch (sourceKind) {
@@ -55,6 +62,7 @@ bool PropStripperInputControl::Shutdown() {
         return true;
     }
     ClearHoveredProp_();
+    ClearPolygon_();
     undoStack_.clear();
     cSC4BaseViewInputControl::Shutdown();
     LOG_INFO("PropStripperInputControl shut down");
@@ -64,6 +72,15 @@ bool PropStripperInputControl::Shutdown() {
 bool PropStripperInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t /*z*/, const uint32_t /*modifiers*/) {
     if (!active_ || !IsOnTop()) {
         return false;
+    }
+    if (stripMode_ == StripMode::Polygon) {
+        if (!cursorValid_) {
+            return false;
+        }
+        polygonPoints_.push_back(currentCursorWorld_);
+        RefreshPolygonSelection_();
+        BuildOverlay_();
+        return true;
     }
     if (stripMode_ == StripMode::Brush) {
         leftMouseDown_ = true;
@@ -98,7 +115,7 @@ bool PropStripperInputControl::OnMouseMove(const int32_t x, const int32_t z, con
             DeletePropsInBrush_();
         }
     }
-    else {
+    else if (stripMode_ == StripMode::Single) {
         PickNearestProp_();
     }
     BuildOverlay_();
@@ -108,6 +125,27 @@ bool PropStripperInputControl::OnMouseMove(const int32_t x, const int32_t z, con
 bool PropStripperInputControl::OnKeyDown(const int32_t vkCode, const uint32_t modifiers) {
     if (!active_ || !IsOnTop()) {
         return false;
+    }
+
+    if (stripMode_ == StripMode::Polygon) {
+        if (vkCode == VK_RETURN) {
+            if (polygonPoints_.size() >= 3) {
+                DeletePropsInPolygon_();
+                BuildOverlay_();
+            }
+            return true;
+        }
+        if (vkCode == VK_BACK && !polygonPoints_.empty()) {
+            polygonPoints_.pop_back();
+            RefreshPolygonSelection_();
+            BuildOverlay_();
+            return true;
+        }
+        if (vkCode == VK_ESCAPE && !polygonPoints_.empty()) {
+            ClearPolygon_();
+            BuildOverlay_();
+            return true;
+        }
     }
 
     if (vkCode == VK_ESCAPE) {
@@ -123,16 +161,16 @@ bool PropStripperInputControl::OnKeyDown(const int32_t vkCode, const uint32_t mo
     }
 
     if (vkCode == 'B') {
-        stripMode_ = stripMode_ == StripMode::Single ? StripMode::Brush : StripMode::Single;
+        stripMode_ = stripMode_ == StripMode::Single  ? StripMode::Brush
+                   : stripMode_ == StripMode::Brush   ? StripMode::Polygon
+                                                      : StripMode::Single;
         leftMouseDown_ = false;
-        if (stripMode_ == StripMode::Brush) {
-            ClearHoveredProp_();
-            LOG_INFO("PropStripperInputControl: Switched to brush mode");
-        }
-        else {
+        ClearHoveredProp_();
+        ClearPolygon_();
+        if (stripMode_ == StripMode::Single) {
             PickNearestProp_();
-            LOG_INFO("PropStripperInputControl: Switched to single mode");
         }
+        LOG_INFO("PropStripperInputControl: {}", GetStatusText());
         BuildOverlay_();
         return true;
     }
@@ -168,6 +206,7 @@ void PropStripperInputControl::SetCity(cISC4City* pCity) {
     }
     else {
         ClearHoveredProp_();
+        ClearPolygon_();
         propManager_.Reset();
         undoStack_.clear();
     }
@@ -191,6 +230,7 @@ void PropStripperInputControl::SetEnabledSources(const uint32_t sourceFlags) {
     leftMouseDown_ = false;
 
     enabledSources_ = sanitizedFlags;
+    RefreshPolygonSelection_();
     LOG_INFO("PropStripperInputControl: enabled source flags set to 0x{:X}", enabledSources_);
 }
 
@@ -276,6 +316,7 @@ void PropStripperInputControl::UndoLastDeletion() {
 
     LOG_INFO("PropStripperInputControl: Restored {} of {} prop(s), {} undo(s) remaining",
              restoredCount, group.size(), undoStack_.size());
+    RefreshPolygonSelection_();
 }
 
 void PropStripperInputControl::ProcessPendingActions() {
@@ -347,6 +388,11 @@ void PropStripperInputControl::AppendCandidateProps_(std::vector<CollectedProp>&
     }
     }
 
+    AppendOccupants_(candidates, rawCandidates, source);
+}
+
+void PropStripperInputControl::AppendOccupants_(std::vector<CollectedProp>& candidates,
+                                                SC4List<cISC4Occupant*>& rawCandidates, const SourceKind source) {
     for (cISC4Occupant* occupant : rawCandidates) {
         if (!occupant) {
             continue;
@@ -390,6 +436,10 @@ void PropStripperInputControl::CollectCandidateProps_(std::vector<CollectedProp>
         AppendCandidateProps_(candidates, SourceKind::Street);
     }
 
+    RemoveDuplicates_(candidates);
+}
+
+void PropStripperInputControl::RemoveDuplicates_(std::vector<CollectedProp>& candidates) {
     std::unordered_set<cISC4Occupant*> seen;
     auto it = candidates.begin();
     while (it != candidates.end()) {
@@ -426,20 +476,17 @@ void PropStripperInputControl::PickNearestProp_() {
     CollectCandidateProps_(candidates);
 
     cISC4Occupant* nearestOccupant = nullptr;
-    float nearestDistSq = std::numeric_limits<float>::max();
+    PropHit nearestHit{};
 
     for (const auto& candidate : candidates) {
-        const float dx = candidate.position.fX - currentCursorWorld_.fX;
-        const float dz = candidate.position.fZ - currentCursorWorld_.fZ;
-        const float distSq = dx * dx + dz * dz;
-
-        if (distSq < nearestDistSq) {
-            nearestDistSq = distSq;
+        const PropHit hit = MeasurePropHit(*candidate.occupant, candidate.position, currentCursorWorld_);
+        if (hit.distance <= kPickRadiusMeters && (!nearestOccupant || hit < nearestHit)) {
+            nearestHit = hit;
             nearestOccupant = candidate.occupant;
         }
     }
 
-    if (nearestDistSq <= (kPickRadiusMeters * kPickRadiusMeters)) {
+    if (nearestOccupant) {
         SetHoveredProp_(nearestOccupant);
     }
     else {
@@ -485,6 +532,139 @@ void PropStripperInputControl::DeletePropsInBrush_() {
     }
 }
 
+void PropStripperInputControl::CollectPropsInPolygon_(std::vector<CollectedProp>& props) const {
+    props.clear();
+    if (!propManager_ || !city_ || polygonPoints_.size() < 3) {
+        return;
+    }
+
+    Ground::Ring ring;
+    ring.reserve(polygonPoints_.size());
+    for (const cS3DVector3& point : polygonPoints_) {
+        ring.push_back({point.fX, point.fZ});
+    }
+    const Ground::Area area{ring};
+    const Ground::Bounds bounds = Ground::BoundsOf(area);
+
+    std::vector<CollectedProp> candidates;
+    if (HasEnabledSource(SourceKind::City)) {
+        SC4List<cISC4Occupant*> rawCandidates;
+        propManager_->GetCityProps(rawCandidates, SC4Rect<float>(bounds.min.x, bounds.min.z, bounds.max.x, bounds.max.z));
+        AppendOccupants_(candidates, rawCandidates, SourceKind::City);
+    }
+
+    const bool wantsLots = HasEnabledSource(SourceKind::Lot);
+    if (wantsLots || HasEnabledSource(SourceKind::Street)) {
+        int minCellX = 0;
+        int minCellZ = 0;
+        int maxCellX = 0;
+        int maxCellZ = 0;
+        city_->PositionToCell(bounds.min.x, bounds.min.z, minCellX, minCellZ);
+        city_->PositionToCell(bounds.max.x, bounds.max.z, maxCellX, maxCellZ);
+
+        cISC4LotManager* lotManager = city_->GetLotManager();
+        std::unordered_set<cISC4Lot*> seenLots;
+        for (int cellZ = minCellZ; cellZ <= maxCellZ; ++cellZ) {
+            for (int cellX = minCellX; cellX <= maxCellX; ++cellX) {
+                if (!city_->CellIsInBounds(cellX, cellZ)) {
+                    continue;
+                }
+
+                if (wantsLots && lotManager) {
+                    float x = 0.0f;
+                    float z = 0.0f;
+                    city_->CellCenterToPosition(cellX, cellZ, x, z);
+                    // The game returns all the props of a lot for any of its cells, so ask once per lot.
+                    cISC4Lot* lot = lotManager->GetLot(cS3DVector3(x, 0.0f, z));
+                    if (lot && seenLots.insert(lot).second) {
+                        SC4List<cISC4Occupant*> rawCandidates;
+                        propManager_->GetLotProps(rawCandidates, cellX, cellZ);
+                        AppendOccupants_(candidates, rawCandidates, SourceKind::Lot);
+                    }
+                }
+
+                if (HasEnabledSource(SourceKind::Street)) {
+                    SC4List<cISC4Occupant*> rawCandidates;
+                    propManager_->GetStreetProps(rawCandidates, cellX, cellZ);
+                    AppendOccupants_(candidates, rawCandidates, SourceKind::Street);
+                }
+            }
+        }
+    }
+
+    RemoveDuplicates_(candidates);
+    for (const CollectedProp& candidate : candidates) {
+        if (Ground::Contains(area, Ground::Vec2{candidate.position.fX, candidate.position.fZ})) {
+            props.push_back(candidate);
+        }
+    }
+}
+
+void PropStripperInputControl::RefreshPolygonSelection_() {
+    ClearPolygonHighlights_();
+
+    std::vector<CollectedProp> props;
+    CollectPropsInPolygon_(props);
+    polygonSelectionCount_ = props.size();
+
+    // ponytail: past this count the extra props are removed but not highlighted.
+    const size_t highlighted = std::min(props.size(), kMaxPolygonHighlights);
+    polygonHighlights_.reserve(highlighted);
+    for (size_t i = 0; i < highlighted; ++i) {
+        cRZAutoRefCount<cISC4Occupant> occupant(props[i].occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
+        occupant->SetHighlight(kHoverHighlight, true);
+        polygonHighlights_.push_back(std::move(occupant));
+    }
+}
+
+void PropStripperInputControl::ClearPolygonHighlights_() {
+    for (auto& occupant : polygonHighlights_) {
+        occupant->SetHighlight(0x0, true);
+    }
+    polygonHighlights_.clear();
+    polygonSelectionCount_ = 0;
+}
+
+void PropStripperInputControl::ClearPolygon_() {
+    ClearPolygonHighlights_();
+    polygonPoints_.clear();
+}
+
+void PropStripperInputControl::DeletePropsInPolygon_() {
+    // Collected again, because the city may have changed since the last corner.
+    std::vector<CollectedProp> props;
+    CollectPropsInPolygon_(props);
+    ClearPolygon_();
+
+    std::vector<DeletedPropInfo> deletionGroup;
+    deletionGroup.reserve(props.size());
+    for (const CollectedProp& prop : props) {
+        cRZAutoRefCount<cISC4Occupant> occupant(prop.occupant, cRZAutoRefCount<cISC4Occupant>::kAddRef);
+        if (TryRemoveProp_(occupant, prop.propType, prop.source)) {
+            deletionGroup.push_back({prop.source, prop.propType, prop.position, prop.orientation});
+        }
+    }
+
+    if (!deletionGroup.empty()) {
+        const size_t removedCount = deletionGroup.size();
+        undoStack_.push_back(std::move(deletionGroup));
+        LOG_INFO("PropStripperInputControl: Polygon removed {} of {} prop(s), {} undo(s) available",
+                 removedCount, props.size(), undoStack_.size());
+    }
+}
+
+std::string PropStripperInputControl::GetStatusText() const {
+    switch (stripMode_) {
+    case StripMode::Single:
+        return "Mode: single";
+    case StripMode::Brush:
+        return "Mode: brush";
+    case StripMode::Polygon:
+        return "Mode: polygon, " + std::to_string(polygonSelectionCount_) + " selected";
+    }
+    return {};
+}
+
 void PropStripperInputControl::SetHoveredProp_(cISC4Occupant* newOccupant) {
     if (hoveredOccupant_ == newOccupant) {
         return;
@@ -514,6 +694,14 @@ void PropStripperInputControl::SetWorldDrawService(cIGZWorldDrawService* service
 }
 
 void PropStripperInputControl::BuildOverlay_() {
+    if (stripMode_ == StripMode::Polygon) {
+        PropPaintSettings settings;
+        settings.showGrid = false;
+        overlay_.BuildPolygonPreview(polygonPoints_, {}, currentCursorWorld_, currentCursorWorld_, cursorValid_, GetTerrain_(),
+                                     settings, {}, kPolygonFillColor);
+        return;
+    }
+
     if (!cursorValid_) {
         overlay_.Clear();
         return;

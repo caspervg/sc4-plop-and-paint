@@ -163,6 +163,10 @@ target_include_directories(GroundSnappingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 target_link_libraries(GroundSnappingTests PRIVATE Clipper2::Clipper2 tinysplinecxx::tinysplinecxx)
 add_test(NAME GroundSnappingTests COMMAND GroundSnappingTests)
 
+add_executable(PropHitTests ${CMAKE_SOURCE_DIR}/tests/PropHitTests.cpp)
+target_include_directories(PropHitTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME PropHitTests COMMAND PropHitTests)
+
 add_executable(GroundPaintDocumentTests
     ${CMAKE_SOURCE_DIR}/tests/GroundPaintDocumentTests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundGeometry.cpp
@@ -185,6 +189,15 @@ add_executable(ThumbnailBinTests
 target_include_directories(ThumbnailBinTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(ThumbnailBinTests PRIVATE spdlog::spdlog reflectcpp::reflectcpp WebP::webp WebP::webpdecoder)
 add_test(NAME ThumbnailBinTests COMMAND ThumbnailBinTests)
+
+add_executable(TextureKindCacheTests
+    ${CMAKE_SOURCE_DIR}/tests/TextureKindCacheTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/decals/TextureKindCache.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/Logger.cpp
+)
+target_include_directories(TextureKindCacheTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(TextureKindCacheTests PRIVATE spdlog::spdlog reflectcpp::reflectcpp)
+add_test(NAME TextureKindCacheTests COMMAND TextureKindCacheTests)
 
 install(TARGETS ${PROJECT_NAME}
     RUNTIME DESTINATION bin
