@@ -769,7 +769,7 @@ void GroundPanelTab::RenderShapeSettings_() {
         }
         else {
             int style = static_cast<int>(settings_.drawStyle);
-            changed |= ImGui::Combo("##draw", &style, "Straight lines\0Curves\0Freehand\0Pen (drag for curves)\0");
+            changed |= ImGui::Combo("##draw", &style, "Straight lines\0Curves\0Freehand\0Pen\0");
             settings_.drawStyle = static_cast<DrawStyle>(style);
             Tooltip("Draw straight lines between your clicks, a curve through your clicks, a freehand line, or use the pen.\nWith the pen, a click makes a corner. Hold the button and drag to make a curve.");
         }
@@ -912,7 +912,8 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     std::vector<PaintPalette>& palettes = favorites_->GetPaintPalettes();
     activePalette_ = palettes.empty() ? 0 : std::min(activePalette_, palettes.size() - 1);
 
-    ImGui::SetNextItemWidth(160.0f);
+    const float buttonGap = ImGui::GetStyle().ItemSpacing.x;
+    ImGui::SetNextItemWidth(-(PanelUi::ButtonWidth("New") + PanelUi::ButtonWidth("Delete") + buttonGap * 2.0f));
     if (ImGui::BeginCombo("##palette", palettes.empty() ? "No palettes yet" : palettes[activePalette_].name.c_str())) {
         for (size_t i = 0; i < palettes.size(); ++i) {
             ImGui::PushID(static_cast<int>(i));
@@ -946,22 +947,9 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     if (ImGui::SmallButton("Delete")) {
         ImGui::OpenPopup("deletePalette");
     }
-    bool deleted = false;
-    if (ImGui::BeginPopup("deletePalette")) {
-        ImGui::Text("Delete \"%s\"? You cannot undo this.", palettes[activePalette_].name.c_str());
-        if (ImGui::SmallButton("Delete palette")) {
-            palettes.erase(palettes.begin() + static_cast<std::ptrdiff_t>(activePalette_));
-            favorites_->Save();
-            deleted = true;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine(0.0f, kGroupGap);
-        if (ImGui::SmallButton("Cancel")) {
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-    if (deleted) {
+    if (PanelUi::ConfirmDeletePopup("deletePalette", palettes[activePalette_].name.c_str())) {
+        palettes.erase(palettes.begin() + static_cast<std::ptrdiff_t>(activePalette_));
+        favorites_->Save();
         ImGui::PopID();
         return;
     }
@@ -969,7 +957,7 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     PaintPalette& palette = palettes[activePalette_];
     char name[64];
     std::snprintf(name, sizeof(name), "%s", palette.name.c_str());
-    ImGui::SetNextItemWidth(160.0f);
+    ImGui::SetNextItemWidth(-(PanelUi::ButtonWidth("Add this look") + PanelUi::ButtonWidth("Mix all") + buttonGap * 2.0f));
     if (ImGui::InputText("##paletteName", name, sizeof(name)) && name[0] != 0) {
         palette.name = name;
     }
@@ -1403,9 +1391,8 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
     }
 
     RenderPackFilter_();
-    ImGui::SetNextItemWidth(std::min(200.0f, ShareOfLine(2)));
+    ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputTextWithHint("##filter", "Search name, pack or ID", textureFilter_, sizeof(textureFilter_));
-    ImGui::SameLine();
     ImGui::Checkbox("Favourites", &favouriteTexturesOnly_);
     ImGui::SameLine();
     if (kindFilter_.Render(*decals_)) {

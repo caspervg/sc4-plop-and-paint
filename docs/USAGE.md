@@ -88,7 +88,8 @@ Per-prop actions:
 
 - `Paint`: start painting that prop, or switch the active paint tool to that prop if you are already painting
 - `Star` / `Unstar`: manage prop favorites
-- `Fam`: add the prop to one of your custom families
+- `...`, or a right-click on the row: add the prop to one of your custom families or to a seasonal set, or make a new family from it
+- A click selects a row, and a double-click paints that prop
 
 If you hover a prop name and it belongs to built-in families, the tooltip shows those family IDs and names.
 
@@ -332,7 +333,7 @@ Common options:
 - `Also snap placements to grid`: snaps final placed props to the grid as well
 - `Grid step (m)`: grid size in meters. Dragging moves in 0.5 m steps, the buttons set 2, 4, 8 or 16 m, and Ctrl+click takes any value
 - `Vertical offset (m)`: raises placed props and the preview above the terrain
-- `Direct preview`: `Outline only`, `Full prop only`, or `Outline + full prop`
+- `Preview`: `Outline only`, `Full model only`, or `Outline and model`
 
 Mode-specific options:
 

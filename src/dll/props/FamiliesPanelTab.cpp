@@ -149,7 +149,7 @@ void FamiliesPanelTab::OnRender() {
             director_->StopPropPainting();
         }
     }
-    RenderPropStripperControls_();
+    RenderPropStripperControls_(1);
 
     ImGui::SameLine();
     if (ImGui::SmallButton("New family")) {

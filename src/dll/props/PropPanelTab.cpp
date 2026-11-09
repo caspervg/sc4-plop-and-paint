@@ -1,5 +1,4 @@
 #include "PropPanelTab.hpp"
-#include "../paint/PolygonFillControls.hpp"
 
 #include <array>
 #include <cstdio>
@@ -10,6 +9,13 @@
 #include "../common/Utils.hpp"
 #include "../packs/PackCatalogRepository.hpp"
 #include "../utils/Logger.h"
+
+using PanelUi::ButtonWidth;
+using PanelUi::CheckboxWidth;
+using PanelUi::Hint;
+using PanelUi::kGroupGap;
+using PanelUi::NextInRow;
+using PanelUi::Tooltip;
 
 namespace {
     const char* MonthName_(uint8_t month) {
@@ -68,7 +74,8 @@ void PropPanelTab::OnRender() {
     const auto& props = props_->GetProps();
 
     if (props.empty()) {
-        ImGui::TextUnformatted("No props loaded. Make sure that props.cbor is in the Plugins folder.");
+        ImGui::TextWrapped("No props loaded. Run the cache builder to make props.cbor in the Plugins folder, "
+                           "then restart the game.");
         return;
     }
 
@@ -77,60 +84,89 @@ void PropPanelTab::OnRender() {
     ImGui::Separator();
     EnsureFilteredPropsCache_();
 
+    RenderResultLine_();
+    RenderTools_();
+
+    if (filteredPropsCache_.empty()) {
+        if (PanelUi::NoResults("No props match these filters.")) {
+            ClearFilters_();
+        }
+    }
+    // Table in scrollable child region so filters stay visible
+    else if (gridView_) {
+        if (ImGui::BeginChild("PropGridRegion", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+            RenderGrid_(filteredPropsCache_);
+        }
+        ImGui::EndChild();
+    }
+    else {
+        if (ImGui::BeginChild("PropTableRegion", ImVec2(0, 0), false)) {
+            RenderTableInternal_(filteredPropsCache_, favorites_->GetFavoritePropIds());
+        }
+        ImGui::EndChild();
+    }
+
+    RenderRotationModal_();
+    RenderSeasonalSetEditor_();
+}
+
+void PropPanelTab::RenderResultLine_() {
     ImGui::Text("Showing %zu of %zu props", filteredPropsCache_.size(), allPropViewsCache_.size());
+    const int active = filterHelper_.ActiveFilterCount();
+    if (active > 0) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d filter%s on", active, active == 1 ? "" : "s");
+    }
+    ImGui::SameLine(0.0f, kGroupGap);
+    ImGui::BeginDisabled(active == 0);
+    if (ImGui::SmallButton("Clear filters")) {
+        ClearFilters_();
+    }
+    ImGui::EndDisabled();
+    Tooltip(active == 0 ? "No filters are on." : "Show all props again.");
     if (RenderViewControls_()) {
         thumbnailCache_.Clear();
     }
+}
+
+void PropPanelTab::ClearFilters_() {
+    filterHelper_.ResetFilters();
+    packFilter_.Clear();
+    filteredPropsDirty_ = true;
+}
+
+void PropPanelTab::RenderTools_() {
+    size_t index = 0;
     if (director_->IsPropPainting()) {
-        ImGui::SameLine();
         if (ImGui::SmallButton("Stop painting")) {
             director_->StopPropPainting();
         }
+        ++index;
     }
-    RenderPropStripperControls_();
     if (director_->IsPropPicking()) {
-        ImGui::SameLine();
+        NextInRow(index, ButtonWidth("Stop picking"));
         if (ImGui::SmallButton("Stop picking##PropPicker")) {
             director_->StopPropPicking();
         }
     }
     else {
-        ImGui::SameLine();
+        NextInRow(index, ButtonWidth("Pick prop"));
         const bool hasAnySource =
             (director_->GetPropStripperSources() &
                 (PropStripperInputControl::SourceFlagCity |
                  PropStripperInputControl::SourceFlagLot |
                  PropStripperInputControl::SourceFlagStreet)) != 0;
-        if (!hasAnySource) {
-            ImGui::BeginDisabled();
-        }
+        ImGui::BeginDisabled(!hasAnySource);
         if (ImGui::SmallButton("Pick prop")) {
             ReleaseImGuiInputCapture_();
             director_->StartPropPicking([this](const PickedProp& picked) {
                 HandlePickedProp_(picked);
             });
         }
-        if (!hasAnySource) {
-            ImGui::EndDisabled();
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click a city, lot or street prop to select it here.");
-        }
+        ImGui::EndDisabled();
+        Tooltip(hasAnySource ? "Click a city, lot or street prop to select it here." : "Turn on City, Lot or Street first.");
     }
-
-    // Table in scrollable child region so filters stay visible
-    if (gridView_) {
-        if (ImGui::BeginChild("PropGridRegion", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
-            RenderGrid_(filteredPropsCache_);
-        }
-    }
-    else if (ImGui::BeginChild("PropTableRegion", ImVec2(0, 0), false)) {
-        RenderTableInternal_(filteredPropsCache_, favorites_->GetFavoritePropIds());
-    }
-    ImGui::EndChild();
-
-    RenderRotationModal_();
-    RenderSeasonalSetEditor_();
+    RenderPropStripperControls_(1);
 }
 
 void PropPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
@@ -176,44 +212,43 @@ void PropPanelTab::RenderFilterUI_() {
 
     filtersChanged = packFilter_.Render("##PropPack", "props") || filtersChanged;
 
-    filtersChanged = ImGui::Checkbox("Favorites only", &filterHelper_.favoritesOnly) || filtersChanged;
-    ImGui::SameLine();
-    filtersChanged = ImGui::Checkbox("In a family", &filterHelper_.requireFamily) || filtersChanged;
-    ImGui::SameLine();
-    filtersChanged = ImGui::Checkbox("Day/Night", &filterHelper_.requireDayNight) || filtersChanged;
-    ImGui::SameLine();
-    filtersChanged = ImGui::Checkbox("Timed", &filterHelper_.requireTimed) || filtersChanged;
-    ImGui::SameLine();
-    filtersChanged = ImGui::Checkbox("Seasonal", &filterHelper_.requireSeasonal) || filtersChanged;
-    ImGui::SameLine();
-    filtersChanged = ImGui::Checkbox("<100% Chance", &filterHelper_.requireReducedChance) || filtersChanged;
+    const struct {
+        const char* label;
+        bool* value;
+        const char* tip;
+    } kToggles[] = {
+        {"Favorites only", &filterHelper_.favoritesOnly, "Show only the props that you starred."},
+        {"In a family", &filterHelper_.requireFamily, "Show only props that are in a prop family."},
+        {"Day/Night", &filterHelper_.requireDayNight, "Show only props that look different at night."},
+        {"Timed", &filterHelper_.requireTimed, "Show only props that are visible at certain hours."},
+        {"Seasonal", &filterHelper_.requireSeasonal, "Show only props that are visible on certain dates."},
+        {"<100% Chance", &filterHelper_.requireReducedChance, "Show only props that do not always appear."},
+    };
+    size_t toggleIndex = 0;
+    for (const auto& toggle : kToggles) {
+        NextInRow(toggleIndex++, CheckboxWidth(toggle.label));
+        filtersChanged = ImGui::Checkbox(toggle.label, toggle.value) || filtersChanged;
+        Tooltip(toggle.tip);
+    }
 
-    ImGui::Text("Width:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::wideInputWidth());
-    filtersChanged = ImGui::SliderFloat2("##PropWidth", filterHelper_.propWidth, PropSize::kMinSize, PropSize::kMaxSize,
-                                         UI::kMeterFloatFormat) || filtersChanged;
-    ImGui::SameLine();
-    ImGui::Text("Height:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::wideInputWidth());
-    filtersChanged = ImGui::SliderFloat2("##PropHeight", filterHelper_.propHeight, PropSize::kMinSize, PropSize::kMaxSize,
-                                         UI::kMeterFloatFormat) || filtersChanged;
-    ImGui::SameLine();
-    ImGui::Text("Depth:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(UI::wideInputWidth());
-    filtersChanged = ImGui::SliderFloat2("##PropDepth", filterHelper_.propDepth, PropSize::kMinSize, PropSize::kMaxSize,
-                                         UI::kMeterFloatFormat) || filtersChanged;
-
-    ImGui::SameLine();
-    ImGui::Spacing();
-    ImGui::SameLine();
-
-    if (ImGui::Button("Clear filters")) {
-        filterHelper_.ResetFilters();
-        packFilter_.Clear();
-        filtersChanged = true;
+    // Each label stays with its slider when the row wraps.
+    const struct {
+        const char* label;
+        const char* id;
+        float* range;
+    } kSizes[] = {
+        {"Width", "##PropWidth", filterHelper_.propWidth},
+        {"Height", "##PropHeight", filterHelper_.propHeight},
+        {"Depth", "##PropDepth", filterHelper_.propDepth},
+    };
+    size_t sizeIndex = 0;
+    for (const auto& size : kSizes) {
+        NextInRow(sizeIndex++, ImGui::CalcTextSize(size.label).x + ImGui::GetStyle().ItemSpacing.x + UI::wideInputWidth(), kGroupGap);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(size.label);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(UI::wideInputWidth());
+        filtersChanged = ImGui::SliderFloat2(size.id, size.range, PropSize::kMinSize, PropSize::kMaxSize, UI::kMeterFloatFormat) || filtersChanged;
     }
 
     if (filtersChanged) {
@@ -268,7 +303,7 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
 
     if (ImGui::BeginTable("PropsTable", 4, tableFlags, ImVec2(0, 0))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Thumb",
+        ImGui::TableSetupColumn("##Thumb",
                                 ImGuiTableColumnFlags_WidthFixed |
                                 ImGuiTableColumnFlags_NoSort,
                                 UI::iconColumnWidth());
@@ -339,44 +374,40 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 ImGui::TableNextRow(0, rowHeight);
 
                 ImGui::TableNextColumn();
-                ImGui::Selectable("##row", false,
-                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
-                                  ImVec2(0, rowHeight));
+                // As on the grid: a click selects (and switches the prop while painting), a
+                // double-click paints, a right-click opens the menu.
+                if (ImGui::Selectable("##row", key == selectedPropKey_,
+                                      ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap |
+                                      ImGuiSelectableFlags_AllowDoubleClick,
+                                      ImVec2(0, rowHeight))) {
+                    selectedPropKey_ = key;
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || director_->IsPropPainting()) {
+                        PaintProp_(prop);
+                    }
+                }
+                if (ImGui::BeginPopupContextItem("##PropMenu")) {
+                    RenderPropMenu_(prop);
+                    ImGui::EndPopup();
+                }
                 ImGui::SameLine();
                 auto thumbTextureId = thumbnailCache_.Get(key);
                 RenderThumbnailWithPreview_(thumbTextureId, props_->GetPropThumbnailStore(), key);
 
-                // Name
+                // Name, its badges and its exemplar name. The row's selectable spans this cell, so
+                // the tooltip tests the rectangle rather than the items.
                 ImGui::TableNextColumn();
-                bool showPropTooltip = false;
-                if (prop.visibleName.empty()) {
-                    ImGui::TextUnformatted(prop.exemplarName.c_str());
-                    showPropTooltip = ImGui::IsItemHovered();
-                    if (RenderPropPills_(prop, true)) {
-                        showPropTooltip = true;
-                    }
-                }
-                else {
-                    ImGui::TextUnformatted(prop.visibleName.c_str());
-                    showPropTooltip = ImGui::IsItemHovered();
-                    const bool hasInlinePills =
-                        !prop.familyIds.empty() ||
-                        prop.nighttimeStateChange.value_or(false) ||
-                        prop.timeOfDay.has_value() ||
-                        Badges::HasSeasonalTiming(prop) ||
-                        (prop.randomChance.has_value() && *prop.randomChance < 100);
-                    const bool hoveredPills = RenderPropPills_(prop, true);
-                    if (hasInlinePills) {
+                ImGui::BeginGroup();
+                ImGui::TextUnformatted(prop.visibleName.empty() ? prop.exemplarName.c_str() : prop.visibleName.c_str());
+                const bool hasPills = RenderPropPills_(prop, true);
+                if (!prop.visibleName.empty()) {
+                    if (hasPills) {
                         ImGui::SameLine(0.0f, 4.0f);
                     }
                     ImGui::TextDisabled("%s", prop.exemplarName.c_str());
-                    showPropTooltip = showPropTooltip || hoveredPills || ImGui::IsItemHovered();
-                    if (hoveredPills) {
-                        showPropTooltip = true;
-                    }
                 }
-
-                if (showPropTooltip && HasPropTooltipContent_(prop)) {
+                ImGui::EndGroup();
+                if (HasPropTooltipContent_(prop) && ImGui::IsWindowHovered() &&
+                    ImGui::IsMouseHoveringRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax())) {
                     RenderPropTooltip_(prop);
                 }
 
@@ -392,20 +423,10 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
                 ImGui::SameLine();
                 RenderFavButton_(prop);
                 ImGui::SameLine();
-                if (ImGui::Button("Fam")) {
-                    ImGui::OpenPopup("AddToPalette");
+                if (ImGui::Button("...")) {
+                    ImGui::OpenPopup("##PropMenu");
                 }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Add to user-defined family");
-                }
-
-                if (ImGui::BeginPopup("AddToPalette")) {
-                    RenderAddToFamilyItems_(prop);
-                    ImGui::EndPopup();
-                }
-
-                ImGui::SameLine();
-                RenderSeasonalSetRowActions_(prop);
+                Tooltip("Add to a family or a seasonal set.");
 
                 ImGui::PopID();
             }
@@ -432,17 +453,23 @@ void PropPanelTab::RenderFavButton_(const Prop& prop) const {
     }
 }
 
-void PropPanelTab::RenderSeasonalSetRowActions_(const Prop& prop) {
-    if (ImGui::Button("Set")) {
-        ImGui::OpenPopup("AddToSeasonalSet");
+void PropPanelTab::RenderPropMenu_(const Prop& prop) {
+    selectedPropKey_ = MakeGIKey(prop.groupId.value(), prop.instanceId.value());
+    if (ImGui::Selectable("Paint")) {
+        PaintProp_(prop);
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Add to a custom seasonal set");
+    const bool isFavorite = favorites_->IsPropFavorite(prop.groupId.value(), prop.instanceId.value());
+    if (ImGui::Selectable(isFavorite ? "Remove from favorites" : "Add to favorites")) {
+        favorites_->TogglePropFavorite(prop.groupId.value(), prop.instanceId.value());
+        filteredPropsDirty_ = filteredPropsDirty_ || filterHelper_.favoritesOnly;
     }
-
-    if (ImGui::BeginPopup("AddToSeasonalSet")) {
+    if (ImGui::BeginMenu("Add to family")) {
+        RenderAddToFamilyItems_(prop);
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Seasonal set")) {
         RenderSeasonalSetItems_(prop);
-        ImGui::EndPopup();
+        ImGui::EndMenu();
     }
 }
 
@@ -485,21 +512,24 @@ void PropPanelTab::RenderSeasonalSetItems_(const Prop& prop) {
 
 void PropPanelTab::RenderAddToFamilyItems_(const Prop& prop) {
     const auto& userFamilies = favorites_->GetUserFamilies();
-    if (userFamilies.empty()) {
-        ImGui::TextDisabled("No families yet.");
-        ImGui::TextDisabled("Create a user-defined family in the Families tab first.");
-        return;
-    }
     for (size_t familyIndex = 0; familyIndex < userFamilies.size(); ++familyIndex) {
         if (ImGui::Selectable(userFamilies[familyIndex].name.c_str())) {
             favorites_->AddPropToUserFamily(prop.instanceId.value(), familyIndex);
             ImGui::CloseCurrentPopup();
-            break;
+            return;
         }
+    }
+    if (!userFamilies.empty()) {
+        ImGui::Separator();
+    }
+    if (ImGui::Selectable("New family from this prop")) {
+        favorites_->AddPropToNewUserFamily(prop.instanceId.value(), PropDisplayName_(prop));
+        ImGui::CloseCurrentPopup();
     }
 }
 
 void PropPanelTab::PaintProp_(const Prop& prop) {
+    selectedPropKey_ = MakeGIKey(prop.groupId.value(), prop.instanceId.value());
     if (director_->IsPropPainting()) {
         ReleaseImGuiInputCapture_();
         // Keeps the current paint mode and rotation; no modal.
@@ -515,11 +545,6 @@ void PropPanelTab::PaintProp_(const Prop& prop) {
 }
 
 void PropPanelTab::RenderGrid_(const std::vector<PropView>& filteredProps) {
-    if (filteredProps.empty()) {
-        ImGui::TextDisabled("No props match the current filters.");
-        return;
-    }
-
     ThumbnailStore& store = props_->GetPropThumbnailStore();
     const size_t visible = ThumbnailGrid::Render(filteredProps.size(), gridTileSize_,
         [&](const size_t index) {
@@ -566,23 +591,7 @@ void PropPanelTab::RenderGrid_(const std::vector<PropView>& filteredProps) {
         }
 
         if (ImGui::BeginPopupContextItem("##PropTileMenu")) {
-            selectedPropKey_ = key;
-            if (ImGui::Selectable("Paint")) {
-                PaintProp_(prop);
-            }
-            const bool isFavorite = favorites_->IsPropFavorite(prop.groupId.value(), prop.instanceId.value());
-            if (ImGui::Selectable(isFavorite ? "Remove from favorites" : "Add to favorites")) {
-                favorites_->TogglePropFavorite(prop.groupId.value(), prop.instanceId.value());
-                filteredPropsDirty_ = filteredPropsDirty_ || filterHelper_.favoritesOnly;
-            }
-            if (ImGui::BeginMenu("Add to family")) {
-                RenderAddToFamilyItems_(prop);
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Seasonal set")) {
-                RenderSeasonalSetItems_(prop);
-                ImGui::EndMenu();
-            }
+            RenderPropMenu_(prop);
             ImGui::EndPopup();
         }
     });
@@ -715,19 +724,26 @@ void PropPanelTab::RenderSeasonalSetEditor_() {
 
     ImGui::TextWrapped("You paint and remove a custom seasonal set as one stack. "
                        "A custom set replaces any automatic set that has a member in common.");
+    const auto& userSets = favorites_->GetUserSeasonalSets();
     ImGui::InputTextWithHint("##NewSetName", "New set name", newSeasonalSetName_, sizeof(newSeasonalSetName_));
     ImGui::SameLine();
-    if (ImGui::Button("Create") && newSeasonalSetName_[0] != '\0') {
+    const bool nameEmpty = newSeasonalSetName_[0] == '\0';
+    const bool nameTaken = std::ranges::any_of(userSets, [&](const SeasonalSet& set) { return set.name == newSeasonalSetName_; });
+    ImGui::BeginDisabled(nameEmpty || nameTaken);
+    if (ImGui::Button("Create")) {
         if (favorites_->CreateUserSeasonalSet(newSeasonalSetName_)) {
             newSeasonalSetName_[0] = '\0';
             ApplyUserSeasonalSetsToRepository_();
         }
     }
+    ImGui::EndDisabled();
+    if (nameEmpty || nameTaken) {
+        Tooltip(nameEmpty ? "First type a name." : "A set with this name already exists.");
+    }
     ImGui::Separator();
 
-    const auto& userSets = favorites_->GetUserSeasonalSets();
     if (userSets.empty()) {
-        ImGui::TextDisabled("No custom sets yet. Use the Set button in the prop table to start one.");
+        Hint("No custom sets yet. To start one, click ... on a prop in the list, then choose Seasonal set.");
     }
 
     struct PendingAction {
@@ -746,14 +762,26 @@ void PropPanelTab::RenderSeasonalSetEditor_() {
         std::snprintf(header, sizeof(header), "%s (%zu member%s)###SetHeader",
                       set.name.c_str(), set.members.size(), set.members.size() == 1 ? "" : "s");
         if (ImGui::CollapsingHeader(header)) {
-            ImGui::InputTextWithHint("##RenameSet", "New name", renameSeasonalSetName_,
-                                     sizeof(renameSeasonalSetName_));
-            ImGui::SameLine();
-            if (ImGui::Button("Rename") && renameSeasonalSetName_[0] != '\0') {
-                pending = PendingAction{PendingAction::Kind::Rename, setIndex, 0, renameSeasonalSetName_};
+            // Renamed when the field is left. A name already in use is not taken.
+            char setName[64]{};
+            std::snprintf(setName, sizeof(setName), "%s",
+                          renameSeasonalIndex_ == setIndex ? renameSeasonalName_.c_str() : set.name.c_str());
+            if (ImGui::InputText("##SetName", setName, sizeof(setName))) {
+                renameSeasonalIndex_ = setIndex;
+                renameSeasonalName_ = setName;
             }
-            ImGui::SameLine();
+            if (ImGui::IsItemDeactivatedAfterEdit() && renameSeasonalIndex_ == setIndex) {
+                if (!renameSeasonalName_.empty()) {
+                    pending = PendingAction{PendingAction::Kind::Rename, setIndex, 0, renameSeasonalName_};
+                }
+                renameSeasonalIndex_ = SIZE_MAX;
+            }
+            Tooltip("The name of this set. Click to change it.");
+            ImGui::SameLine(0.0f, kGroupGap);
             if (ImGui::Button("Delete set")) {
+                ImGui::OpenPopup("deleteSet");
+            }
+            if (PanelUi::ConfirmDeletePopup("deleteSet", set.name.c_str())) {
                 pending = PendingAction{PendingAction::Kind::DeleteSet, setIndex, 0, {}};
             }
 
@@ -828,9 +856,6 @@ void PropPanelTab::RenderSeasonalSetEditor_() {
             break;
         case PendingAction::Kind::Rename:
             changed = favorites_->RenameUserSeasonalSet(pending->setIndex, pending->name);
-            if (changed) {
-                renameSeasonalSetName_[0] = '\0';
-            }
             break;
         case PendingAction::Kind::DeleteSet:
             changed = favorites_->DeleteUserSeasonalSet(pending->setIndex);
@@ -862,7 +887,6 @@ bool PropPanelTab::HasPropDetails_(const Prop& prop) {
 
 bool PropPanelTab::RenderPropPills_(const Prop& prop, const bool startOnNewLine) const {
     bool renderedAny = false;
-    bool hoveredAny = false;
 
     const auto renderInlinePill = [&](const char* label, const ImU32 baseColor, const ImU32 hoverColor) {
         if (!renderedAny) {
@@ -876,13 +900,12 @@ bool PropPanelTab::RenderPropPills_(const Prop& prop, const bool startOnNewLine)
 
         Badges::RenderPill(label, baseColor, hoverColor);
         renderedAny = true;
-        hoveredAny = hoveredAny || ImGui::IsItemHovered();
     };
 
     const SeasonalSet* seasonalSet = props_ ? props_->FindSeasonalSetForProp(prop.instanceId.value()) : nullptr;
     Badges::ForEachBadge(prop, seasonalSet, renderInlinePill);
 
-    return hoveredAny;
+    return renderedAny;
 }
 
 void PropPanelTab::RenderPropTooltip_(const Prop& prop) const {
@@ -1018,80 +1041,7 @@ void PropPanelTab::RenderRotationModal_() {
         ImGui::Text("Prop: %s", pendingPaint_.propName.c_str());
         ImGui::Separator();
 
-        ImGui::TextUnformatted("Mode");
-        int mode = static_cast<int>(pendingPaint_.settings.mode);
-        ImGui::RadioButton("Direct paint", &mode, static_cast<int>(PaintMode::Direct));
-        ImGui::RadioButton("Paint along line", &mode, static_cast<int>(PaintMode::Line));
-        ImGui::RadioButton("Paint inside polygon", &mode, static_cast<int>(PaintMode::Polygon));
-        pendingPaint_.settings.mode = static_cast<PaintMode>(mode);
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Rotation");
-        int rotation = pendingPaint_.settings.rotation;
-        ImGui::RadioButton("0 deg", &rotation, 0);
-        ImGui::SameLine();
-        ImGui::RadioButton("90 deg", &rotation, 1);
-        ImGui::SameLine();
-        ImGui::RadioButton("180 deg", &rotation, 2);
-        ImGui::SameLine();
-        ImGui::RadioButton("270 deg", &rotation, 3);
-        pendingPaint_.settings.rotation = rotation;
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Grid");
-        ImGui::Checkbox("Show grid overlay", &pendingPaint_.settings.showGrid);
-        ImGui::Checkbox("Snap points to grid", &pendingPaint_.settings.snapPointsToGrid);
-        if (pendingPaint_.settings.snapPointsToGrid) {
-            ImGui::Checkbox("Also snap placements to grid", &pendingPaint_.settings.snapPlacementsToGrid);
-        }
-        else {
-            pendingPaint_.settings.snapPlacementsToGrid = false;
-            ImGui::BeginDisabled();
-            bool snapPlacements = false;
-            ImGui::Checkbox("Also snap placements to grid", &snapPlacements);
-            ImGui::EndDisabled();
-        }
-        RenderGridStepControl_(pendingPaint_.settings.gridStepMeters);
-        if (pendingPaint_.settings.mode == PaintMode::Line || pendingPaint_.settings.mode == PaintMode::Polygon) {
-            bool customNodeHeights = pendingPaint_.settings.sketchHeightMode == SketchHeightMode::Custom;
-            if (ImGui::Checkbox("Custom node heights", &customNodeHeights)) {
-                pendingPaint_.settings.sketchHeightMode = customNodeHeights
-                    ? SketchHeightMode::Custom
-                    : SketchHeightMode::Terrain;
-            }
-        }
-        ImGui::TextDisabled("Press [ to lower or ] to raise by 1.0 m. Hold Shift for 5.0 m, or Shift+Alt for 0.1 m.");
-        if (pendingPaint_.settings.mode == PaintMode::Direct) {
-            ImGui::TextDisabled("Press H in the city to set the absolute reference height.");
-        }
-        static constexpr const char* kPreviewModeLabels[] = {
-            "Outline only",
-            "Full prop only",
-            "Outline + full prop"
-        };
-        int previewMode = static_cast<int>(pendingPaint_.settings.previewMode);
-        ImGui::Combo("Direct preview", &previewMode, kPreviewModeLabels, IM_ARRAYSIZE(kPreviewModeLabels));
-        pendingPaint_.settings.previewMode = static_cast<PreviewMode>(previewMode);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("This setting also changes the line and polygon previews.");
-        }
-
-        if (pendingPaint_.settings.mode == PaintMode::Line) {
-            ImGui::Separator();
-            RenderSpacingControl_(pendingPaint_.settings.spacingMeters);
-            ImGui::Checkbox("Align to path direction", &pendingPaint_.settings.alignToPath);
-            ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
-            ImGui::SliderFloat("Lateral jitter (m)", &pendingPaint_.settings.randomOffset, 0.0f, 5.0f, "%.1f");
-            ImGui::TextWrapped("Click to add line points. Press Enter to place the props. Press Backspace to remove the last point.");
-        }
-        else if (pendingPaint_.settings.mode == PaintMode::Polygon) {
-            ImGui::Separator();
-            RenderPolygonFillControls(pendingPaint_.settings);
-            ImGui::TextWrapped("Click to add polygon corners. Press Enter to fill the polygon with props. Press Backspace to remove the last corner.");
-        }
-        else {
-            ImGui::TextWrapped("Click to place props. Press Enter to keep the props that you placed.");
-        }
+        RenderPaintOptions_(pendingPaint_.settings, "props", true);
 
         if (const SeasonalSet* set = props_ ? props_->FindSeasonalSetForProp(pendingPaint_.propId) : nullptr) {
             ImGui::Separator();
@@ -1102,16 +1052,10 @@ void PropPanelTab::RenderRotationModal_() {
             }
         }
 
-        const bool canStart = true;
-
-        if (ImGui::Button("Start") && canStart) {
+        ImGui::Separator();
+        if (RenderStartCancel_()) {
             ReleaseImGuiInputCapture_();
             director_->StartPropPainting(pendingPaint_.propId, pendingPaint_.settings, pendingPaint_.propName);
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel")) {
-            ImGui::CloseCurrentPopup();
         }
 
         ImGui::EndPopup();
@@ -1136,6 +1080,7 @@ void PropPanelTab::HandlePickedProp_(const PickedProp& picked) {
 
     pendingPaint_.propId = prop->instanceId.value();
     pendingPaint_.propName = PropDisplayName_(*prop);
+    selectedPropKey_ = MakeGIKey(prop->groupId.value(), prop->instanceId.value());
     pendingPaint_.settings.mode = PaintMode::Direct;
     pendingPaint_.settings.rotation = picked.orientation & 3;
     pendingPaint_.open = true;

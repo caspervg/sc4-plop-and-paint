@@ -28,6 +28,7 @@ public:
 
     [[nodiscard]] int32_t Selected() const { return selected_; }
     void Clear() { selected_ = kAllPacks; }
+    [[nodiscard]] bool IsActive() const { return selected_ != kAllPacks; }
 
 private:
     const PackCatalogRepository* catalog_ = nullptr;

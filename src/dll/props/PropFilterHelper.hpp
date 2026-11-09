@@ -52,6 +52,8 @@ public:
     ) const;
 
     void ResetFilters();
+    // How many filters narrow the list now.
+    [[nodiscard]] int ActiveFilterCount() const;
 
 private:
     [[nodiscard]] bool PassesTextFilter_(const PropView& view) const;

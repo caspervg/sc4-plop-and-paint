@@ -7,7 +7,7 @@ namespace UI {
 
     // Shared
     inline float wideInputWidth() { return 7.7f * ImGui::GetFontSize(); }
-    inline float dropdownWidth() { return 7.7f * ImGui::GetFontSize(); }
+    inline float dropdownWidth() { return 9.5f * ImGui::GetFontSize(); }
     inline float kIconSize = 44.0f;
     inline void SetIconSize(const float size) {
         kIconSize = std::clamp(size, kMinIconSize, kMaxIconSize);

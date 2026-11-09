@@ -88,6 +88,17 @@ std::vector<PropView> PropFilterHelper::ApplyFiltersAndSort(
     return filtered;
 }
 
+int PropFilterHelper::ActiveFilterCount() const {
+    const auto fullRange = [](const float (&range)[2]) {
+        return range[0] <= PropSize::kMinSize && range[1] >= PropSize::kMaxSize;
+    };
+    return static_cast<int>(!searchBuffer.empty()) + static_cast<int>(!fullRange(propWidth)) +
+           static_cast<int>(!fullRange(propHeight)) + static_cast<int>(!fullRange(propDepth)) +
+           static_cast<int>(favoritesOnly) + static_cast<int>(requireFamily) + static_cast<int>(requireDayNight) +
+           static_cast<int>(requireTimed) + static_cast<int>(requireSeasonal) + static_cast<int>(requireReducedChance) +
+           static_cast<int>(packFilter && packFilter->IsActive());
+}
+
 void PropFilterHelper::ResetFilters() {
     searchBuffer.clear();
     propWidth[0] = PropSize::kMinSize;
