@@ -57,7 +57,7 @@ namespace {
     constexpr Swatch kSwatches[] = {
         {"Marking white", 0.95f, 0.95f, 0.92f}, {"Marking yellow", 0.98f, 0.80f, 0.12f},
         {"Bus lane red", 0.70f, 0.18f, 0.15f},  {"Cycle lane green", 0.25f, 0.55f, 0.30f},
-        {"Disabled bay blue", 0.15f, 0.40f, 0.75f}, {"Asphalt grey", 0.32f, 0.32f, 0.33f},
+        {"Disabled bay blue", 0.15f, 0.40f, 0.75f}, {"Asphalt gray", 0.32f, 0.32f, 0.33f},
         {"Dark asphalt", 0.16f, 0.16f, 0.17f},  {"Concrete", 0.70f, 0.69f, 0.65f},
         {"Earth", 0.45f, 0.35f, 0.24f},          {"Sand", 0.82f, 0.74f, 0.55f},
     };
@@ -822,7 +822,7 @@ void GroundPanelTab::RenderShapeSettings_() {
 void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookEditorState& state, bool& changed,
                                        bool& committed) {
     const bool textured = state.wantsTexture || !look.textures.empty();
-    if (ImGui::RadioButton("Colour", !textured) && textured) {
+    if (ImGui::RadioButton("Color", !textured) && textured) {
         look.textures.clear();
         look.color = state.plainColour;
         state.wantsTexture = false;
@@ -873,7 +873,7 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
             ImGui::PopID();
         }
         ImGui::SameLine();
-        ImGui::ColorEdit3("Other colour##paint", look.color.data(), ImGuiColorEditFlags_NoInputs);
+        ImGui::ColorEdit3("Other color##paint", look.color.data(), ImGuiColorEditFlags_NoInputs);
         Track(changed, committed);
         return;
     }
@@ -984,7 +984,7 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
         favorites_->Save();
     }
     ImGui::EndDisabled();
-    Tooltip(nothingToAdd ? "First pick a texture." : "Add the colour or the textures that you paint with now to this palette.");
+    Tooltip(nothingToAdd ? "First pick a texture." : "Add the color or the textures that you paint with now to this palette.");
 
     ImGui::SameLine();
     ImGui::BeginDisabled(palette.textures.size() < 2);
@@ -1036,7 +1036,7 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     }
 
     if (palette.colours.empty() && palette.textures.empty()) {
-        Hint("This palette is empty. Choose a colour or a texture, then click Add this look.");
+        Hint("This palette is empty. Choose a color or a texture, then click Add this look.");
     }
 
     // At most two rows of tiles, which scroll: a big palette does not push the rest down.
@@ -1061,7 +1061,7 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
         const std::array<float, 3> colour = palette.colours[i];
         ImGui::PushID(static_cast<int>(i));
         nextTile(22.0f);
-        if (ImGui::ColorButton("##colour", ImVec4(colour[0], colour[1], colour[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
+        if (ImGui::ColorButton("##color", ImVec4(colour[0], colour[1], colour[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
                                ImVec2(22, 22))) {
             look.textures.clear();
             look.color = colour;
@@ -1070,7 +1070,7 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
             committed = true;
         }
         tileRight = ImGui::GetItemRectMax().x;
-        Tooltip("Click to paint with this colour. Right-click for more.");
+        Tooltip("Click to paint with this color. Right-click for more.");
         if (ImGui::BeginPopupContextItem("tileMenu")) {
             if (ImGui::MenuItem("Remove from palette")) {
                 removeColour = i;
@@ -1406,7 +1406,7 @@ void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) const {
         }
     }
     ImGui::TextDisabled("0x%08X", instanceId);
-    ImGui::TextUnformatted("Click to paint with this texture.\nCtrl+click to add it to the mix or remove it from the mix.\nRight-click to add or remove it as a favourite.");
+    ImGui::TextUnformatted("Click to paint with this texture.\nCtrl+click to add it to the mix or remove it from the mix.\nRight-click to add or remove it as a favorite.");
     ImGui::EndTooltip();
 }
 
@@ -1449,7 +1449,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
     RenderPackFilter_();
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputTextWithHint("##filter", "Search name, pack or ID", textureFilter_, sizeof(textureFilter_));
-    ImGui::Checkbox("Favourites", &favouriteTexturesOnly_);
+    ImGui::Checkbox("Favorites only", &favouriteTexturesOnly_);
     ImGui::SameLine();
     if (kindFilter_.Render(*decals_)) {
         shownValid_ = false;
@@ -1457,8 +1457,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
 
     const std::vector<uint32_t>& shown = ShownTextures_();
     if (shown.empty()) {
-        Hint("No textures match this search and these filters.");
-        if (ImGui::SmallButton("Clear search and filters")) {
+        if (PanelUi::NoResults("No textures match this search and these filters.")) {
             textureFilter_[0] = 0;
             packFilter_.Clear();
             favouriteTexturesOnly_ = false;
@@ -1468,7 +1467,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
         return;
     }
     Hint((std::to_string(shown.size()) + " textures. Click a texture to paint with it. Ctrl+click to mix textures. "
-                                         "Right-click to set a favourite.").c_str());
+                                         "Right-click to set a favorite.").c_str());
 
     // About five rows. Drag its bottom edge for more or fewer.
     const ImGuiStyle& gridStyle = ImGui::GetStyle();
@@ -1935,7 +1934,7 @@ void GroundPanelTab::RenderLayers_(Document& document) {
             }
             else {
                 const auto& c = object.look.color;
-                swatchClicked = ImGui::ColorButton("##colour", ImVec4(c[0], c[1], c[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
+                swatchClicked = ImGui::ColorButton("##color", ImVec4(c[0], c[1], c[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
                                                    ImVec2(swatch, swatch));
             }
             ImGui::TableNextColumn();

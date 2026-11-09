@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cfloat>
 #include <cstddef>
 
 #include "imgui.h"
@@ -69,6 +70,11 @@ namespace PanelUi {
             ImGui::EndPopup();
         }
         return confirmed;
+    }
+
+    // Before BeginPopupModal: a tall dialog scrolls instead of leaving the screen.
+    inline void LimitDialogHeight() {
+        ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, ImGui::GetIO().DisplaySize.y * 0.9f));
     }
 
     // Says that nothing matches and offers the way back. True when the filters should be cleared.

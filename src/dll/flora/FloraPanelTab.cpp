@@ -561,11 +561,12 @@ void FloraPanelTab::HandlePickedFlora_(const PickedFlora& picked) {
 void FloraPanelTab::RenderPaintModal_() {
     if (pendingPaint_.open) {
         director_->ApplyGridChoice(&PaintGridChoices::flora, pendingPaint_.settings);
-        ImGui::OpenPopup("Flora Painter");
+        ImGui::OpenPopup("Paint flora");
         pendingPaint_.open = false;
     }
 
-    if (!ImGui::BeginPopupModal("Flora Painter", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    PanelUi::LimitDialogHeight();
+    if (!ImGui::BeginPopupModal("Paint flora", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
     }
 

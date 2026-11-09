@@ -27,6 +27,9 @@ enum class PolygonFillStyle {
     Rows = 1
 };
 
+// In the order of PreviewMode.
+inline constexpr const char* kPreviewModeLabels[] = {"Outline only", "Full model only", "Outline and model", "Hidden"};
+
 struct PropPaintSettings;
 inline void SetPaintMode(PropPaintSettings& settings, PaintMode mode);
 

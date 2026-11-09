@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -673,13 +672,12 @@ void DecalPanelTab::RenderFaAngleCombo_(float& rotationDegrees, TerrainDecalStat
 void DecalPanelTab::RenderSettingsModal_() {
     if (pendingPaint_.open) {
         dialogState_ = pendingPaint_.settings.stateTemplate;
-        ImGui::OpenPopup("Decal Paint Settings");
+        ImGui::OpenPopup("Paint decal");
         pendingPaint_.open = false;
     }
 
-    // With its sections open it scrolls instead of leaving the screen.
-    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, ImGui::GetIO().DisplaySize.y * 0.9f));
-    if (!ImGui::BeginPopupModal("Decal Paint Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    PanelUi::LimitDialogHeight();
+    if (!ImGui::BeginPopupModal("Paint decal", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
     }
 

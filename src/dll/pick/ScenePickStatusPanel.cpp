@@ -1,6 +1,7 @@
 #include "ScenePickStatusPanel.hpp"
 
 #include <algorithm>
+#include <string>
 #include <variant>
 
 #include "../common/Utils.hpp"
@@ -15,6 +16,23 @@
 
 namespace {
     constexpr float kThumbnailMaxSize = 96.0f;
+    constexpr float kCursorGap = 18.0f;
+
+    // Name first, when there is one. Then what it is.
+    void RenderIdentity(const char* kind, const uint32_t id, const std::string& name) {
+        if (!name.empty()) {
+            ImGui::TextUnformatted(name.c_str());
+        }
+        ImGui::TextDisabled("%s 0x%08X", kind, id);
+    }
+
+    template <typename T>
+    std::string DisplayName(const T* entry) {
+        if (!entry) {
+            return {};
+        }
+        return !entry->visibleName.empty() ? entry->visibleName : entry->exemplarName;
+    }
 
     const char* PickedDecalLabel(const PickedDecalSource source) {
         switch (source) {
@@ -36,10 +54,13 @@ void ScenePickStatusPanel::OnRender() {
         return;
     }
 
-    ImVec2 pos = ImGui::GetMousePos();
-    pos.x += 18.0f;
-    pos.y += 18.0f;
-    ImGui::SetNextWindowPos(pos);
+    // Beside the cursor, on the side where it stays on the screen.
+    const ImVec2 mouse = ImGui::GetMousePos();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const bool flipX = mouse.x > viewport->WorkPos.x + viewport->WorkSize.x * 0.66f;
+    const bool flipY = mouse.y > viewport->WorkPos.y + viewport->WorkSize.y * 0.66f;
+    ImGui::SetNextWindowPos(ImVec2(mouse.x + (flipX ? -kCursorGap : kCursorGap), mouse.y + (flipY ? -kCursorGap : kCursorGap)),
+                            ImGuiCond_Always, ImVec2(flipX ? 1.0f : 0.0f, flipY ? 1.0f : 0.0f));
     ImGui::SetNextWindowBgAlpha(0.7f);
     constexpr ImGuiWindowFlags kFlags =
         ImGuiWindowFlags_NoTitleBar |
@@ -55,24 +76,19 @@ void ScenePickStatusPanel::OnRender() {
         return;
     }
 
-    std::visit([](const auto& picked) {
+    std::visit([this](const auto& picked) {
         using T = std::decay_t<decltype(picked)>;
         if constexpr (std::is_same_v<T, PickedProp>) {
-            ImGui::Text("Prop 0x%08X", picked.propType);
+            RenderIdentity("Prop", picked.propType, DisplayName(props_ ? props_->FindPropByInstanceId(picked.propType) : nullptr));
         }
         else if constexpr (std::is_same_v<T, PickedFlora>) {
-            ImGui::Text("Flora 0x%08X", picked.floraType);
+            RenderIdentity("Flora", picked.floraType, DisplayName(flora_ ? flora_->FindFloraByInstanceId(picked.floraType) : nullptr));
         }
         else if constexpr (std::is_same_v<T, PickedDecal>) {
-            ImGui::Text("%s 0x%08X", PickedDecalLabel(picked.source), picked.instanceId);
+            RenderIdentity(PickedDecalLabel(picked.source), picked.instanceId, {});
         }
         else if constexpr (std::is_same_v<T, PickedLot>) {
-            if (!picked.name.empty()) {
-                ImGui::Text("Lot 0x%08X  %s", picked.lotInstanceId, picked.name.c_str());
-            }
-            else {
-                ImGui::Text("Lot 0x%08X", picked.lotInstanceId);
-            }
+            RenderIdentity("Lot", picked.lotInstanceId, picked.name);
         }
     }, *hovered);
 
@@ -80,10 +96,9 @@ void ScenePickStatusPanel::OnRender() {
 
     const uint32_t count = picker_->GetCandidateCount();
     if (count > 1) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-        ImGui::Text("%u / %u  Alt+scroll to cycle", picker_->GetCandidateIndex() + 1, count);
-        ImGui::PopStyleColor();
+        ImGui::TextDisabled("%u of %u. Hold Alt and scroll to change.", picker_->GetCandidateIndex() + 1, count);
     }
+    ImGui::TextDisabled("Click to pick. Press Esc to cancel.");
 
     ImGui::End();
 }

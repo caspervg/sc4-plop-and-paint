@@ -725,7 +725,7 @@ void PropPanelTab::RenderSeasonalSetEditor_() {
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(540, 460), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 38.0f, ImGui::GetFontSize() * 32.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Seasonal sets###PlopAndPaintSeasonalSets", &seasonalSetEditorOpen_, ImGuiWindowFlags_NoNav)) {
         ImGui::End();
         return;
@@ -1043,11 +1043,12 @@ void PropPanelTab::RenderPropTooltipBody_(const Prop& prop) const {
 void PropPanelTab::RenderRotationModal_() {
     if (pendingPaint_.open) {
         director_->ApplyGridChoice(&PaintGridChoices::props, pendingPaint_.settings);
-        ImGui::OpenPopup("Prop Painter");
+        ImGui::OpenPopup("Paint prop");
         pendingPaint_.open = false;
     }
 
-    if (ImGui::BeginPopupModal("Prop Painter", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    PanelUi::LimitDialogHeight();
+    if (ImGui::BeginPopupModal("Paint prop", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Prop: %s", pendingPaint_.propName.c_str());
         ImGui::Separator();
 

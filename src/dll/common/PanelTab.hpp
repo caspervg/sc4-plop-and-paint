@@ -175,7 +175,6 @@ protected:
         }
         settings.rotation = rotation;
 
-        static constexpr const char* kPreviewModeLabels[] = {"Outline only", "Full model only", "Outline and model"};
         int previewMode = static_cast<int>(settings.previewMode);
         ImGui::Combo("Preview", &previewMode, kPreviewModeLabels, IM_ARRAYSIZE(kPreviewModeLabels));
         settings.previewMode = static_cast<PreviewMode>(previewMode);

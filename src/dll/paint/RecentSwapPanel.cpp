@@ -26,7 +26,6 @@ namespace {
     constexpr ImU32 kPropIndicator = IM_COL32(100, 140, 220, 220);
     constexpr ImU32 kFloraIndicator = IM_COL32(100, 200, 120, 220);
 
-    constexpr float kSpacing = 4.0f;
     constexpr float kEdgeMargin = 8.0f;
     constexpr size_t kMaxQuickSwapSlots = 8;
 
@@ -38,7 +37,7 @@ namespace {
         case RecentPaintEntry::SourceKind::FloraFamily:
             return "Family";
         case RecentPaintEntry::SourceKind::FloraChain:
-            return "Chain";
+            return "Multi-stage";
         case RecentPaintEntry::SourceKind::SingleProp:
         case RecentPaintEntry::SourceKind::SingleFlora:
         default:
@@ -108,16 +107,11 @@ void RecentSwapPanel::OnRender() {
     const auto& entries = history.Entries();
     const float thumbSize = UI::kIconSize;
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    const float panelWidth = thumbSize + ImGui::GetStyle().WindowPadding.x * 2;
-    const float entryHeight = thumbSize + kSpacing;
-    const float panelHeight = static_cast<float>(entries.size()) * entryHeight
-        - kSpacing
-        + ImGui::GetStyle().WindowPadding.y * 2;
 
+    // Against the right side, in the middle: the panel's real size, with the padding of its buttons.
     ImGui::SetNextWindowPos(
-        ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - panelWidth - kEdgeMargin,
-               viewport->WorkPos.y + (viewport->WorkSize.y - panelHeight) * 0.5f),
-        ImGuiCond_Always);
+        ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - kEdgeMargin, viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
+        ImGuiCond_Always, ImVec2(1.0f, 0.5f));
 
     ImGui::SetNextWindowBgAlpha(0.6f);
     constexpr ImGuiWindowFlags kFlags =
@@ -276,13 +270,13 @@ void RecentSwapPanel::RenderTooltip_(const size_t index, const bool isCurrent, c
     }
 
     if (isCurrent) {
-        ImGui::TextDisabled("(active)");
+        ImGui::TextDisabled("You are painting with this.");
     }
     else if (index <= kMaxQuickSwapSlots) {
-        ImGui::TextDisabled("Press %zu to swap", index);
+        ImGui::TextDisabled("Click or press %zu to swap.", index);
     }
     else {
-        ImGui::TextDisabled("Click to swap");
+        ImGui::TextDisabled("Click to swap.");
     }
     ImGui::EndTooltip();
 }

@@ -207,7 +207,7 @@ Important behavior:
 
 ## Terrain Paint
 
-This tab paints the ground: areas, lines, brush strokes and road markings in any shape, with a ground texture or a plain colour. Everything you paint stays editable and is saved with the city. It needs SC4RenderServices with terrain paint and `EnableCustomTerrainDecalRenderer=true`.
+This tab paints the ground: areas, lines, brush strokes and road markings in any shape, with a ground texture or a plain color. Everything you paint stays editable and is saved with the city. It needs SC4RenderServices with terrain paint and `EnableCustomTerrainDecalRenderer=true`.
 
 Tools (pick one to start, `Stop` or Esc to end):
 
@@ -229,13 +229,13 @@ Tools (pick one to start, `Stop` or Esc to end):
 
 `Snap to paint` (M) snaps clicked and dragged points to what is already painted: corners, the middles of sides, and edges. After snapping to an edge, a side drawn within 2° of parallel or square to it lines up with it. Hold Shift for 15° steps from the last point. A small ring shows what the point snapped to. The status box shows the length of the side being drawn, how far it turns from the last, and the length and area of the whole shape; with one object selected, its area.
 
-`Paint with`: `Copy look` (or Alt+click in the city) takes the colour or textures and finish from something already painted.
+`Paint with`: `Copy look` (or Alt+click in the city) takes the color or textures and finish from something already painted.
 
-- `Palettes`: named sets of colours and textures that you use together. They are the same in all your cities. `Add this look` adds the colour or the textures that you paint with now. `...` makes a new palette, or renames or deletes this one. Click a tile to paint with it, or right-click a tile to remove it. `Mix all` paints with all textures of the palette as a mix.
+- `Palettes`: named sets of colors and textures that you use together. They are the same in all your cities. `Add this look` adds the color or the textures that you paint with now. `...` makes a new palette, or renames or deletes this one. Click a tile to paint with it, or right-click a tile to remove it. `Mix all` paints with all textures of the palette as a mix.
 - A mix shows as a row of tiles with the share of each. Click a tile to change its share or remove it. With soft patches, `Make base` chooses the texture that covers the shape.
-- `Colour`, or `Texture`: pick ground textures from the library below it.
+- `Color`, or `Texture`: pick ground textures from the library below it.
   - Click a texture to paint with it. Ctrl+click adds it to a mix, or takes it out again. In a mix, each 16 m square of ground takes one of the textures, by its share, for natural variation.
-  - Right-click a texture to make it a favourite; `Favourites only` shows just those. They are the same favourites as in `Stamp`.
+  - Right-click a texture to make it a favorite; `Favorites only` shows just those. They are the same favorites as in `Stamp`.
   - `Pack` shows the textures of one pack. With `All packs`, a pack's textures sit together. The search finds textures by the name of the file they first shipped in, their pack, or their instance ID. Pack and file names come from the [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog), through `packs.cbor`. Without that file, the search goes by instance ID only.
   - The textures you used last are at the top.
 - `Texture size` and `Texture turn` scale and turn the texture. `Texture shift` moves it, to line it up with a kerb or a lot; Shift+drag in `Select` does the same in the city.
@@ -243,7 +243,7 @@ Tools (pick one to start, `Stop` or Esc to end):
 - `Follow the line` (lines with a texture): the texture runs along the line and spans its width, like a dirt track or a kerb. `Texture length` is how often it repeats along the line.
 - `Finish`: opacity, a soft edge (how far in from the edge the paint fades out), worn paint (patches missing, as on an old road), a rough edge (an uneven, natural outline that wanders this far in and out, for grass, dirt and gravel; not for markings) and, under `Advanced`, the depth (raise it when the paint flickers or hides under lot textures; 4 and up draws over the game's shadows).
 
-Colour and opacity changes show in the city while the slider moves; changes to the shape show every so often and apply when you let go.
+Color and opacity changes show in the city while the slider moves; changes to the shape show every so often and apply when you let go.
 
 
 `Painted in this city` lists everything painted, top first: show or hide it, lock it against erasing and moving, and click a row to select it. With one object selected, its name, shape settings and look can be changed; changes apply when you let go of a control. `Up`, `Down`, `Top` and `Bottom` change what lies on top. With the selection:

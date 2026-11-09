@@ -154,6 +154,7 @@ void BasePainterInputControl::SetTypeToPaint(const uint32_t typeID, const PropPa
     const bool targetChanged = typeToPaint_ != typeID;
 
     typeToPaint_ = typeID;
+    paintName_ = name;
     settings_ = settings;
     if (SupportsVerticalAdjustment_()) {
         settings_.deltaYMeters = ClampVerticalOffset(settings_.deltaYMeters);

@@ -427,11 +427,12 @@ void FloraCollectionsPanelTab::RenderMemberTable_(const FloraRepository::FloraCo
 void FloraCollectionsPanelTab::RenderPaintModal_() {
     if (pendingPaint_.open) {
         director_->ApplyGridChoice(&PaintGridChoices::flora, pendingPaint_.settings);
-        ImGui::OpenPopup("Flora Collection Paint Options");
+        ImGui::OpenPopup("Paint flora collection");
         pendingPaint_.open = false;
     }
 
-    if (!ImGui::BeginPopupModal("Flora Collection Paint Options", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    PanelUi::LimitDialogHeight();
+    if (!ImGui::BeginPopupModal("Paint flora collection", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
     }
 

@@ -584,8 +584,10 @@ void FamiliesPanelTab::RenderNewFamilyPopup_() {
         return;
     }
 
-    ImGui::OpenPopup("Create Custom Family");
-    if (ImGui::BeginPopupModal("Create Custom Family", &newFamilyPopupOpen_, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (!ImGui::IsPopupOpen("New family")) {
+        ImGui::OpenPopup("New family");
+    }
+    if (ImGui::BeginPopupModal("New family", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         if (ImGui::IsWindowAppearing()) {
             ImGui::SetKeyboardFocusHere();
         }
@@ -654,11 +656,12 @@ void FamiliesPanelTab::QueuePaintForSelectedFamily_() {
 void FamiliesPanelTab::RenderPaintOptionsPopup_() {
     if (pendingPaint_.open) {
         director_->ApplyGridChoice(&PaintGridChoices::props, pendingPaint_.settings);
-        ImGui::OpenPopup("Family Paint Options");
+        ImGui::OpenPopup("Paint family");
         pendingPaint_.open = false;
     }
 
-    if (ImGui::BeginPopupModal("Family Paint Options", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    PanelUi::LimitDialogHeight();
+    if (ImGui::BeginPopupModal("Paint family", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Family: %s", pendingPaint_.familyName.c_str());
         ImGui::Separator();
 

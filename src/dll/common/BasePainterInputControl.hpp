@@ -36,6 +36,7 @@ public:
     void Deactivate() override;
 
     void SetTypeToPaint(uint32_t typeID, const PropPaintSettings& settings, const std::string& name);
+    [[nodiscard]] const std::string& GetPaintName() const { return paintName_; }
     void SetCity(cISC4City* pCity);
     void SetOnCancel(std::function<void()> onCancel);
     // Called when the keys change the grid: its size, or showing or snapping to it.
@@ -194,6 +195,7 @@ protected:
     cRZAutoRefCount<cISC4City> city_;
 
     uint32_t typeToPaint_{0};
+    std::string paintName_{};
     uint32_t directPaintTypeID_{0};
     PropPaintSettings settings_{};
     std::unique_ptr<WeightedPicker> directPaintPicker_{};

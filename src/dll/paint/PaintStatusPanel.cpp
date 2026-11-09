@@ -5,6 +5,26 @@
 #include "../props/PropPainterInputControl.hpp"
 #include "imgui.h"
 
+#include <cstdio>
+
+namespace {
+    void StateRow(const char* label, const char* value) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("%s", label);
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(value);
+    }
+
+    void KeyRow(const char* keys, const char* action) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(keys);
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("%s", action);
+    }
+}
+
 void PaintStatusPanel::OnRender() {
     if (!visible_ || !activeControl_) {
         return;
@@ -27,107 +47,135 @@ void PaintStatusPanel::OnRender() {
         return;
     }
 
-    // Mode
-    static constexpr const char* kModeNames[] = {"Direct", "Line", "Polygon"};
-    const int modeIdx = static_cast<int>(settings.mode);
-    ImGui::Text("Mode: %s", kModeNames[modeIdx]);
+    const auto* decal = dynamic_cast<const DecalPainterInputControl*>(activeControl_);
+    const bool vertical = activeControl_->SupportsVerticalAdjustment();
+    const bool direct = settings.mode == PaintMode::Direct;
+    const bool line = settings.mode == PaintMode::Line;
+    const bool polygon = settings.mode == PaintMode::Polygon;
+    const bool rows = polygon && settings.polygonFill == PolygonFillStyle::Rows;
+    const bool sketch = activeControl_->HasPendingSketch() || activeControl_->HasGroundSketch();
 
-    // Grid
-    ImGui::Text("Grid: %s (%.1fm)", settings.showGrid ? "ON" : "OFF", settings.gridStepMeters);
+    constexpr ImGuiTableFlags kTableFlags = ImGuiTableFlags_SizingFixedFit;
+    char value[96];
+    const auto state = [&](const char* label, const char* format, const auto... args) {
+        std::snprintf(value, sizeof(value), format, args...);
+        StateRow(label, value);
+    };
 
-    // Snap
-    if (settings.snapPointsToGrid) {
-        ImGui::Text("Snap: ON%s", settings.snapPlacementsToGrid ? " + placements" : "");
-    } else {
-        ImGui::TextUnformatted("Snap: OFF");
-    }
+    if (ImGui::BeginTable("##state", 2, kTableFlags)) {
+        if (const std::string& name = activeControl_->GetPaintName(); !name.empty()) {
+            state("Painting", "%.48s", name.c_str());
+        }
+        static constexpr const char* kModeNames[] = {"Direct", "Line", "Polygon"};
+        state("Mode", "%s%s", kModeNames[static_cast<int>(settings.mode)], settings.pickFromGround ? " on painted ground" : "");
 
-    // Preview mode
-    static constexpr const char* kPreviewNames[] = {"Outline", "Full", "Combined", "Hidden"};
-    const int previewIdx = static_cast<int>(settings.previewMode);
-    ImGui::Text("Preview: %s", kPreviewNames[previewIdx]);
-    if (activeControl_->SupportsVerticalAdjustment()) {
-        ImGui::Text("Height offset: %+.1fm", settings.deltaYMeters);
-    }
-    if (const auto* decalControl = dynamic_cast<const DecalPainterInputControl*>(activeControl_)) {
-        const int depthOffset = decalControl->GetDepthOffset();
-        if (depthOffset >= 0) {
-            ImGui::Text("Depth offset: %d", depthOffset);
+        if (decal) {
+            state("Rotation", "%s", fa_angles::Label(decal->GetRotationDegrees()).c_str());
+            if (decal->GetDepthOffset() >= 0) {
+                state("Depth offset", "%d", decal->GetDepthOffset());
+            }
+            else {
+                state("Depth offset", "%s", "Default");
+            }
+            if (decal->IsMirrored()) {
+                state("Mirror", "%s", "On");
+            }
+        }
+        else if (line && settings.alignToPath) {
+            state("Rotation", "%s", "Along the line");
+        }
+        else if (settings.randomRotation) {
+            state("Rotation", "%s", "Random");
         }
         else {
-            ImGui::TextUnformatted("Depth offset: default");
+            state("Rotation", "%d deg", (settings.rotation & 3) * 90);
         }
-        if (decalControl->IsMirrored()) {
-            ImGui::TextUnformatted("Mirrored");
-        }
-        ImGui::Text("Rotation: %s", fa_angles::Label(decalControl->GetRotationDegrees()).c_str());
-    }
 
-    // Mode-specific settings
-    if (settings.mode == PaintMode::Direct && activeControl_->SupportsVerticalAdjustment()) {
-        if (activeControl_->HasCapturedDirectAbsoluteHeight()) {
-            ImGui::Text("Captured Y: %.1fm", activeControl_->GetCapturedDirectAbsoluteHeight());
-        }
-    }
-    else if (settings.mode == PaintMode::Line) {
-        ImGui::Text("Spacing: %.1fm", settings.spacingMeters);
-    } else if (settings.mode == PaintMode::Polygon) {
-        if (settings.polygonFill == PolygonFillStyle::Rows) {
-            ImGui::Text("Rows: %.1fm apart, every %.2fm", settings.rowSpacingMeters, settings.rowStepMeters);
-        }
-        else {
-            ImGui::Text("Density: %.1f/100m^2", settings.densityPer100Sqm);
-            ImGui::Text("Variation: %.2f", settings.densityVariation);
-        }
-    }
+        state("Grid", "%s, %.1f m", settings.showGrid ? "On" : "Off", settings.gridStepMeters);
+        state("Snap", "%s", !settings.snapPointsToGrid ? "Off" : settings.snapPlacementsToGrid ? "On, also placements" : "On");
+        state("Preview", "%s", kPreviewModeLabels[static_cast<int>(settings.previewMode)]);
 
-    if (activeControl_->SupportsVerticalAdjustment() &&
-        (settings.mode == PaintMode::Line || settings.mode == PaintMode::Polygon)) {
-        if (settings.sketchHeightMode == SketchHeightMode::Custom) {
+        if (vertical) {
+            state("Height offset", "%+.1f m", settings.deltaYMeters);
+        }
+        if (direct && vertical && activeControl_->HasCapturedDirectAbsoluteHeight()) {
+            state("Captured height", "%.1f m", activeControl_->GetCapturedDirectAbsoluteHeight());
+        }
+        if (line) {
+            state("Spacing", "%.1f m", settings.spacingMeters);
+        }
+        else if (rows) {
+            state("Rows", "%.1f m apart, every %.2f m", settings.rowSpacingMeters, settings.rowStepMeters);
+        }
+        else if (polygon) {
+            state("Density", "%.2f per 100 m2", settings.densityPer100Sqm);
+            state("Variation", "%.2f", settings.densityVariation);
+        }
+        if (vertical && !direct && settings.sketchHeightMode == SketchHeightMode::Custom) {
             cS3DVector3 unusedTerrainPos;
             cS3DVector3 resolvedPos;
             if (activeControl_->TryGetCursorSketchPreview(unusedTerrainPos, resolvedPos)) {
-                ImGui::Text("Node: %+.1fm -> %.1fm", activeControl_->GetSketchCaptureOffsetMeters(), resolvedPos.fY);
+                state("Node height", "%+.1f m, at %.1f m", activeControl_->GetSketchCaptureOffsetMeters(), resolvedPos.fY);
             }
             else {
-                ImGui::Text("Node: %+.1fm", activeControl_->GetSketchCaptureOffsetMeters());
+                state("Node height", "%+.1f m", activeControl_->GetSketchCaptureOffsetMeters());
             }
         }
+        ImGui::EndTable();
     }
 
-    // Hotkey hints
     ImGui::Separator();
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-        ImGui::TextUnformatted("R rotation  G grid  Shift+S snap");
-    ImGui::TextUnformatted("Ctrl+[ ] grid  P preview");
-    if (activeControl_->SupportsVerticalAdjustment()) {
-        ImGui::TextUnformatted("[ ] +/-1.0m  Shift+[ ] +/-5.0m  Shift+Alt+[ ] +/-0.1m");
+
+    if (ImGui::BeginTable("##keys", 2, kTableFlags)) {
+        // What ends the work comes first.
+        if (activeControl_->IsPickingGround()) {
+            KeyRow("Click", "Choose painted ground");
+        }
+        if (activeControl_->HasGroundSketch()) {
+            KeyRow("Click", "Start over");
+        }
+        KeyRow("Enter", !sketch ? "Keep what you placed" : line ? "Place along the line" : "Fill the shape");
+        KeyRow("Esc", activeControl_->HasPendingSketch() ? "Clear the sketch" : "Remove what you did not keep, and stop");
+        if (!direct) {
+            KeyRow("Backspace", "Remove the last point");
+        }
+        KeyRow(decal ? "Ctrl+Z" : "Ctrl+Z / back mouse", "Undo");
+        if (!direct && !decal) {
+            KeyRow("Ctrl+Backspace", "Undo one item of the group");
+        }
+
+        if (decal) {
+            KeyRow("R / Shift+R", "Turn 45 / 5 degrees");
+            KeyRow("F / Shift+F", "Next / previous FA angle");
+            KeyRow("M", "Mirror");
+            KeyRow("Ctrl+PgUp / PgDn", "Depth offset");
+        }
+        else {
+            KeyRow("R / middle mouse", "Turn 90 degrees");
+        }
+
+        KeyRow("G / Shift+S", "Grid / snap on or off");
+        KeyRow("Ctrl+[ ]", "Grid size");
+        KeyRow("P", "Preview");
+
+        if (vertical) {
+            KeyRow("[ ]", "Height 1.0 m, Shift 5.0 m, Shift+Alt 0.1 m");
+            KeyRow("0", "Height back to 0");
+        }
+        if (direct && vertical) {
+            KeyRow("H", "Capture the height");
+        }
+        if (!direct) {
+            KeyRow("- +", line ? "Spacing" : rows ? "Space between rows" : "Density");
+        }
+        if (polygon) {
+            KeyRow("Ctrl+- +", rows ? "Step along the row" : "Variation");
+        }
+        if (!direct && activeControl_->CanUseGroundShapes()) {
+            KeyRow("F", polygon ? "Fill the painted ground under the cursor" : "Plant along the painted ground under the cursor");
+        }
+        ImGui::EndTable();
     }
-    if (settings.mode == PaintMode::Direct && activeControl_->SupportsVerticalAdjustment()) {
-        ImGui::TextUnformatted("H capture height");
-    }
-    if (dynamic_cast<const DecalPainterInputControl*>(activeControl_)) {
-        ImGui::TextUnformatted("Ctrl+PgUp/PgDn depth  M mirror");
-    }
-    ImGui::TextUnformatted("Ctrl+Z undo group  Ctrl+Backspace undo prop");
-    if (settings.mode == PaintMode::Line || settings.mode == PaintMode::Polygon) {
-        ImGui::TextUnformatted("-/+ spacing/density");
-    }
-    if (settings.mode == PaintMode::Polygon) {
-        ImGui::TextUnformatted(settings.polygonFill == PolygonFillStyle::Rows ? "Ctrl+-/+ step along row" : "Ctrl+-/+ variation");
-    }
-    if (activeControl_->IsPickingGround()) {
-        ImGui::TextUnformatted("Click painted ground to choose it");
-    }
-    if (activeControl_->HasGroundSketch()) {
-        ImGui::TextUnformatted("Enter place  click start over");
-    }
-    if ((settings.mode == PaintMode::Line || settings.mode == PaintMode::Polygon) &&
-        activeControl_->CanUseGroundShapes()) {
-        ImGui::TextUnformatted(settings.mode == PaintMode::Polygon ? "F fill the painted ground under the cursor"
-                                                                   : "F plant along the painted ground under the cursor");
-    }
-    ImGui::PopStyleColor();
 
     ImGui::End();
 }
