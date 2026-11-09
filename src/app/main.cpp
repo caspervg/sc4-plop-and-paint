@@ -28,6 +28,7 @@
 #include "../shared/index.hpp"
 #include "../shared/SeasonalSetDetector.hpp"
 #include "PackCatalogBuilder.hpp"
+#include "NetworkDiscovery.hpp"
 #include "DBPFReader.h"
 #include "DbpfIndexService.hpp"
 #include "ExemplarParser.hpp"
@@ -916,6 +917,13 @@ namespace {
                 if (writeCborAtomic(cborPath, floraCache)) {
                     logger.info("Successfully exported flora");
                 }
+            }
+
+            if (NetworksCache networksCache{NetworkDiscovery::FindOverrideNetworks(indexService)};
+                !networksCache.networks.empty()) {
+                const auto cborPath = config.userPluginsRoot / "networks.cbor";
+                logger.info("Exporting {} override networks to {}", networksCache.networks.size(), cborPath.string());
+                writeCborAtomic(cborPath, networksCache);
             }
 
             // Shutdown the indexing service

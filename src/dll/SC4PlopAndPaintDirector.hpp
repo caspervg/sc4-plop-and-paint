@@ -88,6 +88,13 @@ public:
     // Whether a plop started from the panel is still going on. Plopping is the game's own tool, so
     // this follows the view control that took over after the plop started. Call it every frame.
     bool IsLotPlopping();
+    // Starts the game's drag tool for baseNetwork (a cISC4NetworkOccupant::eNetworkType). Until the
+    // player leaves that tool, the NAM DLL turns each drag into the override network of this tile.
+    bool StartOverrideNetworkDrag(uint32_t tile, uint32_t baseNetwork);
+    // The tile of the override network that drags make now, or 0.
+    [[nodiscard]] uint32_t ActiveOverrideNetworkTile() const { return overrideNetworkTile_; }
+    // Whether the installed NAM DLL can drag override networks without a starter piece.
+    [[nodiscard]] static bool CanDragOverrideNetworks();
     bool StartPropPainting(uint32_t propId, const PropPaintSettings& settings, const std::string& name,
                            const std::optional<RecentPaintSource>& source = std::nullopt);
     bool SwitchPropPaintingTarget(uint32_t propId, const std::string& name,
@@ -219,6 +226,9 @@ private:
     const cISC4ViewInputControl* controlBeforePlop_ = nullptr;
     const cISC4ViewInputControl* plopControl_ = nullptr;
     int plopWatchFrames_ = 0;
+    uint32_t overrideNetworkTile_ = 0;
+    const cISC4ViewInputControl* overrideNetworkControl_ = nullptr;
+    void StopOverrideNetworkDrag_();
     cRZAutoRefCount<cIGZMessageServer2> pMS2_;
 
     std::unique_ptr<LotRepository>       lotRepository_;

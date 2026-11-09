@@ -7,6 +7,7 @@
 #include "flora/FloraPanelTab.hpp"
 #include "lots/BuildingsPanelTab.hpp"
 #include "lots/OccupantGroups.hpp"
+#include "network/NetworksPanelTab.hpp"
 #include "props/FamiliesPanelTab.hpp"
 #include "props/PropPanelTab.hpp"
 
@@ -30,6 +31,7 @@ PlopAndPaintPanel::PlopAndPaintPanel(SC4PlopAndPaintDirector* director,
     if (decals) {
         tabs_.push_back(std::make_unique<GroundPanelTab>(director_, decals, favorites, pRM, imguiService_));
     }
+    tabs_.push_back(std::make_unique<NetworksPanelTab>(director_, imguiService_));
 }
 
 void PlopAndPaintPanel::OnRender() {
