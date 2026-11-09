@@ -243,6 +243,7 @@ bool BasePainterInputControl::UseGroundShape(const GroundShape& shape) {
         fillMask_ = shape.mask;
         fillMaskBounds_ = Ground::BoundsOf(fillMask_);
     }
+    sketchFromGround_ = true;
     polygonPreviewDirty_ = true;
     RebuildPreviewOverlay_();
     LOG_INFO("Took a sketch of {} points from painted ground", collectedPoints_.size());
@@ -256,6 +257,7 @@ bool BasePainterInputControl::OutsideFillMask_(const cS3DVector3& position) cons
 
 void BasePainterInputControl::DropFillMask_() {
     fillMask_.clear();
+    sketchFromGround_ = false;
 }
 
 bool BasePainterInputControl::HasPendingSketch() const {
@@ -500,6 +502,10 @@ bool BasePainterInputControl::HandleActiveMouseDownL_(const int32_t x, const int
         {
             const cS3DVector3 terrainPos = currentCursorWorld_;
             const float captureOffset = ShouldUseCustomSketchHeights_() ? settings_.sketchCaptureOffsetMeters : 0.0f;
+            // A click after a shape from painted ground starts a new sketch: it does not bend the shape.
+            if (sketchFromGround_) {
+                ClearCollectedPoints_();
+            }
             collectedPoints_.push_back({
                 terrainPos,
                 terrainPos.fY + captureOffset,
@@ -1173,7 +1179,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
 
     std::vector<cS3DVector3> previewPoints = points;
     std::vector<cS3DVector3> previewTerrainAnchors = terrainAnchors;
-    if (cursorValid_) {
+    if (cursorValid_ && !sketchFromGround_) {
         previewPoints.push_back(ResolveCursorSketchPoint_());
         previewTerrainAnchors.push_back(currentCursorWorld_);
     }
@@ -1233,7 +1239,8 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
                                   cursorValid_,
                                   GetTerrain_(),
                                   settings_,
-                                  plannedPlacements);
+                                  plannedPlacements,
+                                  !sketchFromGround_);
         ShowPlannedModels_(showModels ? plannedPlacements : std::vector<PaintOverlay::PreviewPlacement>{});
         return;
     }
@@ -1284,7 +1291,9 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
                                  cursorValid_,
                                  GetTerrain_(),
                                  settings_,
-                                 polygonPlacements);
+                                 polygonPlacements,
+                                 PaintOverlay::kPolygonFillColor,
+                                 !sketchFromGround_);
     ShowPlannedModels_(showModels ? polygonPlacements : std::vector<PaintOverlay::PreviewPlacement>{});
 }
 

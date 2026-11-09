@@ -116,6 +116,9 @@ void PaintStatusPanel::OnRender() {
     if (settings.mode == PaintMode::Polygon) {
         ImGui::TextUnformatted(settings.polygonFill == PolygonFillStyle::Rows ? "Ctrl+-/+ step along row" : "Ctrl+-/+ variation");
     }
+    if (activeControl_->HasGroundSketch()) {
+        ImGui::TextUnformatted("Enter place  click start over");
+    }
     if ((settings.mode == PaintMode::Line || settings.mode == PaintMode::Polygon) &&
         activeControl_->CanUseGroundShapes()) {
         ImGui::TextUnformatted(settings.mode == PaintMode::Polygon ? "F fill the painted ground under the cursor"

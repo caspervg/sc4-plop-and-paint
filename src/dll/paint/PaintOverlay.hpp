@@ -93,8 +93,13 @@ public:
                           bool cursorValid,
                           cISTETerrain* terrain,
                           const PropPaintSettings& settings,
-                          const std::vector<PreviewPlacement>& plannedPlacements);
+                          const std::vector<PreviewPlacement>& plannedPlacements,
+                          bool followCursor = true);
 
+    static constexpr uint32_t kPolygonFillColor = 0x4000FF00;
+
+    // followCursor: draws the line from the last point to the cursor, for a sketch still being
+    // clicked. Off for one that is complete.
     void BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
                              const std::vector<cS3DVector3>& terrainAnchors,
                              const cS3DVector3& cursorPos,
@@ -103,7 +108,8 @@ public:
                              cISTETerrain* terrain,
                              const PropPaintSettings& settings,
                              const std::vector<PreviewPlacement>& plannedPlacements,
-                             uint32_t fillColor = kPolygonFillColor);
+                             uint32_t fillColor = kPolygonFillColor,
+                             bool followCursor = true);
 
     // The ground paint tool: guide paths, anchor markers, and a ring of ringRadius around the
     // cursor (0 for none).
@@ -151,7 +157,6 @@ private:
     static constexpr uint32_t kGridMajorColor = 0x60FFFFFF;
     static constexpr uint32_t kGridMinorColor = 0x38B0E0FF;
     static constexpr uint32_t kLineColor = 0xC0FFFFFF;
-    static constexpr uint32_t kPolygonFillColor = 0x4000FF00;
     static constexpr uint32_t kMarkerColor = 0xF0FFD700;
     static constexpr uint32_t kPlannedMarkerColor = 0xF0FF8C00;
     static constexpr uint32_t kPlannedBoxTopColor = 0x70FFB347;

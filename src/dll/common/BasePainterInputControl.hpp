@@ -59,6 +59,8 @@ public:
 
     [[nodiscard]] const PropPaintSettings& GetSettings() const { return settings_; }
     [[nodiscard]] bool HasPendingSketch() const;
+    // The sketch was taken from painted ground, so it is complete.
+    [[nodiscard]] bool HasGroundSketch() const { return sketchFromGround_; }
     [[nodiscard]] bool HasPendingCancel() const { return cancelPending_; }
     [[nodiscard]] bool HasPendingPlacements() const;
     [[nodiscard]] bool SupportsVerticalAdjustment() const;
@@ -253,6 +255,7 @@ private:
     // From painted ground: placements outside it are left out. Clicking or removing a point by
     // hand drops it, as the sketch is no longer that shape.
     Ground::Area fillMask_{};
+    bool sketchFromGround_ = false;
     std::optional<GroundShape> pendingGroundShape_{};
     Ground::Bounds fillMaskBounds_{};
     [[nodiscard]] bool OutsideFillMask_(const cS3DVector3& position) const;
