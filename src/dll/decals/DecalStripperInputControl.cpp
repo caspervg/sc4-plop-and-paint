@@ -2,13 +2,16 @@
 
 #include <windows.h>
 
+#include <limits>
+
 #include "cISTETerrain.h"
+#include "DecalHit.hpp"
 #include "../utils/Logger.h"
 
 namespace {
     constexpr auto  kDecalStripperControlID = 0x6E5D4C3Bu;
-    constexpr float kPickRadiusMeters       = 8.0f;
     constexpr float kBrushRadiusMeters      = 16.0f;
+    constexpr size_t kMaxUndoGroups         = 50;
 }
 
 DecalStripperInputControl::DecalStripperInputControl()
@@ -44,6 +47,7 @@ bool DecalStripperInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t 
     }
     if (stripMode_ == StripMode::Brush) {
         leftMouseDown_ = true;
+        brushGroupOpen_ = false;
         if (!cursorValid_) {
             return false;
         }
@@ -55,6 +59,7 @@ bool DecalStripperInputControl::OnMouseDownL(const int32_t /*x*/, const int32_t 
         return false;
     }
     DeleteHoveredDecal_();
+    PickNearestDecalForHover_();  // the next click needs no mouse move
     return true;
 }
 
@@ -166,17 +171,24 @@ void DecalStripperInputControl::UndoLastDeletion() {
         return;
     }
 
-    const DeletedDecalInfo info = undoStack_.back();
+    const std::vector<TerrainDecalState> group = std::move(undoStack_.back());
     undoStack_.pop_back();
+    brushGroupOpen_ = false;
 
-    TerrainDecalId newId{};
-    if (!decalService_->CreateDecal(&info.state, static_cast<uint32_t>(sizeof(info.state)), &newId)) {
-        LOG_WARN("DecalStripperInputControl: failed to recreate decal during undo");
-        return;
+    for (const TerrainDecalState& state : group) {
+        TerrainDecalId newId{};
+        if (!decalService_->CreateDecal(&state, static_cast<uint32_t>(sizeof(state)), &newId)) {
+            LOG_WARN("DecalStripperInputControl: failed to recreate decal during undo");
+        }
     }
 
-    LOG_INFO("DecalStripperInputControl: restored decal id={}, {} undo(s) remaining",
-             newId.value, undoStack_.size());
+    LOG_INFO("DecalStripperInputControl: restored {} decal(s), {} undo(s) remaining", group.size(), undoStack_.size());
+}
+
+void DecalStripperInputControl::TrimUndoStack_() {
+    if (undoStack_.size() > kMaxUndoGroups) {
+        undoStack_.erase(undoStack_.begin());
+    }
 }
 
 void DecalStripperInputControl::ProcessPendingActions() {
@@ -220,21 +232,18 @@ TerrainDecalId DecalStripperInputControl::PickNearestDecal_() const {
         count,
         static_cast<uint32_t>(sizeof(TerrainDecalSnapshot)));
 
-    TerrainDecalId nearest{};
-    float nearestDistSq = kPickRadiusMeters * kPickRadiusMeters;
+    TerrainDecalId best{};
+    float bestScore = std::numeric_limits<float>::max();
 
     for (uint32_t i = 0; i < copied; ++i) {
-        const cS3DVector2& center = snapshots[i].state.decalInfo.center;
-        const float dx = center.fX - currentCursorWorld_.fX;
-        const float dz = center.fY - currentCursorWorld_.fZ;
-        const float distSq = dx * dx + dz * dz;
-        if (distSq < nearestDistSq) {
-            nearestDistSq = distSq;
-            nearest = snapshots[i].id;
+        const auto score = decals::MeasureDecalHit(snapshots[i].state, currentCursorWorld_.fX, currentCursorWorld_.fZ);
+        if (score && *score < bestScore) {
+            bestScore = *score;
+            best = snapshots[i].id;
         }
     }
 
-    return nearest;
+    return best;
 }
 
 void DecalStripperInputControl::PickNearestDecalForHover_() {
@@ -267,7 +276,12 @@ void DecalStripperInputControl::DeleteDecalsInBrush_() {
         const float dz = center.fY - currentCursorWorld_.fZ;
         if (dx * dx + dz * dz <= radiusSq) {
             if (decalService_->RemoveDecal(snapshots[i].id)) {
-                undoStack_.push_back({snapshots[i].state});
+                if (!brushGroupOpen_) {
+                    undoStack_.emplace_back();
+                    brushGroupOpen_ = true;
+                    TrimUndoStack_();
+                }
+                undoStack_.back().push_back(snapshots[i].state);
                 ++removedCount;
             }
         }
@@ -333,6 +347,7 @@ void DecalStripperInputControl::DeleteHoveredDecal_() {
     }
 
     undoStack_.push_back({snap.state});
+    TrimUndoStack_();
     LOG_INFO("DecalStripperInputControl: removed decal id={}, {} undo(s) available",
              hoveredDecalId_.value, undoStack_.size());
 
@@ -350,7 +365,7 @@ void DecalStripperInputControl::BuildOverlay_() {
         return;
     }
 
-    const float radius = (stripMode_ == StripMode::Brush) ? kBrushRadiusMeters : kPickRadiusMeters;
+    const float radius = (stripMode_ == StripMode::Brush) ? kBrushRadiusMeters : decals::kPickRadiusMeters;
     overlay_.BuildStripperPreview(true, currentCursorWorld_, radius, GetTerrain_());
 }
 

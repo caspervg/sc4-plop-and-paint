@@ -36,17 +36,20 @@ inline constexpr std::array<float, 40> kFullCircleDegrees{{
     270.0f, 279.5f, 288.4f, 296.6f, 303.7f, 315.0f, 326.3f, 333.4f, 341.6f, 350.5f,
 }};
 
-// Label for whichever quadrant preset the given angle (any degree value) is
-// closest to; "Custom (xx.xx)" with the raw angle if none match.
+// The angle and the name of the preset that it is closest to, in any quadrant;
+// "Custom (xx.xx)" with the raw angle if none match.
 inline std::string Label(const float degrees) {
     const float quadrantBase = std::floor(degrees / 90.0f) * 90.0f;
     const float quadrantOffset = degrees - quadrantBase;
+    char buf[48];
     for (const Preset& preset : kQuadrantPresets) {
         if (std::fabs(preset.degrees - quadrantOffset) < 0.05f) {
-            return std::string(preset.label);
+            const std::string_view name = preset.label.substr(preset.label.find('('));
+            std::snprintf(buf, sizeof(buf), "%.4g\xC2\xB0 %.*s", std::fmod(quadrantBase + preset.degrees, 360.0f),
+                          static_cast<int>(name.size()), name.data());
+            return buf;
         }
     }
-    char buf[32];
     std::snprintf(buf, sizeof(buf), "Custom (%.2f)", degrees);
     return buf;
 }

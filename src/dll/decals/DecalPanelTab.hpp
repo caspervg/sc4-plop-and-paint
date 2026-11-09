@@ -27,14 +27,26 @@ public:
 
 private:
     void RenderFilterBar_();
+    void RenderResultLine_();
+    // Stop painting, pick and strip.
+    void RenderTools_();
+    // What can be done with the selected texture.
+    void RenderSelectionLine_();
+    void ClearFilters_();
+    // Filters again only when something it depends on has changed.
+    void RefreshShown_();
     void BuildFilteredIndices_(std::vector<size_t>& out) const;
-    void RenderDecalGrid_(const std::vector<size_t>& indices);
+    void RenderDecalGrid_();
     void RenderSettingsModal_();
+    void RenderUvSection_(TerrainDecalState& state);
+    void RenderPresets_(const TerrainDecalState& state);
     void RenderFaAngleCombo_(float& rotationDegrees, TerrainDecalState& state);
     std::string CurrentFaAngleLabel_(float rotationDegrees) const;
     void RenderUvPicker_(TerrainDecalState& state);
     void QueuePaintForDecal_(uint32_t instanceId);
     void StartPaintingDecal_(uint32_t instanceId);
+    // Takes over what was painted with last, as R, F, M and the depth keys change that.
+    void UseLastPaintState_(uint32_t instanceId);
     void ApplyFavoritePresetIfAvailable_(uint32_t instanceId);
     void LoadFavoritePresetByName_(uint32_t instanceId, const char* presetName);
     void ResetPresetNameInput_();
@@ -63,6 +75,18 @@ private:
     int     dilapidationFilter_{0};
     TextureKindFilter kindFilter_{};
 
+    // The textures shown, and what they were filtered with.
+    std::vector<size_t> shown_{};
+    bool        shownDirty_{true};
+    std::string appliedIid_{};
+    bool        appliedFavoritesOnly_{false};
+    size_t      appliedFavoriteCount_{0};
+    int         appliedWealth_{0};
+    int         appliedDilapidation_{0};
+    bool        appliedBase_{true};
+    bool        appliedOverlay_{true};
+    size_t      appliedTotal_{0};
+
     uint32_t selectedInstanceId_{0};
     uint32_t scrollToInstanceId_{0};
     char     presetNameBuf_[64]{};
@@ -74,4 +98,6 @@ private:
         bool open{false};
     };
     PendingPaintState pendingPaint_{};
+    // The dialog edits this copy, so that Cancel changes nothing.
+    TerrainDecalState dialogState_{};
 };

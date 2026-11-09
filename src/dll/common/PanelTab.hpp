@@ -219,7 +219,10 @@ protected:
 
     // Start and Cancel of a paint dialog, also on Enter and Esc. True in the frame Start is chosen.
     [[nodiscard]] static bool RenderStartCancel_() {
-        const bool keys = !ImGui::GetIO().WantTextInput;
+        // Not in the frame the dialog opens, as Enter may have opened it, and not while one of its
+        // dropdowns or popups has the keys.
+        const bool keys = !ImGui::GetIO().WantTextInput && !ImGui::IsWindowAppearing() &&
+                          ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows | ImGuiFocusedFlags_NoPopupHierarchy);
         const bool start = ImGui::Button("Start") ||
                            (keys && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)));
         PanelUi::Tooltip("You can also press Enter.");

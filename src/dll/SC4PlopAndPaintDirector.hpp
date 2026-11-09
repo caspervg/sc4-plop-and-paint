@@ -106,6 +106,8 @@ public:
     bool StartDecalPainting(uint32_t instanceId, const DecalPaintSettings& settings, const std::string& name);
     void StopDecalPainting();
     [[nodiscard]] bool IsDecalPainting() const;
+    // What decals were painted with last, or nullptr before the first time.
+    [[nodiscard]] const TerrainDecalState* GetLastDecalPaintState() const;
     bool StartDecalStripping();
     void StopDecalStripping();
     [[nodiscard]] bool IsDecalStripping() const;

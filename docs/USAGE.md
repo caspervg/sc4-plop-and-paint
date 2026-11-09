@@ -279,29 +279,31 @@ Stamp paints single texture decals on terrain and lot surfaces.
 
 Filters:
 
-- `Search decals...`
+- `IID prefix...`: the start of a hex instance ID
+- Wealth and state
 - `Favorites only`
-- `Clear filters`
+- `Base` and `Overlay`: solid textures, and textures with transparent parts
 
-Per-decal actions:
+`Clear filters` is next to the number of textures shown.
 
-- `Paint`: start painting that decal
+Actions on the selected texture:
+
+- `Paint...`: choose the settings, then paint. Enter and a double-click do the same
+- `Paint now`: paint with the settings you used last
 - `Star` / `Unstar`: manage decal favorites
+- Right-click a texture for the same actions. While you are painting, a click switches to that texture and keeps your settings, including what you changed with the keyboard
 
-Paint options specific to decals:
+Paint settings:
 
-- `Rotation`: continuous rotation (any angle, not limited to 90-degree steps)
-- `UV offset`: adjust the texture offset within the decal
+- `Base size`, `Rotation`, `FA angle`, `Mirror`, `Opacity` and `Color tint`
 - `Depth offset`: raise or lower the decal surface relative to terrain
-- `Mirror`: flip the decal horizontally
+- `Part of the texture`: drag on the texture to use only that area
+- `Preset`: save settings under a name for this texture and use them again. Saving a preset also stars the texture
 
-Favorites for decals also save the current paint settings as a preset, so reopening a favorited decal restores the rotation, UV, and depth values you last used with it.
+Tools:
 
-Pickers:
-
-- **Scene pick**: click an existing decal in the city to switch to painting that decal
-- **Lot texture pick**: click a lot surface to use its texture as the decal source
-- **Lot pick**: click a lot to use its associated decal
+- `Pick decal`: click a decal, or the base or overlay texture of a lot, to select it in the list
+- `Strip decals`: click a decal to remove it. Press `B` for brush mode and `Ctrl+Z` to undo a click or a whole brush stroke
 
 ## Favorites
 

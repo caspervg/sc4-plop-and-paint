@@ -163,6 +163,10 @@ target_include_directories(GroundSnappingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 target_link_libraries(GroundSnappingTests PRIVATE Clipper2::Clipper2 tinysplinecxx::tinysplinecxx)
 add_test(NAME GroundSnappingTests COMMAND GroundSnappingTests)
 
+add_executable(DecalHitTests ${CMAKE_SOURCE_DIR}/tests/DecalHitTests.cpp)
+target_include_directories(DecalHitTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME DecalHitTests COMMAND DecalHitTests)
+
 add_executable(PropHitTests ${CMAKE_SOURCE_DIR}/tests/PropHitTests.cpp)
 target_include_directories(PropHitTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME PropHitTests COMMAND PropHitTests)

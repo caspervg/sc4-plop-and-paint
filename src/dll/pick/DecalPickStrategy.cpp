@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "../decals/DecalHit.hpp"
 #include "../decals/DecalRepository.hpp"
 #include "../utils/Logger.h"
 #include "GZServPtrs.h"
@@ -15,7 +16,6 @@
 #include "cSC4LotConfigurationObject.h"
 
 namespace {
-    constexpr float kPickRadiusMeters = 8.0f;
     constexpr float kCellSizeMeters = 16.0f;
 
     // The decal list and paint pipeline use the zoom-4 FSH variant; lot
@@ -102,7 +102,7 @@ ScenePickMode DecalPickStrategy::Mode() const {
 }
 
 float DecalPickStrategy::PickRadiusMeters() const {
-    return kPickRadiusMeters;
+    return decals::kPickRadiusMeters;
 }
 
 std::optional<ScenePickResult> DecalPickStrategy::Pick(const ScenePickContext& context) {
@@ -190,26 +190,21 @@ void DecalPickStrategy::AppendDecalCandidates_(const ScenePickContext& context,
 
     struct DecalHit {
         const TerrainDecalSnapshot* snapshot;
-        float distSq;
+        float score;
     };
     std::vector<DecalHit> hits;
-    constexpr float radiusSq = kPickRadiusMeters * kPickRadiusMeters;
 
     for (uint32_t i = 0; i < copied; ++i) {
         if (snapshots[i].state.textureKey.instance == 0) {
             continue;
         }
-        const cS3DVector2& center = snapshots[i].state.decalInfo.center;
-        const float dx = center.fX - context.cursorWorld.fX;
-        const float dz = center.fY - context.cursorWorld.fZ;
-        const float distSq = dx * dx + dz * dz;
-        if (distSq < radiusSq) {
-            hits.push_back({&snapshots[i], distSq});
+        if (const auto score = decals::MeasureDecalHit(snapshots[i].state, context.cursorWorld.fX, context.cursorWorld.fZ)) {
+            hits.push_back({&snapshots[i], *score});
         }
     }
 
     std::sort(hits.begin(), hits.end(),
-              [](const DecalHit& a, const DecalHit& b) { return a.distSq < b.distSq; });
+              [](const DecalHit& a, const DecalHit& b) { return a.score < b.score; });
 
     for (const DecalHit& hit : hits) {
         Candidate candidate;

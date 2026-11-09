@@ -993,6 +993,10 @@ bool SC4PlopAndPaintDirector::IsDecalPainting() const {
     return decalPainting_;
 }
 
+const TerrainDecalState* SC4PlopAndPaintDirector::GetLastDecalPaintState() const {
+    return decalPainterControl_ ? &decalPainterControl_->GetState() : nullptr;
+}
+
 bool SC4PlopAndPaintDirector::StartDecalStripping() {
     if (!pCity_ || !pView3D_) {
         LOG_WARN("Cannot start decal stripping: city or view not available");
