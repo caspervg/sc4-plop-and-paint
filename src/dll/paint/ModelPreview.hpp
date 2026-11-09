@@ -95,6 +95,7 @@ private:
     std::vector<Slot> slots_;
     cRZAutoRefCount<cISC4VisualEffect> arrow_;
     bool arrowStarted_ = false;
+    float arrowScale_ = -1.0f;
     bool unpinnedModels_ = false;
     struct PopSlot {
         cRZAutoRefCount<cISC4VisualEffect> effect;

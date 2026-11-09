@@ -21,12 +21,13 @@ namespace {
     constexpr auto kCursorModelEffect = "pnp_preview_model";
 
     constexpr auto kArrowEffect = "lot_direction_arrow";
-    // The game's arrow decal is 10 m across. It shrinks with small items so that they stay in view,
-    // and is never larger than the game draws it (cSC4DecalEffect::SetTransforms multiplies the
-    // decal's size by the transform's scale).
+    // The game's arrow decal is 10 m across on a lot of at least 16 m. Items get the same proportion,
+    // 10/16 of their size, so that small ones stay in view, and never more than the game draws. At
+    // least 1 m, or it cannot be seen. cSC4DecalEffect::SetTransforms (Windows 0x00582600) multiplies
+    // the decal's size by the transform's scale.
     constexpr float kArrowFullMeters = 10.0f;
-    constexpr float kArrowPerItemMeter = 1.5f;
-    constexpr float kArrowMinScale = 0.2f;
+    constexpr float kArrowPerItemMeter = 10.0f / 16.0f;
+    constexpr float kArrowMinScale = 0.1f;
     // pnp_footprint_notok is from SC4PlopAndPaint.dat, the vanilla red one is opaque with its own texture.
     constexpr const char* kFootprintEffects[2] = {"building_footprint_ok", "pnp_footprint_notok"};
     constexpr float kCellMeters = 16.0f; // DecalRect takes city cells: cSC4DecalEffect::SetFloatParams
@@ -164,6 +165,10 @@ void ModelPreview::SetArrow(const bool visible, const cS3DVector3& position, con
     cS3DTransform transform = MakeTransform(position, rotation + kArrowQuarterTurns);
     transform.scale = std::clamp(itemSizeMeters * kArrowPerItemMeter / kArrowFullMeters, kArrowMinScale, 1.0f);
     transform.flags |= cS3DTransform::kScale;
+    if (transform.scale != arrowScale_) {
+        arrowScale_ = transform.scale;
+        LOG_INFO("ModelPreview: direction arrow scale {:.2f} for an item of {:.1f} m", arrowScale_, itemSizeMeters);
+    }
     arrow_->SetEffectTransform(transform);
     if (!arrowStarted_) {
         arrow_->Start(cISC4VisualEffect::tTransitionType::Soft);
