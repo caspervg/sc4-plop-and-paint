@@ -27,6 +27,22 @@ namespace {
     constexpr uint32_t kMenuButtonInstance = 0x6A470000;  // plus the first piece ID of the button's TAB loop
     constexpr uint32_t kUserVisibleNameKey = 0x8A416A99;
     constexpr uint32_t kExemplarName = 0x00000020;
+    constexpr uint32_t kItemOrder = 0x8A2602B9;
+    constexpr uint32_t kItemButtonId = 0x8A2602BB;
+    constexpr uint32_t kItemSubmenuParentId = 0x8A2602CA;  // from the Submenus DLL
+
+    // The game's network menus: the ID of the menu's own button, which a submenu names as its parent, and
+    // the property a button has when it is in that menu directly.
+    struct TopMenu {
+        uint32_t button;
+        uint32_t key;
+        const char* name;
+    };
+    constexpr TopMenu kTopMenus[] = {
+        {0x6999BF56, 0x4000, "Roads"},    {0x00000031, 0x4005, "Highways"},
+        {0x00000029, 0x4001, "Rail"},     {0x299237BF, 0x4002, "Miscellaneous Transit"},
+        {0xE99234B3, 0x4007, "Airports"}, {0xA99234A6, 0x4006, "Water Transit"},
+    };
 
     // The plain orthogonal straight tile of each base network. These are the game's own tiles (RHW-2
     // for the dirt road), so they do not change with the NAM version.
@@ -233,38 +249,94 @@ namespace {
         return name.empty() ? fmt::format("Piece 0x{:X}", piece.id) : name;
     }
 
-    // The name of the menu button that opens this TAB loop.
-    std::string ButtonName(const DbpfIndexService& index, const uint32_t firstPiece) {
-        const auto exemplar = index.loadExemplar(
-            DBPF::Tgi{kExemplarType, kMenuButtonGroup, kMenuButtonInstance | (firstPiece & 0xFFFF)});
-        if (!exemplar.has_value() || !*exemplar) {
-            return {};
-        }
-        if (const auto* key = (*exemplar)->FindProperty(kUserVisibleNameKey); key && key->values.size() >= 3) {
-            const DBPF::Tgi tgi{kLTextType, key->GetScalarAs<uint32_t>(1).value_or(0), key->GetScalarAs<uint32_t>(2).value_or(0)};
-            if (auto name = LoadText(index, tgi); !name.empty()) {
-                return name;
+    // A button of the game's menus: a network item or a submenu.
+    struct MenuItem {
+        std::string name;
+        uint32_t parent = 0;  // the button that opens the submenu this one is in, 0 when there is none
+        uint32_t order = 0;
+        int topMenu = -1;     // index in kTopMenus when the button is in that menu directly
+    };
+
+    std::unordered_map<uint32_t, MenuItem> LoadMenuItems(const DbpfIndexService& index) {
+        std::unordered_map<uint32_t, MenuItem> items;
+        for (const DBPF::Tgi& tgi : index.typeIndex(kExemplarType)) {
+            if (tgi.group != kMenuButtonGroup) {
+                continue;
             }
+            const auto exemplar = index.loadExemplar(tgi);
+            if (!exemplar.has_value() || !*exemplar) {
+                continue;
+            }
+            const Exemplar::Record& record = **exemplar;
+            const auto* id = record.FindProperty(kItemButtonId);
+            if (!id || id->values.empty()) {
+                continue;
+            }
+            MenuItem item;
+            if (const auto* key = record.FindProperty(kUserVisibleNameKey); key && key->values.size() >= 3) {
+                item.name = LoadText(index, DBPF::Tgi{kLTextType, key->GetScalarAs<uint32_t>(1).value_or(0),
+                                                      key->GetScalarAs<uint32_t>(2).value_or(0)});
+            }
+            if (const auto* name = record.FindProperty(kExemplarName); item.name.empty() && name) {
+                item.name = name->GetScalarAs<std::string>().value_or("");
+            }
+            if (const auto* parent = record.FindProperty(kItemSubmenuParentId)) {
+                item.parent = parent->GetScalarAs<uint32_t>().value_or(0);
+            }
+            if (const auto* order = record.FindProperty(kItemOrder)) {
+                item.order = order->GetScalarAs<uint32_t>().value_or(0);
+            }
+            for (int menu = 0; menu < static_cast<int>(std::size(kTopMenus)); ++menu) {
+                if (record.FindProperty(kTopMenus[menu].key)) {
+                    item.topMenu = menu;
+                }
+            }
+            items.try_emplace(id->GetScalarAs<uint32_t>().value_or(0), std::move(item));
         }
-        if (const auto* name = (*exemplar)->FindProperty(kExemplarName)) {
-            return name->GetScalarAs<std::string>().value_or("");
+        return items;
+    }
+
+    // Where a button is: the menu, then the submenus down to it. The second value puts the buttons in
+    // the order of the game's menus.
+    std::pair<std::vector<std::string>, std::vector<uint32_t>> MenuPath(
+        const std::unordered_map<uint32_t, MenuItem>& items, const MenuItem& button) {
+        std::vector<std::string> names;
+        std::vector<uint32_t> orders{button.order};
+        int topMenu = button.topMenu;
+        uint32_t parent = button.parent;
+        for (int depth = 0; parent != 0 && depth < 8; ++depth) {
+            if (const auto top = std::ranges::find(kTopMenus, parent, &TopMenu::button); top != std::end(kTopMenus)) {
+                topMenu = static_cast<int>(top - std::begin(kTopMenus));
+                break;
+            }
+            const auto submenu = items.find(parent);
+            if (submenu == items.end()) {
+                break;
+            }
+            names.push_back(submenu->second.name);
+            orders.push_back(submenu->second.order);
+            parent = submenu->second.parent;
         }
-        return {};
+        names.emplace_back(topMenu >= 0 ? kTopMenus[topMenu].name : "Other");
+        orders.push_back(topMenu >= 0 ? static_cast<uint32_t>(topMenu) : static_cast<uint32_t>(std::size(kTopMenus)));
+        std::ranges::reverse(names);
+        std::ranges::reverse(orders);
+        return {std::move(names), std::move(orders)};
     }
 }
 
-std::vector<OverrideNetwork> NetworkDiscovery::FindOverrideNetworks(const DbpfIndexService& index) {
+NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
     const auto rul0Data = index.loadEntryData(DBPF::Tgi{kRulType, kRulGroup, 0x10000000});
     const auto rul1Data = index.loadEntryData(DBPF::Tgi{kRulType, kRulGroup, 0x10000001});
     const auto rul2Data = index.loadEntryData(DBPF::Tgi{kRulType, kRulGroup, 0x10000002});
     if (!rul0Data || !rul1Data || !rul2Data) {
-        spdlog::info("No override networks: the plugins have no RUL0, RUL1 or RUL2");
+        spdlog::info("No network pieces: the plugins have no RUL0, RUL1 or RUL2");
         return {};
     }
     const auto rul0 = RUL0::Parse(std::span(rul0Data->data(), rul0Data->size()));
     const auto rul1 = RUL1::Parse(std::span(rul1Data->data(), rul1Data->size()));
     if (!rul0.has_value() || !rul1.has_value()) {
-        spdlog::warn("No override networks: could not read RUL0 or RUL1");
+        spdlog::warn("No network pieces: could not read RUL0 or RUL1");
         return {};
     }
 
@@ -273,19 +345,34 @@ std::vector<OverrideNetwork> NetworkDiscovery::FindOverrideNetworks(const DbpfIn
     for (const auto& section : rul1->sections) {
         sections.try_emplace(Lower(section.pairName), &section);
     }
+    const auto menuItems = LoadMenuItems(index);
 
-    // The first piece of every row of a TAB loop is a candidate, in the order of the TAB loops. That is
-    // the order the NAM team chose, with the levels of a network together.
-    std::vector<OverrideNetwork> networks;
+    NetworksCache cache;
     std::map<std::vector<std::pair<uint32_t, uint32_t>>, size_t> seen;  // rows -> index in networks
+    std::vector<std::pair<std::vector<uint32_t>, NetworkPieceButton>> buttons;  // with the menu order
+    // The TAB loops in the order of RUL0. That is the order the NAM team chose, with the levels of a
+    // network together.
     for (const auto& ordering : rul0->orderings) {
         if (ordering.rotationRing.empty()) {
             continue;
         }
-        std::optional<std::string> group;
+        const auto menuItem = menuItems.find(kMenuButtonInstance | (ordering.rotationRing.front() & 0xFFFF));
+        const std::string group = menuItem != menuItems.end() ? menuItem->second.name : std::string();
+        NetworkPieceButton button{group, {}, ordering.rotationRing.front(), {}};
+
         const auto consider = [&](const std::vector<uint32_t>& row) {
             const auto* piece = row.empty() ? nullptr : ResolvePiece(*rul0, row.front());
-            auto starter = piece ? StarterRows(*piece, sections, spreading) : std::nullopt;
+            if (!piece) {
+                return;
+            }
+            const uint32_t model = piece->effect.initialized ? piece->effect.instanceId : 0;
+            std::string name = LoadText(index, DBPF::Tgi{kLTextType, kPlaceQueryGroup, piece->placeQueryId});
+            button.pieces.push_back({name.empty() ? fmt::format("Piece 0x{:X}", row.front()) : std::move(name),
+                                     row.front(), model, static_cast<uint32_t>(row.size()),
+                                     piece->costs != 0xFFFFFFFF ? piece->costs : 0});
+
+            // A starter piece is also an override network that can be dragged directly.
+            auto starter = StarterRows(*piece, sections, spreading);
             if (!starter) {
                 return;
             }
@@ -293,20 +380,31 @@ std::vector<OverrideNetwork> NetworkDiscovery::FindOverrideNetworks(const DbpfIn
             for (const auto& r : starter->rows) {
                 key.emplace_back(r.tile, r.rotFlip);
             }
-            if (!seen.try_emplace(std::move(key), networks.size()).second) {
-                return;
+            if (seen.try_emplace(std::move(key), cache.networks.size()).second) {
+                cache.networks.push_back({PieceName(index, *piece), group, static_cast<uint32_t>(starter->base),
+                                          piece->id, model, std::move(starter->rows)});
             }
-            if (!group) {
-                group = ButtonName(index, ordering.rotationRing.front());
-            }
-            networks.push_back({PieceName(index, *piece), *group, static_cast<uint32_t>(starter->base), piece->id,
-                                piece->effect.initialized ? piece->effect.instanceId : 0, std::move(starter->rows)});
         };
         consider(ordering.rotationRing);
         for (const auto& row : ordering.addTypes) {
             consider(row);
         }
+
+        // A TAB loop without a menu button cannot be reached in the game, so it is not listed either.
+        if (menuItem != menuItems.end() && !button.pieces.empty()) {
+            auto [path, order] = MenuPath(menuItems, menuItem->second);
+            button.path = std::move(path);
+            buttons.emplace_back(std::move(order), std::move(button));
+        }
     }
-    spdlog::info("Found {} override networks", networks.size());
-    return networks;
+
+    std::ranges::stable_sort(buttons, {}, [](const auto& entry) { return entry.first; });
+    size_t pieces = 0;
+    for (auto& [order, button] : buttons) {
+        pieces += button.pieces.size();
+        cache.buttons.push_back(std::move(button));
+    }
+    spdlog::info("Found {} override networks and {} pieces under {} menu buttons", cache.networks.size(), pieces,
+                 cache.buttons.size());
+    return cache;
 }

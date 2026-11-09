@@ -24,6 +24,26 @@ struct OverrideNetwork {
     std::vector<OverrideNetworkRow> rows;
 };
 
+// A puzzle piece: one row of a TAB loop in RUL0. Its picture is in network_thumbnails.bin under
+// MakeGIKey(1, id).
+struct NetworkPiece {
+    std::string name;
+    uint32_t id = 0;            // RUL0 ID of the piece, the first of its rotations
+    uint32_t previewModel = 0;  // instance of its preview model
+    uint32_t rotations = 0;     // how many rotations Home and End go through
+    uint32_t cost = 0;
+};
+
+// A button of the game's network menus, with the pieces TAB goes through. The buttons are in the order
+// of the game's menus.
+struct NetworkPieceButton {
+    std::string name;
+    std::vector<std::string> path;  // the menu the button is in, then the submenus down to it
+    uint32_t id = 0;                // the first piece. The menu button's ID is 0x6A470000 plus this.
+    std::vector<NetworkPiece> pieces;
+};
+
 struct NetworksCache {
     std::vector<OverrideNetwork> networks;
+    std::vector<NetworkPieceButton> buttons;
 };

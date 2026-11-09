@@ -588,45 +588,86 @@ namespace {
 
 bool SC4PlopAndPaintDirector::CanDragOverrideNetworks() { return FindNamSetDirectDragRows() != nullptr; }
 
-bool SC4PlopAndPaintDirector::StartOverrideNetworkDrag(const OverrideNetwork& network) {
-    const auto setRows = FindNamSetDirectDragRows();
-    if (!pView3D_ || !setRows || network.rows.empty() || network.baseNetwork >= std::size(kNetworkToolItems)) {
-        LOG_WARN("Cannot drag {}: no city, or the NAM DLL has no direct drag", network.name);
+// Sends the message that a button of the game's own network menus sends to the view. The game then
+// makes its tool for that item the current one.
+bool SC4PlopAndPaintDirector::StartNetworkTool_(const uint32_t catalogItem) {
+    if (!pView3D_) {
         return false;
     }
-
-    // This is the message a network button of the game's own menu sends to the view.
+    ForgetNetworkTool_();
     constexpr uint32_t kCatalogItemMessage = 0x49D993D4;
     constexpr uint32_t kNetworkToolCommand = 0x4A2B2467;
     cGZMessage message(3);
     message.dwData1 = kCatalogItemMessage;
     message.dwData2 = kNetworkToolCommand;
-    message.dwData3 = kNetworkToolItems[network.baseNetwork];
+    message.dwData3 = catalogItem;
     pView3D_->AsIGZWin()->DoMessage(message);
+    networkToolControl_ = pView3D_->GetCurrentViewInputControl();
+    return networkToolControl_ != nullptr;
+}
 
+bool SC4PlopAndPaintDirector::StartBaseNetworkDrag(const uint32_t network) {
+    if (network >= std::size(kNetworkToolItems) || !StartNetworkTool_(kNetworkToolItems[network])) {
+        return false;
+    }
+    baseNetwork_ = static_cast<int>(network);
+    return true;
+}
+
+bool SC4PlopAndPaintDirector::StartOverrideNetworkDrag(const OverrideNetwork& network) {
+    const auto setRows = FindNamSetDirectDragRows();
+    if (!setRows || network.rows.empty() || network.baseNetwork >= std::size(kNetworkToolItems)
+        || !StartNetworkTool_(kNetworkToolItems[network.baseNetwork])) {
+        LOG_WARN("Cannot drag {}: no city, or the NAM DLL has no direct drag", network.name);
+        return false;
+    }
     setRows(network.rows.data(), static_cast<uint32_t>(network.rows.size()));
     overrideNetworkPiece_ = network.starterPiece;
-    overrideNetworkControl_ = pView3D_->GetCurrentViewInputControl();
     LOG_INFO("Dragging {} ({} rows) on base network {}", network.name, network.rows.size(), network.baseNetwork);
     return true;
 }
 
-void SC4PlopAndPaintDirector::StopOverrideNetworkDrag() {
-    if (overrideNetworkPiece_ != 0 && pView3D_ && pView3D_->GetCurrentViewInputControl() == overrideNetworkControl_) {
-        pView3D_->RemoveCurrentViewInputControl(false);
+bool SC4PlopAndPaintDirector::StartNetworkPiece(const uint32_t buttonPiece, const uint32_t piece) {
+    // A menu button for pieces is this plus the 16 bits of its first piece.
+    constexpr uint32_t kPieceItems = 0x6A470000;
+    const bool isLong = piece > 0xFFFF;
+    if (!StartNetworkTool_(kPieceItems | ((isLong ? buttonPiece : piece) & 0xFFFF))) {
+        return false;
     }
-    DisarmOverrideNetworkDrag_();
+    if (isLong) {
+        // Most pieces further down a TAB loop have longer IDs than the message can carry. The tool keeps
+        // its current piece at +0x4C, where TAB, Home and End put theirs too, so put it there
+        // (cSC4ViewInputControlNetworkIntxTool in Windows SimCity 4.exe 1.1.641).
+        constexpr uint32_t kPieceToolVtable = 0x00AAAF20;
+        constexpr size_t kCurrentPieceOffset = 0x4C;
+        auto* const tool = reinterpret_cast<uint8_t*>(const_cast<cISC4ViewInputControl*>(networkToolControl_));
+        if (*reinterpret_cast<const uint32_t*>(tool) != kPieceToolVtable) {
+            LOG_WARN("Cannot go to piece 0x{:X}: the game's piece tool is not as expected", piece);
+            return true;  // the tool is on the first piece of the button, and TAB still gets there
+        }
+        *reinterpret_cast<uint32_t*>(tool + kCurrentPieceOffset) = piece;
+    }
+    networkPiece_ = piece;
+    return true;
 }
 
-void SC4PlopAndPaintDirector::DisarmOverrideNetworkDrag_() {
-    if (overrideNetworkPiece_ == 0) {
-        return;
+void SC4PlopAndPaintDirector::StopNetworkTool() {
+    if (networkToolControl_ && pView3D_ && pView3D_->GetCurrentViewInputControl() == networkToolControl_) {
+        pView3D_->RemoveCurrentViewInputControl(false);
     }
-    if (const auto setRows = FindNamSetDirectDragRows()) {
-        setRows(nullptr, 0);
+    ForgetNetworkTool_();
+}
+
+void SC4PlopAndPaintDirector::ForgetNetworkTool_() {
+    if (overrideNetworkPiece_ != 0) {
+        if (const auto setRows = FindNamSetDirectDragRows()) {
+            setRows(nullptr, 0);
+        }
     }
     overrideNetworkPiece_ = 0;
-    overrideNetworkControl_ = nullptr;
+    networkPiece_ = 0;
+    baseNetwork_ = -1;
+    networkToolControl_ = nullptr;
 }
 
 void SC4PlopAndPaintDirector::TriggerLotPlop(uint32_t lotInstanceId) {
@@ -1521,8 +1562,8 @@ ImU32 SC4PlopAndPaintDirector::GetThumbnailBorderColor() const noexcept {
 
 void SC4PlopAndPaintDirector::ProcessPendingToolActions_() {
     // Plain drags come back as soon as the player leaves the network tool.
-    if (overrideNetworkPiece_ != 0 && (!pView3D_ || pView3D_->GetCurrentViewInputControl() != overrideNetworkControl_)) {
-        DisarmOverrideNetworkDrag_();
+    if (networkToolControl_ && (!pView3D_ || pView3D_->GetCurrentViewInputControl() != networkToolControl_)) {
+        ForgetNetworkTool_();
     }
     if (propStripperControl_) {
         propStripperControl_->ProcessPendingActions();

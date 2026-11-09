@@ -93,10 +93,19 @@ public:
     // Starts the game's drag tool for the network's base network. Until the player leaves that tool,
     // the NAM DLL turns each drag into the override network.
     bool StartOverrideNetworkDrag(const OverrideNetwork& network);
-    // Leaves the drag tool that StartOverrideNetworkDrag started.
-    void StopOverrideNetworkDrag();
+    // Starts the game's plain drag tool for a network (a cISC4NetworkOccupant::eNetworkType).
+    bool StartBaseNetworkDrag(uint32_t network);
+    // Starts the game's own tool on a puzzle piece. buttonPiece is the first piece of the menu button
+    // that the piece is under.
+    bool StartNetworkPiece(uint32_t buttonPiece, uint32_t piece);
+    // Leaves the network tool that one of the three functions above started.
+    void StopNetworkTool();
     // The starter piece of the override network that drags make now, or 0.
     [[nodiscard]] uint32_t ActiveOverrideNetwork() const { return overrideNetworkPiece_; }
+    // The puzzle piece that StartNetworkPiece started and that is still in use, or 0.
+    [[nodiscard]] uint32_t ActiveNetworkPiece() const { return networkPiece_; }
+    // The network that StartBaseNetworkDrag started and that is still in use, or -1.
+    [[nodiscard]] int ActiveBaseNetwork() const { return baseNetwork_; }
     // Whether the installed NAM DLL can drag override networks without a starter piece.
     [[nodiscard]] static bool CanDragOverrideNetworks();
     bool StartPropPainting(uint32_t propId, const PropPaintSettings& settings, const std::string& name,
@@ -231,8 +240,11 @@ private:
     const cISC4ViewInputControl* plopControl_ = nullptr;
     int plopWatchFrames_ = 0;
     uint32_t overrideNetworkPiece_ = 0;
-    const cISC4ViewInputControl* overrideNetworkControl_ = nullptr;
-    void DisarmOverrideNetworkDrag_();
+    uint32_t networkPiece_ = 0;
+    int baseNetwork_ = -1;
+    const cISC4ViewInputControl* networkToolControl_ = nullptr;  // the game's tool that the three above use
+    bool StartNetworkTool_(uint32_t catalogItem);
+    void ForgetNetworkTool_();
     cRZAutoRefCount<cIGZMessageServer2> pMS2_;
 
     std::unique_ptr<LotRepository>       lotRepository_;
