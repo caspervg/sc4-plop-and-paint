@@ -8,6 +8,8 @@
 
 #include "../common/PanelTab.hpp"
 #include "../decals/DecalPanelTab.hpp"
+#include "../decals/TextureHoverPreview.hpp"
+#include "../packs/PackFilter.hpp"
 #include "../decals/DecalRepository.hpp"
 #include "../decals/TextureKindFilter.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
@@ -49,6 +51,7 @@ private:
     // followsLine: the shape is a line, whose texture can follow it.
     void RenderLookEditor_(Ground::Look& look, bool followsLine, LookEditorState& state, bool& changed, bool& committed);
     void RenderChosenTextures_(Ground::Look& look, bool& changed, bool& committed);
+    void RenderPalettes_(Ground::Look& look, LookEditorState& state, bool& committed);
     // Tint, size, turn and shift on one line. Only the repeat length when the texture follows a line.
     void RenderTextureLayout_(Ground::Look& look, bool following, bool& changed, bool& committed);
     void RenderTextureLibrary_(Ground::Look& look, bool& committed);
@@ -62,9 +65,11 @@ private:
     // has: made once per library.
     void IndexLibrary_();
     void RenderPackFilter_();
-    void TextureTooltip_(uint32_t instanceId) const;
+    void TextureTooltip_(uint32_t instanceId);
     void RenderShapeSettings_();
     void RenderSelection_(Ground::GroundPaintDocument& document);
+    // The name, shape and look of the one selected object.
+    void RenderInspector_(Ground::GroundPaintDocument& document, uint32_t first);
     void RenderSelectionActions_(Ground::GroundPaintDocument& document);
     // Border, repeat and mirror for the selection.
     void RenderShapeTools_(Ground::GroundPaintDocument& document, const std::vector<uint32_t>& selection);
@@ -94,10 +99,15 @@ private:
     // When the selection's edit was last shown in the city with a new cut.
     std::chrono::steady_clock::time_point lastLivePreview_{};
     bool stamping_ = false;
+    bool shownStamping_ = false;
+    TextureHoverPreview hoverPreview_{};
 
     // The selected object being edited, applied when a control is let go.
     uint32_t editingId_ = 0;
     Ground::PaintObject editing_{};
+    // The document's revision editing_ was taken at: later changes, such as an undo or a point
+    // dragged in the city, replace it.
+    uint64_t editingRevision_ = 0;
 
     // Border, repeat and mirror settings; the repeat step is reset for each new selection.
     float borderWidth_ = 1.0f;
@@ -118,18 +128,18 @@ private:
     TextureKindFilter kindFilter_{};
     std::vector<uint32_t> shownTextures_{};
     std::string shownFilter_{};
+    TextSearch::Suggester textureSuggester_{};
     bool shownFavouritesOnly_ = false;
     size_t shownFavouriteCount_ = 0;
     int32_t shownPack_ = 0;
     bool shownValid_ = false;
-    // kAllPacks, kNoPack (not in the catalog), or an index into the catalog's packs.
-    static constexpr int32_t kAllPacks = -2;
-    static constexpr int32_t kNoPack = -1;
-    int32_t packFilter_ = kAllPacks;
+    PackFilter packFilter_{};
     struct LibraryEntry {
         uint32_t id = 0;
         // Every pack that ships it; none when the catalog does not know it.
         std::vector<int32_t> packs{};
+        // The catalog's rows for it.
+        std::span<const PackCatalogRepository::TextureRow> rows{};
         // The first pack's name and file, to sort by.
         const std::string* sortPack = nullptr;
         const std::string* sortFile = nullptr;
@@ -138,11 +148,12 @@ private:
     std::vector<LibraryEntry> library_{};
     size_t indexedLibrarySize_ = SIZE_MAX;
     // Installed textures per pack, by pack index; the last entry counts those not in the catalog.
-    std::vector<uint32_t> packCounts_{};
-    std::vector<int32_t> packsByName_{};
 
     // Newest first, this session.
     std::vector<uint32_t> recentTextures_{};
+    size_t activePalette_ = 0;
+    // The texture of a mix whose share and buttons show.
+    size_t chosenTexture_ = 0;
     LookEditorState toolLook_{};
     uint32_t lookPickCount_ = 0;
     LookEditorState selectionLook_{};

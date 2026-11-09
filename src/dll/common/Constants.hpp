@@ -7,7 +7,7 @@ namespace UI {
 
     // Shared
     inline float wideInputWidth() { return 7.7f * ImGui::GetFontSize(); }
-    inline float dropdownWidth() { return 7.7f * ImGui::GetFontSize(); }
+    inline float dropdownWidth() { return 9.5f * ImGui::GetFontSize(); }
     inline float kIconSize = 44.0f;
     inline void SetIconSize(const float size) {
         kIconSize = std::clamp(size, kMinIconSize, kMaxIconSize);
@@ -29,12 +29,10 @@ namespace UI {
 
     // Families tab
     inline float iidFilterWidth() { return 13.8f * ImGui::GetFontSize(); }
-    inline float familyTableHeight() { return 13.8f * ImGui::GetFontSize(); }
     inline float typeColumnWidth() { return 7.0f * ImGui::GetFontSize(); }
     inline float instanceIdColumnWidth() { return 8.5f * ImGui::GetFontSize(); }
     inline float propsColumnWidth() { return 5.4f * ImGui::GetFontSize(); }
-    inline float familyActionColWidth() { return 6.9f * ImGui::GetFontSize(); }
-    inline float familyEntriesHeight() { return 19.2f * ImGui::GetFontSize(); }
+    inline float familyActionColWidth() { return 8.5f * ImGui::GetFontSize(); }
     inline float weightColumnWidth() { return 9.2f * ImGui::GetFontSize(); }
     inline float removeColumnWidth() { return 1.85f * ImGui::GetFontSize(); }
 

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -227,8 +228,45 @@ struct TabViewSettings {
     uint32_t tileSize = 66;
 };
 
+// Ground textures and colours that belong together, for the Terrain Paint tab.
+struct PaintPaletteTexture {
+    rfl::Hex<uint32_t> instanceId;
+    float weight = 1.0f;
+};
+
+struct PaintPalette {
+    std::string name;
+    std::vector<PaintPaletteTexture> textures;
+    std::vector<std::array<float, 3>> colours;
+};
+
+// The grid size last chosen for each kind of painter. Empty: not chosen yet.
+struct PaintGridSteps {
+    std::optional<float> props;
+    std::optional<float> flora;
+    std::optional<float> decals;
+    std::optional<float> ground;
+};
+
+// What was last chosen for the grid of one kind of painter. Empty: not chosen yet.
+struct PaintGridChoice {
+    std::optional<float> step;
+    std::optional<bool> show;
+    std::optional<bool> snap;
+    std::optional<bool> snapPlacements;
+
+    bool operator==(const PaintGridChoice&) const = default;
+};
+
+struct PaintGridChoices {
+    PaintGridChoice props;
+    PaintGridChoice flora;
+    PaintGridChoice decals;
+    PaintGridChoice ground;
+};
+
 struct AllFavorites {
-    uint32_t version = 7;
+    uint32_t version = 11;
     TabFavorites lots;
     std::optional<TabFavorites> props;
     std::optional<TabFavorites> flora;
@@ -237,5 +275,9 @@ struct AllFavorites {
     std::optional<std::vector<RecentPaintEntryData>> recentPaints;
     std::optional<std::vector<SeasonalSet>> seasonalSets;
     std::optional<std::vector<TabViewSettings>> tabViews;
+    std::optional<std::vector<PaintPalette>> paintPalettes;
+    std::optional<PaintGridSteps> gridSteps;  // only read: what version 9 saved
+    std::optional<PaintGridChoices> gridChoices;
+    std::optional<TabFavorites> familyFavorites;
     rfl::Timestamp<"%Y-%m-%dT%H:%M:%S"> lastModified;
 };

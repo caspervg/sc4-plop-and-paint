@@ -36,8 +36,11 @@ public:
     void Deactivate() override;
 
     void SetTypeToPaint(uint32_t typeID, const PropPaintSettings& settings, const std::string& name);
+    [[nodiscard]] const std::string& GetPaintName() const { return paintName_; }
     void SetCity(cISC4City* pCity);
     void SetOnCancel(std::function<void()> onCancel);
+    // Called when the keys change the grid: its size, or showing or snapping to it.
+    void SetOnGridChanged(std::function<void()> onChanged) { onGridChanged_ = std::move(onChanged); }
     void SetOnQuickSwap(std::function<void(size_t)> onQuickSwap);
 
     // Painted ground as a sketch: Polygon mode fills it (mask: only there, so holes stay empty),
@@ -54,9 +57,16 @@ public:
     // Makes the shape the sketch, as F does; false outside Line and Polygon mode.
     bool UseGroundShape(const GroundShape& shape);
     [[nodiscard]] bool CanUseGroundShapes() const { return static_cast<bool>(groundShapeLookup_); }
+    void SetHasPaintedGround(std::function<bool()> hasPaintedGround) { hasPaintedGround_ = std::move(hasPaintedGround); }
+    // Where M goes next. Nothing while a shape from painted ground waits to be placed.
+    [[nodiscard]] std::optional<PaintStop> NextStop() const;
 
     [[nodiscard]] const PropPaintSettings& GetSettings() const { return settings_; }
     [[nodiscard]] bool HasPendingSketch() const;
+    // The sketch was taken from painted ground, so it is complete.
+    [[nodiscard]] bool HasGroundSketch() const { return sketchFromGround_; }
+    // Waiting for a click on painted ground.
+    [[nodiscard]] bool IsPickingGround() const { return settings_.pickFromGround && collectedPoints_.empty(); }
     [[nodiscard]] bool HasPendingCancel() const { return cancelPending_; }
     [[nodiscard]] bool HasPendingPlacements() const;
     [[nodiscard]] bool SupportsVerticalAdjustment() const;
@@ -74,6 +84,8 @@ public:
 
     virtual void UndoLastPlacement();
     virtual void CancelAllPlacements();
+    // Ends painting: what was placed stays, a sketch in progress does not.
+    void FinishPlacements();
     virtual void CommitPlacements();
 
 protected:
@@ -188,6 +200,7 @@ protected:
     cRZAutoRefCount<cISC4City> city_;
 
     uint32_t typeToPaint_{0};
+    std::string paintName_{};
     uint32_t directPaintTypeID_{0};
     PropPaintSettings settings_{};
     std::unique_ptr<WeightedPicker> directPaintPicker_{};
@@ -229,6 +242,13 @@ private:
     void RebuildPreviewOverlay_();
     void ExecuteLinePlacement_();
     void ExecutePolygonPlacement_();
+    // Outlines the painted ground under the cursor, which a click would take.
+    void ShowGroundUnderCursor_();
+    void CycleMode_();
+    [[nodiscard]] std::vector<PlannedPaint> ComputePolygonPlacements_(const std::vector<cS3DVector3>& vertices,
+                                                                      WeightedPicker* picker,
+                                                                      uint32_t singleTypeID,
+                                                                      size_t maxPlacements) const;
     bool PlaceTypeAt_(int32_t screenX, int32_t screenZ);
 
     void UndoLastPlacementInGroup_();
@@ -241,11 +261,14 @@ private:
     ControlState state_{ControlState::Uninitialized};
 
     std::function<void()> onCancel_{};
+    std::function<void()> onGridChanged_{};
     std::function<void(size_t)> onQuickSwap_{};
     GroundShapeLookup groundShapeLookup_{};
+    std::function<bool()> hasPaintedGround_{};
     // From painted ground: placements outside it are left out. Clicking or removing a point by
     // hand drops it, as the sketch is no longer that shape.
     Ground::Area fillMask_{};
+    bool sketchFromGround_ = false;
     std::optional<GroundShape> pendingGroundShape_{};
     Ground::Bounds fillMaskBounds_{};
     [[nodiscard]] bool OutsideFillMask_(const cS3DVector3& position) const;

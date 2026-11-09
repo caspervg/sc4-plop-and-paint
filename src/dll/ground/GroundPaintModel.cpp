@@ -22,17 +22,88 @@ namespace Ground {
         }
     }
 
+    bool UsesPenPath(const ShapeSpec& shape) {
+        return shape.pathStyle == PathStyle::Straight && (!shape.handles.empty() || !shape.pointRadii.empty());
+    }
+
+    std::vector<Vec2> ShapePath(const ShapeSpec& shape, const bool closed) {
+        return UsesPenPath(shape) ? PenPath(shape.points, shape.handles, shape.inHandles, shape.pointRadii, shape.cornerRadius, closed)
+                                  : PathThrough(shape.points, shape.pathStyle, closed);
+    }
+
+    Vec2 SmoothHandle(const std::vector<Vec2>& points, const size_t index, const bool closed) {
+        const size_t n = points.size();
+        if (n < 2 || index >= n) {
+            return {};
+        }
+        const bool first = !closed && index == 0;
+        const bool last = !closed && index + 1 == n;
+        const Vec2 before = first ? points[index] : points[(index + n - 1) % n];
+        const Vec2 after = last ? points[index] : points[(index + 1) % n];
+        const float share = first || last ? 1.0f / 3.0f : 1.0f / 6.0f;
+        return {(after.x - before.x) * share, (after.z - before.z) * share};
+    }
+
+    Vec2 InHandleOf(const ShapeSpec& shape, const size_t index) {
+        if (index < shape.inHandles.size()) {
+            return shape.inHandles[index];
+        }
+        return index < shape.handles.size() ? Vec2{-shape.handles[index].x, -shape.handles[index].z} : Vec2{};
+    }
+
+    void SetPointHandles(ShapeSpec& shape, const size_t index, const Vec2 handle, const Vec2 inHandle) {
+        shape.handles.resize(shape.points.size());
+        if (shape.inHandles.empty() && !(inHandle == Vec2{-handle.x, -handle.z})) {
+            // From here on each point keeps both of its handles.
+            for (const Vec2& existing : shape.handles) {
+                shape.inHandles.push_back({-existing.x, -existing.z});
+            }
+        }
+        shape.handles[index] = handle;
+        if (!shape.inHandles.empty()) {
+            shape.inHandles[index] = inHandle;
+        }
+    }
+
+    void InsertShapePoint(ShapeSpec& shape, const size_t index, const Vec2 point) {
+        if (!shape.handles.empty()) {
+            shape.handles.resize(shape.points.size());
+            shape.handles.insert(shape.handles.begin() + static_cast<std::ptrdiff_t>(index), Vec2{});
+        }
+        if (!shape.inHandles.empty()) {
+            shape.inHandles.insert(shape.inHandles.begin() + static_cast<std::ptrdiff_t>(index), Vec2{});
+        }
+        if (!shape.pointRadii.empty()) {
+            shape.pointRadii.resize(shape.points.size(), -1.0f);
+            shape.pointRadii.insert(shape.pointRadii.begin() + static_cast<std::ptrdiff_t>(index), -1.0f);
+        }
+        shape.points.insert(shape.points.begin() + static_cast<std::ptrdiff_t>(index), point);
+    }
+
+    void EraseShapePoint(ShapeSpec& shape, const size_t index) {
+        if (index < shape.handles.size()) {
+            shape.handles.erase(shape.handles.begin() + static_cast<std::ptrdiff_t>(index));
+        }
+        if (index < shape.inHandles.size()) {
+            shape.inHandles.erase(shape.inHandles.begin() + static_cast<std::ptrdiff_t>(index));
+        }
+        if (index < shape.pointRadii.size()) {
+            shape.pointRadii.erase(shape.pointRadii.begin() + static_cast<std::ptrdiff_t>(index));
+        }
+        shape.points.erase(shape.points.begin() + static_cast<std::ptrdiff_t>(index));
+    }
+
     Area BuildArea(const PaintObject& object) {
         const ShapeSpec& shape = object.shape;
         Area area;
         switch (shape.kind) {
         case ShapeKind::Area:
-            area = AreaFromOutline(PathThrough(shape.points, shape.pathStyle, true), shape.cornerRadius);
+            area = AreaFromOutline(ShapePath(shape, true), UsesPenPath(shape) ? 0.0f : shape.cornerRadius);
             break;
         case ShapeKind::Line:
             // The soft edge fades inwards, so the line grows by it on both sides: the solid core
             // keeps the chosen width.
-            area = StrokePath(PathThrough(shape.points, shape.pathStyle, false),
+            area = StrokePath(ShapePath(shape, false),
                               shape.width + 2.0f * object.look.featherMeters,
                               shape.ends,
                               {.dashLength = shape.dashLength, .gapLength = shape.gapLength});
@@ -69,7 +140,7 @@ namespace Ground {
         }
         // The texture spans the painted width, soft edge and rough edge included, as BuildArea
         // makes it.
-        return PathUvStrip(PathThrough(shape.points, shape.pathStyle, false),
+        return PathUvStrip(ShapePath(shape, false),
                            0.5f * shape.width + object.look.featherMeters + std::max(0.0f, shape.roughness),
                            std::max(0.1f, object.look.textureSizeMeters));
     }
@@ -121,6 +192,16 @@ namespace Ground {
         if (!shape.points.empty()) {
             shape.points = move(Area{shape.points}).front();
         }
+        if (!shape.handles.empty()) {
+            // Offsets: they turn and scale, but do not move.
+            shape.handles = Transformed(Area{shape.handles}, {}, placement.rotationRadians, placement.scale, {}).front();
+        }
+        if (!shape.inHandles.empty()) {
+            shape.inHandles = Transformed(Area{shape.inHandles}, {}, placement.rotationRadians, placement.scale, {}).front();
+        }
+        for (float& radius : shape.pointRadii) {
+            radius = radius >= 0.0f ? radius * placement.scale : radius;
+        }
         shape.outline = move(shape.outline);
         object.erased = move(object.erased);
         shape.patternOrigin = move(Area{{shape.patternOrigin}}).front().front();
@@ -143,6 +224,11 @@ namespace Ground {
         ShapeSpec& shape = object.shape;
         for (Vec2& p : shape.points) {
             p = MirroredPoint(p, pivot, axisRadians);
+        }
+        for (std::vector<Vec2>* const list : {&shape.handles, &shape.inHandles}) {
+            for (Vec2& handle : *list) {
+                handle = MirroredPoint(handle, {}, axisRadians);
+            }
         }
         shape.outline = Mirrored(shape.outline, pivot, axisRadians);
         object.erased = Mirrored(object.erased, pivot, axisRadians);
@@ -187,7 +273,7 @@ namespace Ground {
                                       const size_t maxPoints) {
         PlantingOutline outline;
         if (along && object.shape.kind == ShapeKind::Line) {
-            outline.points = PathThrough(object.shape.points, object.shape.pathStyle, false);
+            outline.points = ShapePath(object.shape, false);
             outline.closed = false;
         }
         else {

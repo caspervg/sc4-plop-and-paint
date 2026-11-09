@@ -6,6 +6,7 @@
 #include <vector>
 #include "shared/BuildingStyleResolver.hpp"
 #include "shared/entities.hpp"
+#include "../common/TextSearch.hpp"
 
 // Lot size constraints
 namespace LotSize {
@@ -16,6 +17,9 @@ namespace LotSize {
 struct LotView {
     const Building* building = nullptr;
     const Lot* lot = nullptr;
+    // Names and IDs, from TextSearch::Normalize, and what to look for in them.
+    const std::string* searchText = nullptr;
+    const TextSearch::Query* query = nullptr;
 
     [[nodiscard]] std::string BuildingNodeID() const { return std::format("B{}", building->instanceId.value()); }
 
@@ -64,6 +68,10 @@ public:
                                                            const BuildingStyleContext& buildingStyleContext = {}) const;
 
     void ResetFilters();
+    // How many filters narrow the list now.
+    [[nodiscard]] int ActiveFilterCount() const;
+
+    bool operator==(const LotFilterHelper&) const = default;
 
 private:
     [[nodiscard]] bool PassesTextFilter_(const LotView& lot) const;

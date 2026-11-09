@@ -37,6 +37,7 @@ void PlopAndPaintPanel::OnRender() {
         return;
     }
 
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 46.0f, ImGui::GetFontSize() * 56.0f), ImGuiCond_FirstUseEver);
     ImGui::Begin("Advanced Plopping & Painting###PlopAndPaintMain", &isOpen_, ImGuiWindowFlags_NoNav);
     if (!isOpen_) {
         ImGui::End();

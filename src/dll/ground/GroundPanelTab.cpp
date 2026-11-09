@@ -1,6 +1,7 @@
 #include "GroundPanelTab.hpp"
 
 #include <algorithm>
+#include <cfloat>
 #include <chrono>
 #include <cctype>
 #include <numbers>
@@ -19,10 +20,16 @@
 
 using namespace Ground;
 using Document = Ground::GroundPaintDocument;
+using PanelUi::Hint;
+using PanelUi::kGroupGap;
+using PanelUi::NextInRow;
+using PanelUi::Tooltip;
 
 namespace {
     constexpr float kThumbSize = 40.0f;
     constexpr float kPickerThumbSize = 56.0f;
+    constexpr float kPaletteTileSize = 32.0f;
+    constexpr ImVec4 kAttentionColor(1.0f, 0.85f, 0.3f, 1.0f);
 
     struct ToolInfo {
         Tool tool;
@@ -50,7 +57,7 @@ namespace {
     constexpr Swatch kSwatches[] = {
         {"Marking white", 0.95f, 0.95f, 0.92f}, {"Marking yellow", 0.98f, 0.80f, 0.12f},
         {"Bus lane red", 0.70f, 0.18f, 0.15f},  {"Cycle lane green", 0.25f, 0.55f, 0.30f},
-        {"Disabled bay blue", 0.15f, 0.40f, 0.75f}, {"Asphalt grey", 0.32f, 0.32f, 0.33f},
+        {"Disabled bay blue", 0.15f, 0.40f, 0.75f}, {"Asphalt gray", 0.32f, 0.32f, 0.33f},
         {"Dark asphalt", 0.16f, 0.16f, 0.17f},  {"Concrete", 0.70f, 0.69f, 0.65f},
         {"Earth", 0.45f, 0.35f, 0.24f},          {"Sand", 0.82f, 0.74f, 0.55f},
     };
@@ -123,6 +130,9 @@ namespace {
                                                     : hovered ? ImGuiCol_ButtonHovered
                                                               : ImGuiCol_Button);
         draw->AddRectFilled(min, max, background, 4.0f);
+        if (active) {
+            draw->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_CheckMark), 4.0f, 0, 2.0f);
+        }
 
         // Fitted into the button, holes drawn over in the background colour.
         const Bounds bounds = BoundsOf(picture);
@@ -168,25 +178,18 @@ namespace {
         return clicked;
     }
 
-    // Keeps a row of fixed-size buttons inside the panel: the next one goes on this line if it fits.
-    void NextInRow(const size_t index, const float width) {
-        if (index == 0) {
-            return;
-        }
-        const float right = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width;
-        if (right < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) {
-            ImGui::SameLine();
-        }
-    }
-
     // Shows the active button pressed.
     bool ToggleButton(const char* label, const bool active) {
         if (active) {
+            // An outline too: the colour alone is easy to miss.
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImGui::GetStyleColorVec4(ImGuiCol_CheckMark));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         }
         const bool clicked = ImGui::Button(label);
         if (active) {
-            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(2);
         }
         return clicked;
     }
@@ -196,12 +199,6 @@ namespace {
         const float spacing = ImGui::GetStyle().ItemSpacing.x;
         return std::max(1.0f, (ImGui::GetContentRegionAvail().x - spacing * static_cast<float>(count - 1)) /
                                   static_cast<float>(count));
-    }
-
-    void Tooltip(const char* text) {
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", text);
-        }
     }
 
     std::string ObjectLabel(const PaintObject& object) {
@@ -344,10 +341,6 @@ namespace {
                a.look.patchBlendMeters == b.look.patchBlendMeters && a.shape.wear == b.shape.wear;
     }
 
-    std::string Upper(std::string text) {
-        std::ranges::transform(text, text.begin(), [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
-        return text;
-    }
 }
 
 GroundPanelTab::GroundPanelTab(SC4PlopAndPaintDirector* director,
@@ -359,12 +352,14 @@ GroundPanelTab::GroundPanelTab(SC4PlopAndPaintDirector* director,
     , decals_(decals)
     , pRM_(pRM)
     , stampTab_(decals ? std::make_unique<DecalPanelTab>(director, decals, favorites, pRM, imguiService) : nullptr) {
-    settings_.showGrid = director->GetDefaultShowGridOverlay();
-    settings_.snapPointsToGrid = director->GetDefaultSnapPointsToGrid();
-    settings_.gridStepMeters = director->GetDefaultGridStepMeters();
+    const PaintGridChoice grid = director->GetGridChoice(&PaintGridChoices::ground);
+    settings_.showGrid = *grid.show;
+    settings_.snapPointsToGrid = *grid.snap;
+    settings_.gridStepMeters = *grid.step;
 }
 
 void GroundPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
+    hoverPreview_.Clear();
     thumbnails_.OnDeviceReset();
     if (stampTab_) {
         stampTab_->OnDeviceReset(deviceGeneration);
@@ -373,6 +368,7 @@ void GroundPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
 
 void GroundPanelTab::OnShutdown() {
     thumbnails_.Clear();
+    hoverPreview_.Clear();
     if (stampTab_) {
         stampTab_->OnShutdown();
     }
@@ -433,7 +429,7 @@ void GroundPanelTab::FinishTexturePick_() {
         // As the Stamp picker does: the library shows its family, the base or overlay ID without
         // the wealth, state and zoom variants.
         std::snprintf(textureFilter_, sizeof(textureFilter_), "%04X", *picked >> 16);
-        packFilter_ = kAllPacks;
+        packFilter_.Clear();
         favouriteTexturesOnly_ = false;
         kindFilter_ = {};
     };
@@ -488,6 +484,18 @@ void GroundPanelTab::OnRender() {
     ImGui::PushID("tools");
     RenderToolRow_();
     ImGui::PopID();
+    // Both modes list the same textures, so the search goes along when the mode changes.
+    if (stampTab_ && stamping_ != shownStamping_) {
+        if (stamping_) {
+            stampTab_->SetSearch(textureFilter_, packFilter_.Selected());
+        }
+        else {
+            std::snprintf(textureFilter_, sizeof(textureFilter_), "%s", stampTab_->SearchText());
+            packFilter_.Select(stampTab_->SelectedPack());
+        }
+    }
+    shownStamping_ = stamping_;
+
     if (stamping_) {
         ImGui::Separator();
         if (stampTab_) {
@@ -513,6 +521,9 @@ void GroundPanelTab::OnRender() {
     else if (painting) {
         bool changed = false;
         bool committed = false;
+        ImGui::PushID("shape");
+        RenderShapeSettings_();
+        ImGui::PopID();
         if (settings_.tool != Tool::Erase) {
             ImGui::SeparatorText("Paint with");
             if (GroundPainterInputControl* armable = director_->GetGroundPainter()) {
@@ -528,9 +539,6 @@ void GroundPanelTab::OnRender() {
             RenderLookEditor_(settings_.look, settings_.tool == Tool::Line, toolLook_, changed, committed);
             ImGui::PopID();
         }
-        ImGui::PushID("shape");
-        RenderShapeSettings_();
-        ImGui::PopID();
         if (settings_.tool != Tool::Erase) {
             RenderFinish_(settings_.look, settings_.wear, settings_.tool == Tool::Marking ? nullptr : &settings_.roughness,
                           changed, committed);
@@ -557,9 +565,19 @@ void GroundPanelTab::OnRender() {
 
 void GroundPanelTab::RenderToolRow_() {
     const bool painting = director_->IsGroundPainting();
+    const bool available = director_->IsGroundPaintAvailable() && director_->GetGroundDocument();
+    // The buttons wrap in a narrow panel, with a wider gap between the groups.
+    size_t index = 0;
+    const auto place = [&](const char* label, const bool firstOfGroup) {
+        NextInRow(index++, ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f,
+                  firstOfGroup ? kGroupGap : -1.0f);
+    };
     const auto toolButtons = [&](const auto& tools) {
+        bool first = true;
         for (const ToolInfo& info : tools) {
+            place(info.label, std::exchange(first, false));
             const bool active = painting && !stamping_ && settings_.tool == info.tool;
+            ImGui::BeginDisabled(!available);
             if (ToggleButton(info.label, active)) {
                 // Clicking the tool in use puts it away.
                 if (active) {
@@ -569,19 +587,14 @@ void GroundPanelTab::RenderToolRow_() {
                     SelectTool_(info.tool);
                 }
             }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s", info.tip);
-            }
-            ImGui::SameLine();
+            ImGui::EndDisabled();
+            Tooltip(info.tip);
         }
     };
 
     toolButtons(kPaintTools);
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
     toolButtons(kEditTools);
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
+    place("Stamp decals", true);
     if (ToggleButton("Stamp decals", stamping_)) {
         stamping_ = !stamping_;
         if (stamping_) {
@@ -608,14 +621,18 @@ void GroundPanelTab::RenderStatus_() {
     const ImGuiStyle& style = ImGui::GetStyle();
     const float wrap = ImGui::GetContentRegionAvail().x - style.WindowPadding.x * 2.0f;
     // Room for a measure line always while painting, so the box does not jump as it comes and goes.
+    constexpr const char* kStopHint = "Press Esc once to cancel the shape. Press Esc again to stop. Right-drag to move the camera.";
     const float height = ImGui::CalcTextSize(text.c_str(), nullptr, false, wrap).y +
-                         ImGui::GetTextLineHeightWithSpacing() * (painting ? 2.0f : 0.0f) + style.WindowPadding.y * 2.0f;
+                         (painting ? ImGui::GetTextLineHeightWithSpacing() + style.ItemSpacing.y * 2.0f +
+                                         ImGui::CalcTextSize(kStopHint, nullptr, false, wrap).y
+                                   : 0.0f) +
+                         style.WindowPadding.y * 2.0f;
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
     if (ImGui::BeginChild("##status", ImVec2(0, height), true, ImGuiWindowFlags_NoScrollbar)) {
         ImGui::TextWrapped("%s", text.c_str());
         if (painting) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", measure.empty() ? " " : measure.c_str());
-            ImGui::TextDisabled("Press Esc once to cancel the shape. Press Esc again to stop. Right-drag to move the camera.");
+            ImGui::TextColored(kAttentionColor, "%s", measure.empty() ? " " : measure.c_str());
+            Hint(kStopHint);
         }
     }
     ImGui::EndChild();
@@ -653,37 +670,45 @@ void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bo
         ImGui::SetTooltip("Remove patches of paint, as on an old road.");
     }
 
-    // The second row: a rough edge (not for markings, whose lines should stay crisp) and depth.
-    const float halfWidth = (ImGui::GetContentRegionAvail().x - spacing) / 2.0f;
+    // A rough edge is not for markings, whose lines should stay crisp.
     if (roughness) {
-        ImGui::SetNextItemWidth(halfWidth);
+        ImGui::SetNextItemWidth(-1.0f);
         ImGui::DragFloat("##rough", roughness, 0.02f, 0.0f, 16.0f, *roughness > 0.0f ? "Rough edge %.2f m" : "Smooth edge");
         Track(changed, committed);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Make the outline uneven and natural, for example for grass, dirt or gravel.\n"
                               "Drag to the right to set how far the edge moves in and out.");
         }
-        ImGui::SameLine();
     }
-    ImGui::SetNextItemWidth(roughness ? halfWidth : -1.0f);
-    ImGui::SliderInt("##depth", &look.depthOffset, -1, 8, look.depthOffset < 0 ? "Depth: default" : "Depth %d");
-    Track(changed, committed);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Increase this value if the paint flickers or goes under lot textures.\n"
-                          "At 4 or more, the paint shows on top of the shadows of the game.");
+    // Rarely needed, but a value that is set still shows while this is closed.
+    char advanced[48];
+    std::snprintf(advanced, sizeof(advanced), look.depthOffset < 0 ? "Advanced###advanced" : "Advanced: depth %d###advanced",
+                  look.depthOffset);
+    if (ImGui::TreeNode(advanced)) {
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::SliderInt("##depth", &look.depthOffset, -1, 8, look.depthOffset < 0 ? "Depth: default" : "Depth %d");
+        Track(changed, committed);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Increase this value if the paint flickers or goes under lot textures.\n"
+                              "At 4 or more, the paint shows on top of the shadows of the game.");
+        }
+        ImGui::TreePop();
     }
     ImGui::PopID();
 }
 
 void GroundPanelTab::RenderGrid_() {
     ImGui::PushID("grid");
+    ImGui::SeparatorText("Grid and snapping");
+    const bool wasShown = settings_.showGrid;
+    const bool wasSnapping = settings_.snapPointsToGrid;
     bool changed = false;
-    changed |= ImGui::Checkbox("Grid", &settings_.showGrid);
+    changed |= ImGui::Checkbox("Show grid", &settings_.showGrid);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Show the grid (G).");
     }
     ImGui::SameLine();
-    changed |= ImGui::Checkbox("Snap", &settings_.snapPointsToGrid);
+    changed |= ImGui::Checkbox("Snap to grid", &settings_.snapPointsToGrid);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Snap points to the grid (Shift+S).");
     }
@@ -694,15 +719,20 @@ void GroundPanelTab::RenderGrid_() {
                           "Points also snap to lines parallel or square to the last edge.\n"
                           "Hold Shift for 15° steps from the last point.");
     }
+    ImGui::TextDisabled("Grid step (m)");
+    ImGui::SameLine();
+    const bool presetChosen = RenderPresetButtons_("GridStep", settings_.gridStepMeters, {2.0f, 4.0f, 8.0f, 16.0f});
+    changed |= presetChosen;
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-1.0f);
     changed |= ImGui::SliderFloat("##step", &settings_.gridStepMeters, 1.0f, 16.0f, "Every %.0f m");
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("The grid step. Press Ctrl+[ or Ctrl+] to change it.");
+    if (presetChosen || ImGui::IsItemDeactivatedAfterEdit() || settings_.showGrid != wasShown ||
+        settings_.snapPointsToGrid != wasSnapping) {
+        director_->SaveGridChoice(&PaintGridChoices::ground, PaintGridChoice{.step = settings_.gridStepMeters,
+                                                                             .show = settings_.showGrid,
+                                                                             .snap = settings_.snapPointsToGrid});
     }
-    ImGui::TextDisabled("Grid step (m)");
-    ImGui::SameLine();
-    changed |= RenderPresetButtons_("GridStep", settings_.gridStepMeters, {2.0f, 4.0f, 8.0f, 16.0f});
+    Tooltip("The grid step. Press Ctrl+[ or Ctrl+] to change it.");
     ImGui::PopID();
     if (changed) {
         SettingsChanged_();
@@ -761,9 +791,9 @@ void GroundPanelTab::RenderShapeSettings_() {
         }
         else {
             int style = static_cast<int>(settings_.drawStyle);
-            changed |= ImGui::Combo("##draw", &style, "Straight lines\0Curves\0Freehand\0");
+            changed |= ImGui::Combo("##draw", &style, "Straight lines\0Curves\0Freehand\0Pen\0");
             settings_.drawStyle = static_cast<DrawStyle>(style);
-            Tooltip("Draw straight lines between your clicks, a curve through your clicks, or a freehand line.");
+            Tooltip("Draw straight lines between your clicks, a curve through your clicks, a freehand line, or use the pen.\nWith the pen, a click makes a corner. Hold the button and drag to make a curve.");
         }
         if (tool == Tool::Area) {
             ImGui::SameLine();
@@ -802,7 +832,7 @@ void GroundPanelTab::RenderShapeSettings_() {
 void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookEditorState& state, bool& changed,
                                        bool& committed) {
     const bool textured = state.wantsTexture || !look.textures.empty();
-    if (ImGui::RadioButton("Colour", !textured) && textured) {
+    if (ImGui::RadioButton("Color", !textured) && textured) {
         look.textures.clear();
         look.color = state.plainColour;
         state.wantsTexture = false;
@@ -837,6 +867,8 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
         Tooltip("The texture goes along the line and fills its width. Use this for a track or a kerb.");
     }
 
+    RenderPalettes_(look, state, committed);
+
     if (!textured) {
         for (size_t i = 0; i < std::size(kSwatches); ++i) {
             const Swatch& swatch = kSwatches[i];
@@ -851,7 +883,7 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
             ImGui::PopID();
         }
         ImGui::SameLine();
-        ImGui::ColorEdit3("Other colour##paint", look.color.data(), ImGuiColorEditFlags_NoInputs);
+        ImGui::ColorEdit3("Other color##paint", look.color.data(), ImGuiColorEditFlags_NoInputs);
         Track(changed, committed);
         return;
     }
@@ -874,7 +906,8 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
                 look.mix = static_cast<TextureMix>(mix);
                 committed = true;
             }
-            Tooltip("With soft patches, the first texture covers the shape.\n"
+            Tooltip("Choose soft patches for a smooth change from one texture to the next.\n"
+                    "With soft patches, the first texture covers the shape.\n"
                     "The other textures show on top in natural patches.\n"
                     "The share of each texture sets its area.");
             if (patches) {
@@ -892,6 +925,217 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
         }
     }
     RenderTextureLibrary_(look, committed);
+}
+
+void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& committed) {
+    if (!favorites_ || !ImGui::CollapsingHeader("Palettes")) {
+        return;
+    }
+    ImGui::PushID("palettes");
+    std::vector<PaintPalette>& palettes = favorites_->GetPaintPalettes();
+    activePalette_ = palettes.empty() ? 0 : std::min(activePalette_, palettes.size() - 1);
+
+    // Not a name that is already there: deleting palettes leaves gaps in the numbers.
+    const auto makePalette = [&] {
+        std::string newName;
+        for (size_t number = palettes.size() + 1;; ++number) {
+            newName = "Palette " + std::to_string(number);
+            if (std::ranges::none_of(palettes, [&](const PaintPalette& other) { return other.name == newName; })) {
+                break;
+            }
+        }
+        palettes.push_back({.name = std::move(newName)});
+        activePalette_ = palettes.size() - 1;
+        favorites_->Save();
+    };
+
+    // One line: choose a palette and use it. What is done less often is behind "...".
+    const float buttonGap = ImGui::GetStyle().ItemSpacing.x;
+    const float buttonsWidth = palettes.empty()
+        ? PanelUi::ButtonWidth("New") + buttonGap
+        : PanelUi::ButtonWidth("Add this look") + PanelUi::ButtonWidth("Mix all") + PanelUi::ButtonWidth("...") + buttonGap * 3.0f;
+    ImGui::SetNextItemWidth(-buttonsWidth);
+    if (ImGui::BeginCombo("##palette", palettes.empty() ? "No palettes yet" : palettes[activePalette_].name.c_str())) {
+        for (size_t i = 0; i < palettes.size(); ++i) {
+            ImGui::PushID(static_cast<int>(i));
+            if (ImGui::Selectable(palettes[i].name.c_str(), i == activePalette_)) {
+                activePalette_ = i;
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    if (palettes.empty()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("New")) {
+            makePalette();
+        }
+        Tooltip("Make a palette. Palettes are the same in all your cities.");
+        ImGui::PopID();
+        return;
+    }
+
+    PaintPalette& palette = palettes[activePalette_];
+    ImGui::SameLine();
+    // Texture is chosen but no texture is picked yet: there is nothing to add.
+    const bool nothingToAdd = look.textures.empty() && state.wantsTexture;
+    ImGui::BeginDisabled(nothingToAdd);
+    if (ImGui::SmallButton("Add this look")) {
+        if (look.textures.empty() && std::ranges::find(palette.colours, look.color) == palette.colours.end()) {
+            palette.colours.push_back(look.color);
+        }
+        for (const TextureChoice& choice : look.textures) {
+            if (std::ranges::none_of(palette.textures, [&](const PaintPaletteTexture& entry) {
+                    return entry.instanceId.value() == choice.instance;
+                })) {
+                palette.textures.push_back({rfl::Hex<uint32_t>(choice.instance), choice.weight});
+            }
+        }
+        favorites_->Save();
+    }
+    ImGui::EndDisabled();
+    Tooltip(nothingToAdd ? "First pick a texture." : "Add the color or the textures that you paint with now to this palette.");
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(palette.textures.size() < 2);
+    if (ImGui::SmallButton("Mix all")) {
+        if (look.textures.empty()) {
+            state.plainColour = look.color;
+            look.color = {1.0f, 1.0f, 1.0f};
+        }
+        look.textures.clear();
+        for (const PaintPaletteTexture& entry : palette.textures) {
+            if (look.textures.size() < kTerrainPaintMaxTextures) {
+                look.textures.push_back(TextureChoice{entry.instanceId.value(), entry.weight});
+            }
+        }
+        chosenTexture_ = 0;
+        state.wantsTexture = true;
+        committed = true;
+    }
+    ImGui::EndDisabled();
+    Tooltip(palette.textures.size() < 2 ? "This palette needs two or more textures."
+                                        : "Paint with all textures of this palette as a mix, up to 8 textures.");
+
+    ImGui::SameLine();
+    if (ImGui::SmallButton("...")) {
+        ImGui::OpenPopup("paletteMenu");
+    }
+    Tooltip("Make a palette, or rename or delete this one.");
+    bool newRequested = false;
+    bool deleteConfirmed = false;
+    if (ImGui::BeginPopup("paletteMenu")) {
+        newRequested = ImGui::Selectable("New palette");
+        ImGui::Separator();
+        char name[64];
+        std::snprintf(name, sizeof(name), "%s", palette.name.c_str());
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        if (ImGui::InputText("##paletteName", name, sizeof(name)) && name[0] != 0) {
+            palette.name = name;
+            favorites_->Save();
+        }
+        Tooltip("The name of this palette. Click to change it.");
+        if (ImGui::SmallButton("Delete this palette")) {
+            ImGui::OpenPopup("deletePalette");
+        }
+        deleteConfirmed = PanelUi::ConfirmDeletePopup("deletePalette", palette.name.c_str());
+        if (deleteConfirmed) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (palette.colours.empty() && palette.textures.empty()) {
+        Hint("This palette is empty. Choose a color or a texture, then click Add this look.");
+    }
+
+    // At most two rows of tiles, which scroll: a big palette does not push the rest down.
+    const ImGuiStyle& tileStyle = ImGui::GetStyle();
+    const float tileHeight = kPaletteTileSize + tileStyle.FramePadding.y * 2.0f + tileStyle.ItemSpacing.y;
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, tileHeight * 2.0f));
+    const bool hasTiles = !palette.colours.empty() || !palette.textures.empty();
+    const bool tilesOpen = hasTiles && ImGui::BeginChild("##paletteTiles", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY);
+
+    // Tiles on one line until they reach the side of the panel.
+    float tileRight = 0.0f;
+    const auto nextTile = [&](const float width) {
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        const float limit = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+        if (tileRight > 0.0f && tileRight + spacing + width <= limit) {
+            ImGui::SameLine();
+        }
+    };
+
+    std::optional<size_t> removeColour;
+    for (size_t i = 0; tilesOpen && i < palette.colours.size(); ++i) {
+        const std::array<float, 3> colour = palette.colours[i];
+        ImGui::PushID(static_cast<int>(i));
+        nextTile(22.0f);
+        if (ImGui::ColorButton("##color", ImVec4(colour[0], colour[1], colour[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
+                               ImVec2(22, 22))) {
+            look.textures.clear();
+            look.color = colour;
+            state.plainColour = colour;
+            state.wantsTexture = false;
+            committed = true;
+        }
+        tileRight = ImGui::GetItemRectMax().x;
+        Tooltip("Click to paint with this color. Right-click for more.");
+        if (ImGui::BeginPopupContextItem("tileMenu")) {
+            if (ImGui::MenuItem("Remove from palette")) {
+                removeColour = i;
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+
+    std::optional<size_t> removeTexture;
+    for (size_t i = 0; tilesOpen && i < palette.textures.size(); ++i) {
+        const uint32_t id = palette.textures[i].instanceId.value();
+        ImGui::PushID(static_cast<int>(id));
+        const bool inUse = std::ranges::find(look.textures, id, &TextureChoice::instance) != look.textures.end();
+        nextTile(kPaletteTileSize + ImGui::GetStyle().FramePadding.x * 2.0f);
+        if (TextureTile_(id, kPaletteTileSize, inUse)) {
+            if (look.textures.empty()) {
+                state.plainColour = look.color;
+                look.color = {1.0f, 1.0f, 1.0f};
+            }
+            state.wantsTexture = true;
+            UseTexture_(look, id, ImGui::GetIO().KeyCtrl, committed);
+        }
+        tileRight = ImGui::GetItemRectMax().x;
+        Tooltip("Click to paint with this texture. Ctrl+click to add it to the mix or remove it from the mix. "
+                "Right-click for more.");
+        if (ImGui::BeginPopupContextItem("tileMenu")) {
+            if (ImGui::MenuItem("Remove from palette")) {
+                removeTexture = i;
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+
+    if (hasTiles) {
+        ImGui::EndChild();
+    }
+
+    if (removeColour) {
+        palette.colours.erase(palette.colours.begin() + static_cast<std::ptrdiff_t>(*removeColour));
+        favorites_->Save();
+    }
+    if (removeTexture) {
+        palette.textures.erase(palette.textures.begin() + static_cast<std::ptrdiff_t>(*removeTexture));
+        favorites_->Save();
+    }
+    if (deleteConfirmed) {
+        palettes.erase(palettes.begin() + static_cast<std::ptrdiff_t>(activePalette_));
+        favorites_->Save();
+    }
+    if (newRequested) {
+        makePalette();
+    }
+    ImGui::PopID();
 }
 
 void GroundPanelTab::RenderTextureLayout_(Look& look, const bool following, bool& changed, bool& committed) {
@@ -928,48 +1172,104 @@ void GroundPanelTab::RenderTextureLayout_(Look& look, const bool following, bool
 
 void GroundPanelTab::RenderChosenTextures_(Look& look, bool& changed, bool& committed) {
     if (look.textures.empty()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Pick a texture below.");
+        ImGui::TextColored(kAttentionColor, "Pick a texture below.");
         return;
     }
-    if (look.textures.size() > 1) {
-        ImGui::TextWrapped(look.mix == TextureMix::Patches
-                               ? "A mix: the first covers the shape, the others lie on it in patches, by their share."
-                               : "A mix: each 16 m square of ground takes one of these, by its share.");
-    }
+    const bool mixed = look.textures.size() > 1;
+    const bool patches = mixed && look.mix == TextureMix::Patches;
+    chosenTexture_ = std::min(chosenTexture_, look.textures.size() - 1);
 
     float total = 0.0f;
     for (const TextureChoice& choice : look.textures) {
         total += std::max(0.0f, choice.weight);
     }
+    const auto shareOf = [&](const TextureChoice& choice) {
+        return total > 0.0f ? 100.0f * std::max(0.0f, choice.weight) / total : 0.0f;
+    };
+    const auto nameOf = [&](const TextureChoice& choice) {
+        const std::string* file = decals_ ? decals_->OriginalFile(choice.instance) : nullptr;
+        char id[16];
+        std::snprintf(id, sizeof(id), "0x%08X", choice.instance);
+        return file ? *file : std::string(id);
+    };
+    // A small label on the corner of the tile drawn last.
+    const auto tileLabel = [](const char* text, const bool bottomRight) {
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        const ImVec2 size = ImGui::CalcTextSize(text);
+        const ImVec2 at = bottomRight ? ImVec2(max.x - size.x - 3.0f, max.y - size.y - 2.0f) : ImVec2(min.x + 3.0f, min.y + 2.0f);
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(ImVec2(at.x - 2.0f, at.y - 1.0f), ImVec2(at.x + size.x + 2.0f, at.y + size.y + 1.0f),
+                            IM_COL32(0, 0, 0, 190), 2.0f);
+        draw->AddText(at, IM_COL32(255, 255, 255, 255), text);
+    };
+
+    // A strip of tiles, and the details of one: the same height however many textures are mixed.
+    std::optional<size_t> removed;
+    const float tileWidth = kThumbSize + ImGui::GetStyle().FramePadding.x * 2.0f;
     for (size_t i = 0; i < look.textures.size(); ++i) {
+        const TextureChoice& choice = look.textures[i];
         ImGui::PushID(static_cast<int>(i));
-        TextureChoice& choice = look.textures[i];
-        TextureTile_(choice.instance, kThumbSize, false);
+        NextInRow(i, tileWidth);
+        if (TextureTile_(choice.instance, kThumbSize, mixed && i == chosenTexture_)) {
+            chosenTexture_ = i;
+        }
+        if (mixed) {
+            char share[8];
+            std::snprintf(share, sizeof(share), "%.0f%%", shareOf(choice));
+            tileLabel(share, true);
+        }
+        if (patches && i == 0) {
+            tileLabel("Base", false);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s\n%s", nameOf(choice).c_str(), mixed ? "Click to change its share. Right-click to remove it." : "Right-click to remove it.");
+        }
+        if (ImGui::BeginPopupContextItem("chosenMenu")) {
+            if (ImGui::MenuItem("Remove")) {
+                removed = i;
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+
+    TextureChoice& chosen = look.textures[chosenTexture_];
+    if (mixed) {
+        ImGui::TextUnformatted(nameOf(chosen).c_str());
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+        ImGui::DragFloat("##share", &chosen.weight, 0.05f, 0.0f, 100.0f, "Share %.2f");
+        Track(changed, committed);
+        ImGui::SameLine();
+        ImGui::Text("%.0f%%", shareOf(chosen));
+    }
+    else {
         ImGui::SameLine();
         ImGui::BeginGroup();
-        if (const std::string* file = decals_ ? decals_->OriginalFile(choice.instance) : nullptr) {
-            ImGui::TextUnformatted(file->c_str());
-            ImGui::TextDisabled("%s  0x%08X", decals_->PackOf(choice.instance)->name.c_str(), choice.instance);
-        }
-        else {
-            ImGui::Text("0x%08X", choice.instance);
-        }
-        if (look.textures.size() > 1) {
-            ImGui::SetNextItemWidth(90.0f);
-            ImGui::DragFloat("##share", &choice.weight, 0.05f, 0.0f, 100.0f, "share %.2f");
-            Track(changed, committed);
-            ImGui::SameLine();
-            ImGui::Text("%.0f%%", total > 0.0f ? 100.0f * std::max(0.0f, choice.weight) / total : 0.0f);
-            ImGui::SameLine();
-        }
-        const bool remove = ImGui::SmallButton("Remove");
+        ImGui::TextUnformatted(nameOf(chosen).c_str());
+    }
+    if (mixed) {
+        ImGui::SameLine();
+    }
+    if (ImGui::SmallButton("Remove")) {
+        removed = chosenTexture_;
+    }
+    if (!mixed) {
         ImGui::EndGroup();
-        ImGui::PopID();
-        if (remove) {
-            look.textures.erase(look.textures.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+    if (patches && chosenTexture_ > 0) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Make base")) {
+            std::rotate(look.textures.begin(), look.textures.begin() + static_cast<std::ptrdiff_t>(chosenTexture_),
+                        look.textures.begin() + static_cast<std::ptrdiff_t>(chosenTexture_) + 1);
+            chosenTexture_ = 0;
             committed = true;
-            break;
         }
+        Tooltip("The base texture covers the whole shape. The other textures lie on it in patches.");
+    }
+    if (removed) {
+        look.textures.erase(look.textures.begin() + static_cast<std::ptrdiff_t>(*removed));
+        committed = true;
     }
 }
 
@@ -1031,13 +1331,15 @@ void GroundPanelTab::IndexLibrary_() {
     static const std::string kNone;
     library_.clear();
     library_.reserve(ids.size());
-    packCounts_.assign(packs.size() + 1, 0);
+    packFilter_.Begin(catalog);
+    textureSuggester_.Clear();
     for (const uint32_t id : ids) {
-        LibraryEntry entry{.id = id};
+        LibraryEntry entry{.id = id, .rows = decals_->PackCandidates(id)};
+        packFilter_.Count(entry.rows);
         char hex[9];
         std::snprintf(hex, sizeof(hex), "%08X", id);
         entry.searchText = hex;
-        for (const PackCatalogRepository::TextureRow& row : decals_->PackCandidates(id)) {
+        for (const PackCatalogRepository::TextureRow& row : entry.rows) {
             const auto pack = static_cast<int32_t>(row[2]);
             const std::string* file = catalog ? catalog->File(row[1]) : nullptr;
             if (entry.packs.empty()) {
@@ -1046,16 +1348,14 @@ void GroundPanelTab::IndexLibrary_() {
             }
             if (std::ranges::find(entry.packs, pack) == entry.packs.end()) {
                 entry.packs.push_back(pack);
-                entry.searchText += ' ' + Upper(packs[static_cast<size_t>(pack)].name);
-                ++packCounts_[static_cast<size_t>(pack)];
+                entry.searchText += ' ' + packs[static_cast<size_t>(pack)].name;
             }
             if (file) {
-                entry.searchText += ' ' + Upper(*file);
+                entry.searchText += ' ' + *file;
             }
         }
-        if (entry.packs.empty()) {
-            ++packCounts_.back();
-        }
+        entry.searchText = TextSearch::Normalize(entry.searchText);
+        textureSuggester_.Add(entry.searchText);
         library_.push_back(std::move(entry));
     }
 
@@ -1064,40 +1364,31 @@ void GroundPanelTab::IndexLibrary_() {
         return std::tuple(entry.packs.empty(), entry.sortPack ? std::string_view(*entry.sortPack) : std::string_view{},
                           entry.sortFile ? std::string_view(*entry.sortFile) : std::string_view{}, entry.id);
     });
-
-    packsByName_.clear();
-    for (int32_t i = 0; i < static_cast<int32_t>(packs.size()); ++i) {
-        if (packCounts_[static_cast<size_t>(i)] > 0) {
-            packsByName_.push_back(i);
-        }
-    }
-    std::ranges::sort(packsByName_, {}, [&](const int32_t i) { return packs[static_cast<size_t>(i)].name; });
 }
 
 const std::vector<uint32_t>& GroundPanelTab::ShownTextures_() {
     IndexLibrary_();
     const auto* favourites = favorites_ ? &favorites_->GetFavoriteDecalIds() : nullptr;
     const size_t favouriteCount = favourites ? favourites->size() : 0;
-    const std::string filter = Upper(textureFilter_);
+    const std::string filter = textureFilter_;
+    const TextSearch::Query query(filter);
     if (shownValid_ && filter == shownFilter_ && favouriteTexturesOnly_ == shownFavouritesOnly_ &&
-        favouriteCount == shownFavouriteCount_ && packFilter_ == shownPack_) {
+        favouriteCount == shownFavouriteCount_ && packFilter_.Selected() == shownPack_) {
         return shownTextures_;
     }
     shownValid_ = true;
     shownFilter_ = filter;
     shownFavouritesOnly_ = favouriteTexturesOnly_;
     shownFavouriteCount_ = favouriteCount;
-    shownPack_ = packFilter_;
+    shownPack_ = packFilter_.Selected();
 
     shownTextures_.clear();
     for (const LibraryEntry& entry : library_) {
-        const bool inPack = packFilter_ == kAllPacks ||
-                            (packFilter_ == kNoPack ? entry.packs.empty()
-                                                    : std::ranges::find(entry.packs, packFilter_) != entry.packs.end());
+        const bool inPack = packFilter_.Passes(entry.rows);
         if (!inPack ||
             (favouriteTexturesOnly_ && (!favourites || !favourites->contains(entry.id))) ||
             !kindFilter_.Allows(*decals_, entry.id) ||
-            (!filter.empty() && entry.searchText.find(filter) == std::string::npos)) {
+            !query.Matches(entry.searchText)) {
             continue;
         }
         shownTextures_.push_back(entry.id);
@@ -1107,51 +1398,18 @@ const std::vector<uint32_t>& GroundPanelTab::ShownTextures_() {
 
 void GroundPanelTab::RenderPackFilter_() {
     IndexLibrary_();
-    const std::vector<TexturePack>& packs = decals_->Packs();
-    const uint32_t unknown = packCounts_.empty() ? 0 : packCounts_.back();
-    const auto label = [&](const int32_t pack) {
-        char text[160];
-        if (pack == kAllPacks) {
-            std::snprintf(text, sizeof(text), "All packs (%zu)", library_.size());
-        }
-        else if (pack == kNoPack) {
-            std::snprintf(text, sizeof(text), "Not in the catalog (%u)", unknown);
-        }
-        else {
-            std::snprintf(text, sizeof(text), "%s (%u)", packs[static_cast<size_t>(pack)].name.c_str(),
-                          packCounts_[static_cast<size_t>(pack)]);
-        }
-        return std::string(text);
-    };
-
-    ImGui::SetNextItemWidth(-1.0f);
-    if (!ImGui::BeginCombo("##pack", label(packFilter_).c_str(), ImGuiComboFlags_HeightLarge)) {
-        return;
-    }
-    const auto option = [&](const int32_t pack) {
-        if (ImGui::Selectable(label(pack).c_str(), packFilter_ == pack)) {
-            packFilter_ = pack;
-        }
-        if (pack >= 0 && ImGui::IsItemHovered()) {
-            const TexturePack& info = packs[static_cast<size_t>(pack)];
-            ImGui::SetTooltip("%s\n%s%s%s", info.author.c_str(), info.package.c_str(), info.package.empty() ? "" : "\n",
-                              info.url.c_str());
-        }
-    };
-    option(kAllPacks);
-    for (const int32_t pack : packsByName_) {
-        option(pack);
-    }
-    if (unknown > 0) {
-        option(kNoPack);
-    }
-    ImGui::EndCombo();
+    packFilter_.Render("##pack", "textures");
 }
 
-void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) const {
+void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) {
+    // After a short wait, so that moving over the grid does not load every texture on the way.
+    const bool showPreview = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
     const std::string* file = decals_->OriginalFile(instanceId);
     const TexturePack* pack = decals_->PackOf(instanceId);
     ImGui::BeginTooltip();
+    if (showPreview) {
+        hoverPreview_.Render(pRM_, imguiService_, instanceId);
+    }
     if (file && pack) {
         ImGui::TextUnformatted(file->c_str());
         ImGui::TextDisabled("%s, by %s", pack->name.c_str(), pack->author.c_str());
@@ -1167,7 +1425,7 @@ void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) const {
         }
     }
     ImGui::TextDisabled("0x%08X", instanceId);
-    ImGui::TextUnformatted("Click to paint with this texture.\nCtrl+click to add it to the mix or remove it from the mix.\nRight-click to add or remove it as a favourite.");
+    ImGui::TextUnformatted("Click to paint with this texture.\nCtrl+click to add it to the mix or remove it from the mix.\nRight-click to add or remove it as a favorite.");
     ImGui::EndTooltip();
 }
 
@@ -1196,9 +1454,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
         for (size_t i = 0; i < recentTextures_.size(); ++i) {
             const uint32_t id = recentTextures_[i];
             ImGui::PushID(static_cast<int>(id));
-            if (i > 0) {
-                ImGui::SameLine();
-            }
+            NextInRow(i, kThumbSize + ImGui::GetStyle().FramePadding.x * 2.0f);
             const bool clicked = TextureTile_(id, kThumbSize, inUse(id));
             const bool ctrl = tileClicked(id);
             ImGui::PopID();
@@ -1210,22 +1466,35 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
     }
 
     RenderPackFilter_();
-    ImGui::SetNextItemWidth(std::min(200.0f, ShareOfLine(2)));
+    ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputTextWithHint("##filter", "Search name, pack or ID", textureFilter_, sizeof(textureFilter_));
-    ImGui::SameLine();
-    ImGui::Checkbox("Favourites", &favouriteTexturesOnly_);
+    PanelUi::Tooltip(PanelUi::kSearchHelp);
+    ImGui::Checkbox("Favorites only", &favouriteTexturesOnly_);
     ImGui::SameLine();
     if (kindFilter_.Render(*decals_)) {
         shownValid_ = false;
     }
 
     const std::vector<uint32_t>& shown = ShownTextures_();
-    ImGui::TextDisabled("%zu textures. Click a texture to paint with it. Ctrl+click to mix textures. Right-click to set a favourite.",
-                        shown.size());
+    if (shown.empty()) {
+        if (PanelUi::NoResults("No textures match this search and these filters.")) {
+            textureFilter_[0] = 0;
+            packFilter_.Clear();
+            favouriteTexturesOnly_ = false;
+            kindFilter_ = {};
+            shownValid_ = false;
+        }
+        else if (const auto suggestion = textureSuggester_.Suggest(textureFilter_); suggestion && PanelUi::DidYouMean(*suggestion)) {
+            std::snprintf(textureFilter_, sizeof(textureFilter_), "%s", suggestion->c_str());
+        }
+        return;
+    }
+    Hint((std::to_string(shown.size()) + " textures. Click a texture to paint with it. Ctrl+click to mix textures. "
+                                         "Right-click to set a favorite.").c_str());
 
-    // About seven rows. Drag its bottom edge for more or fewer.
+    // About five rows. Drag its bottom edge for more or fewer.
     const ImGuiStyle& gridStyle = ImGui::GetStyle();
-    const float gridHeight = 7.0f * (kPickerThumbSize + gridStyle.FramePadding.y * 2.0f + gridStyle.ItemSpacing.y) +
+    const float gridHeight = 5.0f * (kPickerThumbSize + gridStyle.FramePadding.y * 2.0f + gridStyle.ItemSpacing.y) +
                              gridStyle.WindowPadding.y * 2.0f;
     if (ImGui::BeginChild("##textures", ImVec2(0, gridHeight), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY)) {
         const ImGuiStyle& style = ImGui::GetStyle();
@@ -1264,33 +1533,45 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
 }
 
 void GroundPanelTab::RenderSelection_(Document& document) {
-    const std::vector<uint32_t>& selection = document.Selection();
-    if (selection.empty()) {
+    if (document.Selection().empty()) {
         editingId_ = 0;
         return;
     }
 
-    const uint32_t first = selection.front();
+    const uint32_t first = document.Selection().front();
     RenderSelectionActions_(document);
     if (document.Selection().empty() || document.Selection().front() != first) {
         editingId_ = 0;
         return;
     }
     RenderTransform_(document);
+    RenderInspector_(document, first);
 
+    const std::vector<uint32_t> selection = document.Selection();
+    if (!selection.empty()) {
+        RenderShapeTools_(document, selection);
+        RenderPlanting_(selection.front());
+    }
+}
+
+void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) {
     const PaintObject* const object = document.Find(first);
-    if (!object || selection.size() != 1) {
+    if (!object || document.Selection().size() != 1) {
         editingId_ = 0;
         return;
     }
-    if (editingId_ != first || (!ImGui::IsAnyItemActive() && object->drawOrder != editing_.drawOrder)) {
+    // Takes in what changed elsewhere, such as an undo or a point dragged in the city, so that the
+    // next edit here does not put the old values back. Not while a control here is in use.
+    const bool newObject = editingId_ != first;
+    if (newObject || (!ImGui::IsAnyItemActive() && document.Revision() != editingRevision_)) {
         editingId_ = first;
         editing_ = *object;
+        editingRevision_ = document.Revision();
+    }
+    if (newObject) {
         selectionLook_ = {};
-        if (!object->look.textures.empty()) {
-            // Painted with a texture: its colour is the tint; the plain colour starts white.
-            selectionLook_.wantsTexture = true;
-        }
+        // Painted with a texture: its colour is the tint; the plain colour starts white.
+        selectionLook_.wantsTexture = !object->look.textures.empty();
     }
 
     bool changed = false;
@@ -1302,19 +1583,57 @@ void GroundPanelTab::RenderSelection_(Document& document) {
     }
     Track(changed, committed);
 
-    ImGui::SeparatorText("Paint with");
     ShapeSpec& shape = editing_.shape;
-    ImGui::PushID("look");
-    RenderLookEditor_(editing_.look, shape.kind == ShapeKind::Line, selectionLook_, changed, committed);
-    ImGui::PopID();
-
     if (shape.kind != ShapeKind::Merged) {
         ImGui::SeparatorText(shape.kind == ShapeKind::Marking ? "Marking" : "Shape");
     }
+    // What only the point that was clicked last can have: a curve, or its own corner radius.
+    const auto renderPointRadius = [&] {
+        if (shape.pathStyle != PathStyle::Straight) {
+            return;
+        }
+        const GroundPainterInputControl* const painter = director_->GetGroundPainter();
+        const std::optional<size_t> picked = painter ? painter->PickedPoint() : std::nullopt;
+        if (!picked || *picked >= shape.points.size()) {
+            ImGui::TextDisabled("Click a point in the city to change only that point.");
+            return;
+        }
+        const Vec2 handle = *picked < shape.handles.size() ? shape.handles[*picked] : Vec2{};
+        const Vec2 inHandle = InHandleOf(shape, *picked);
+        const bool curve = handle != Vec2{} || inHandle != Vec2{};
+        if (ImGui::SmallButton(curve ? "Make corner" : "Make curve")) {
+            const Vec2 smooth = curve ? Vec2{} : SmoothHandle(shape.points, *picked, shape.kind == ShapeKind::Area);
+            SetPointHandles(shape, *picked, smooth, {-smooth.x, -smooth.z});
+            committed = true;
+        }
+        Tooltip(curve ? "Change the point that you clicked last to a sharp corner."
+                      : "Change the point that you clicked last to a smooth curve. Then drag its handles in the city.");
+        if (curve && !(inHandle == Vec2{-handle.x, -handle.z})) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Join handles")) {
+                const Vec2 outgoing = handle != Vec2{} ? handle : Vec2{-inHandle.x, -inHandle.z};
+                SetPointHandles(shape, *picked, outgoing, {-outgoing.x, -outgoing.z});
+                committed = true;
+            }
+            Tooltip("Make the two handles of this point a straight line again, so that the curve is smooth.");
+        }
+        if (curve) {
+            return;
+        }
+        const bool own = *picked < shape.pointRadii.size() && shape.pointRadii[*picked] >= 0.0f;
+        float radius = own ? shape.pointRadii[*picked] : shape.cornerRadius;
+        if (ImGui::DragFloat("This corner", &radius, 0.05f, 0.0f, 50.0f, radius > 0.0f ? "%.2f m" : "sharp")) {
+            shape.pointRadii.resize(shape.points.size(), -1.0f);
+            shape.pointRadii[*picked] = radius;
+        }
+        Track(changed, committed);
+        Tooltip("Round only the corner that you clicked last in the city.");
+    };
     switch (shape.kind) {
     case ShapeKind::Area:
         ImGui::DragFloat("Round corners", &shape.cornerRadius, 0.05f, 0.0f, 50.0f, shape.cornerRadius > 0.0f ? "%.2f m" : "no");
         Track(changed, committed);
+        renderPointRadius();
         break;
     case ShapeKind::Line: {
         const float width = ShareOfLine(shape.dashLength > 0.0f ? 3 : 2);
@@ -1331,6 +1650,7 @@ void GroundPanelTab::RenderSelection_(Document& document) {
             ImGui::DragFloat("##gaps", &shape.gapLength, 0.05f, 0.0f, 50.0f, "Gaps %.2f m");
             Track(changed, committed);
         }
+        renderPointRadius();
         break;
     }
     case ShapeKind::Brush:
@@ -1346,11 +1666,16 @@ void GroundPanelTab::RenderSelection_(Document& document) {
     case ShapeKind::Merged:
         break;
     }
+    ImGui::SeparatorText("Paint with");
+    ImGui::PushID("look");
+    RenderLookEditor_(editing_.look, shape.kind == ShapeKind::Line, selectionLook_, changed, committed);
+    ImGui::PopID();
     RenderFinish_(editing_.look, shape.wear, shape.kind == ShapeKind::Marking ? nullptr : &shape.roughness, changed,
                   committed);
 
     if (committed) {
         document.Update({editing_});
+        editingRevision_ = document.Revision();
     }
     else if (changed) {
         // Shown while the control is held: a new style at once, a new cut every so often.
@@ -1366,18 +1691,27 @@ void GroundPanelTab::RenderSelectionActions_(Document& document) {
     const std::vector<uint32_t> selection = document.Selection();
     const uint32_t first = selection.front();
     ImGui::Text("%zu selected", selection.size());
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Up")) document.MoveUp(first);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Down")) document.MoveDown(first);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Top")) document.MoveToTop(first);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Bottom")) document.MoveToBottom(first);
+
+    // The order works on one shape: it would otherwise move only the first of several.
+    const bool one = selection.size() == 1;
+    const auto orderButton = [&](const char* label, const char* tip, void (Document::*move)(uint32_t)) {
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!one);
+        if (ImGui::SmallButton(label)) {
+            (document.*move)(first);
+        }
+        ImGui::EndDisabled();
+        Tooltip(one ? tip : "Select one shape to change its order.");
+    };
+    orderButton("Up", "Draw it over the shape above it.", &Document::MoveUp);
+    orderButton("Down", "Draw it under the shape below it.", &Document::MoveDown);
+    orderButton("Top", "Draw it over all other shapes.", &Document::MoveToTop);
+    orderButton("Bottom", "Draw it under all other shapes.", &Document::MoveToBottom);
 
     if (ImGui::SmallButton("Copy")) {
         document.Duplicate(selection, {4.0f, 4.0f});
     }
+    Tooltip("Add a copy next to it.");
     ImGui::SameLine();
     const bool grouped = std::ranges::any_of(selection, [&](const uint32_t id) {
         const PaintObject* const object = document.Find(id);
@@ -1390,21 +1724,20 @@ void GroundPanelTab::RenderSelectionActions_(Document& document) {
         ImGui::BeginDisabled(selection.size() < 2);
         if (ImGui::SmallButton("Group")) document.Group(selection);
         ImGui::EndDisabled();
+        Tooltip(selection.size() < 2 ? "Select two or more shapes. Hold Ctrl and click to add a shape."
+                                     : "Select these shapes as one from now on.");
     }
     ImGui::SameLine();
     ImGui::BeginDisabled(selection.size() < 2);
     if (ImGui::SmallButton("Merge")) document.Merge(selection);
     ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("Join the selected shapes into one.\nThe new shape gets the look of the top shape.\nYou cannot edit their points after this.");
-    }
-    ImGui::SameLine();
+    Tooltip(selection.size() < 2 ? "Select two or more shapes. Hold Ctrl and click to add a shape."
+                                 : "Join the selected shapes into one.\nThe new shape gets the look of the top shape.\nYou cannot edit their points after this.");
+    ImGui::SameLine(0.0f, kGroupGap);
     if (ImGui::SmallButton("Delete")) {
         document.Remove(selection);
-        return;
     }
-    RenderShapeTools_(document, selection);
-    RenderPlanting_(selection.front());
+    Tooltip("Remove it from the city. Press Ctrl+Z to bring it back.");
 }
 
 void GroundPanelTab::RenderPlanting_(const uint32_t objectId) {
@@ -1438,7 +1771,7 @@ void GroundPanelTab::RenderPlanting_(const uint32_t objectId) {
         ImGui::SetTooltip("The painter opens in Line mode along this line, or around the edge of this shape.\n"
                           "Press - or + to change the spacing. Press Enter to place the items.");
     }
-    ImGui::TextDisabled("In Line or Polygon mode of the prop and flora painters, press F over painted ground to do the same.");
+    Hint("In Line or Polygon mode of the prop and flora painters, press F over painted ground to do the same.");
     ImGui::PopID();
 }
 
@@ -1456,10 +1789,11 @@ void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uin
     }
     ImGui::PushID("shapeTools");
 
-    ImGui::SetNextItemWidth(110.0f);
+    const float fieldWidth = ShareOfLine(3);
+    ImGui::SetNextItemWidth(fieldWidth);
     ImGui::DragFloat("##borderWidth", &borderWidth_, 0.02f, 0.05f, 50.0f, "%.2f m wide");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(110.0f);
+    ImGui::SetNextItemWidth(fieldWidth);
     int side = static_cast<int>(borderSide_);
     if (ImGui::Combo("##borderSide", &side, "outside\0inside\0on the edge\0")) {
         borderSide_ = static_cast<BorderSide>(side);
@@ -1473,10 +1807,10 @@ void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uin
                           "It starts with the same look. You can then give it a different look.");
     }
 
-    ImGui::SetNextItemWidth(110.0f);
+    ImGui::SetNextItemWidth(fieldWidth);
     ImGui::DragInt("##columns", &repeatColumns_, 0.05f, 1, 50, "%d across");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(110.0f);
+    ImGui::SetNextItemWidth(fieldWidth);
     ImGui::DragInt("##rows", &repeatRows_, 0.05f, 1, 50, "%d down");
     ImGui::SameLine();
     ImGui::BeginDisabled(repeatColumns_ * repeatRows_ < 2);
@@ -1484,7 +1818,8 @@ void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uin
         document.Repeat(selection, repeatColumns_, repeatRows_, {repeatStep_.x, 0.0f}, {0.0f, repeatStep_.z});
     }
     ImGui::EndDisabled();
-    ImGui::SetNextItemWidth(226.0f + ImGui::GetStyle().ItemSpacing.x);
+    Tooltip(repeatColumns_ * repeatRows_ < 2 ? "Set more than 1 across or down." : "Add the copies.");
+    ImGui::SetNextItemWidth(fieldWidth * 2.0f + ImGui::GetStyle().ItemSpacing.x);
     ImGui::DragFloat2("Step##repeat", &repeatStep_.x, 0.05f, -500.0f, 500.0f, "%.2f m");
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("The distance from each copy to the last copy, across (x) and down (z).\n"
@@ -1513,14 +1848,15 @@ void GroundPanelTab::RenderTransform_(Document& document) {
     // The two controls show the change while dragged and make it when let go.
     bool active = false;
     bool done = false;
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::DragFloat("Turn", &turnDegrees_, 0.5f, -180.0f, 180.0f, "%.1f deg");
+    const float halfWidth = ShareOfLine(2);
+    ImGui::SetNextItemWidth(halfWidth);
+    ImGui::DragFloat("##turn", &turnDegrees_, 0.5f, -180.0f, 180.0f, "Turn %.1f deg");
     const bool turnStarted = ImGui::IsItemActivated();
     active |= ImGui::IsItemActive();
     done |= ImGui::IsItemDeactivated();
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::DragFloat("Scale", &scalePercent_, 0.25f, 10.0f, 1000.0f, "%.0f %%");
+    ImGui::SetNextItemWidth(halfWidth);
+    ImGui::DragFloat("##scale", &scalePercent_, 0.25f, 10.0f, 1000.0f, "Scale %.0f %%");
     const bool scaleStarted = ImGui::IsItemActivated();
     active |= ImGui::IsItemActive();
     done |= ImGui::IsItemDeactivated();
@@ -1560,14 +1896,14 @@ void GroundPanelTab::RenderLayers_(Document& document) {
         document.Undo();
     }
     ImGui::EndDisabled();
+    Tooltip("Press Ctrl+Z, or the back mouse button.");
     ImGui::SameLine();
     ImGui::BeginDisabled(!document.CanRedo());
     if (ImGui::SmallButton("Redo")) {
         document.Redo();
     }
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextDisabled("Press Ctrl+Z or Ctrl+Y, or use the back and forward mouse buttons, to undo and redo.");
+    Tooltip("Press Ctrl+Y, or the forward mouse button.");
     if (objects.empty()) {
         ImGui::TextDisabled("Nothing painted yet.");
         return;
@@ -1593,58 +1929,63 @@ void GroundPanelTab::RenderLayers_(Document& document) {
     // reorders the list.
     std::optional<PaintObject> changed;
     std::optional<std::pair<uint32_t, bool>> clicked;
-    for (auto it = objects.rbegin(); it != objects.rend(); ++it) {
-        const PaintObject& object = *it;
-        ImGui::PushID(static_cast<int>(object.id));
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        bool shown = !object.hidden;
-        if (ImGui::Checkbox("##shown", &shown)) {
-            changed = object;
-            changed->hidden = !shown;
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(objects.size()));
+    while (clipper.Step()) {
+        for (int rowIndex = clipper.DisplayStart; rowIndex < clipper.DisplayEnd; ++rowIndex) {
+            const PaintObject& object = objects[objects.size() - 1 - static_cast<size_t>(rowIndex)];
+            ImGui::PushID(static_cast<int>(object.id));
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            bool shown = !object.hidden;
+            if (ImGui::Checkbox("##shown", &shown)) {
+                changed = object;
+                changed->hidden = !shown;
+            }
+            ImGui::TableNextColumn();
+            bool locked = object.locked;
+            if (ImGui::Checkbox("##locked", &locked)) {
+                changed = object;
+                changed->locked = locked;
+            }
+            ImGui::TableNextColumn();
+            // What it is painted with: its texture, or its colour. A click selects, as on the name.
+            const float swatch = ImGui::GetTextLineHeight();
+            bool swatchClicked;
+            if (!object.look.textures.empty()) {
+                swatchClicked = TextureTile_(object.look.textures.front().instance, swatch, false);
+            }
+            else {
+                const auto& c = object.look.color;
+                swatchClicked = ImGui::ColorButton("##color", ImVec4(c[0], c[1], c[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
+                                                   ImVec2(swatch, swatch));
+            }
+            ImGui::TableNextColumn();
+            const bool selected = ImGui::Selectable(ObjectLabel(object).c_str(), document.IsSelected(object.id),
+                                                    ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap);
+            if (selected || swatchClicked) {
+                clicked = std::pair{object.id, ImGui::GetIO().KeyCtrl};
+            }
+            // What kind of shape, and its group, quietly after the name.
+            std::string detail = object.name.empty() ? "" : ShapeKindName(object.shape.kind);
+            if (object.shape.kind == ShapeKind::Marking && !object.name.empty()) {
+                detail = MarkingKindName(object.shape.marking.kind);
+            }
+            if (object.group != 0) {
+                detail += (detail.empty() ? "" : ", ") + std::string("group ") + std::to_string(object.group);
+            }
+            if (object.shape.wear > 0.0f) {
+                detail += detail.empty() ? "worn" : ", worn";
+            }
+            if (UsesPatches(object.look)) {
+                detail += detail.empty() ? "patches" : ", patches";
+            }
+            if (!detail.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", detail.c_str());
+            }
+            ImGui::PopID();
         }
-        ImGui::TableNextColumn();
-        bool locked = object.locked;
-        if (ImGui::Checkbox("##locked", &locked)) {
-            changed = object;
-            changed->locked = locked;
-        }
-        ImGui::TableNextColumn();
-        // What it is painted with: its texture, or its colour.
-        const float swatch = ImGui::GetTextLineHeight();
-        if (!object.look.textures.empty()) {
-            TextureTile_(object.look.textures.front().instance, swatch, false);
-        }
-        else {
-            const auto& c = object.look.color;
-            ImGui::ColorButton("##colour", ImVec4(c[0], c[1], c[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
-                               ImVec2(swatch, swatch));
-        }
-        ImGui::TableNextColumn();
-        const bool selected = ImGui::Selectable(ObjectLabel(object).c_str(), document.IsSelected(object.id),
-                                                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap);
-        if (selected) {
-            clicked = std::pair{object.id, ImGui::GetIO().KeyCtrl};
-        }
-        // What kind of shape, and its group, quietly after the name.
-        std::string detail = object.name.empty() ? "" : ShapeKindName(object.shape.kind);
-        if (object.shape.kind == ShapeKind::Marking && !object.name.empty()) {
-            detail = MarkingKindName(object.shape.marking.kind);
-        }
-        if (object.group != 0) {
-            detail += (detail.empty() ? "" : ", ") + std::string("group ") + std::to_string(object.group);
-        }
-        if (object.shape.wear > 0.0f) {
-            detail += detail.empty() ? "worn" : ", worn";
-        }
-        if (UsesPatches(object.look)) {
-            detail += detail.empty() ? "patches" : ", patches";
-        }
-        if (!detail.empty()) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", detail.c_str());
-        }
-        ImGui::PopID();
     }
     ImGui::EndTable();
 

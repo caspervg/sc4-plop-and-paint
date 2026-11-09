@@ -34,6 +34,10 @@ private:
     ImGuiTexture LoadPropTexture_(uint64_t propKey);
 
     void RenderFilterUI_();
+    void RenderResultLine_();
+    // Stop painting, pick and strip.
+    void RenderTools_();
+    void ClearFilters_();
     void RenderTable_();
     void RebuildPropViewsCache_();
     void EnsureFilteredPropsCache_();
@@ -50,7 +54,8 @@ private:
     void RenderFavButton_(const Prop& prop) const;
     void RenderRotationModal_();
     void HandlePickedProp_(const PickedProp& picked);
-    void RenderSeasonalSetRowActions_(const Prop& prop);
+    // Paint, favorite, family and seasonal set: for the row's menu and the tile's menu.
+    void RenderPropMenu_(const Prop& prop);
     void RenderSeasonalSetItems_(const Prop& prop);
     void RenderAddToFamilyItems_(const Prop& prop);
     void PaintProp_(const Prop& prop);
@@ -78,16 +83,22 @@ private:
     PendingPaintState pendingPaint_{};
     bool seasonalSetEditorOpen_ = false;
     char newSeasonalSetName_[64] = {};
-    char renameSeasonalSetName_[64] = {};
+    // The set whose name is being typed, and what has been typed so far.
+    size_t renameSeasonalIndex_ = SIZE_MAX;
+    std::string renameSeasonalName_{};
     PropFilterHelper filterHelper_;
     std::vector<PropFilterHelper::SortSpec> sortSpecs_ = {
         {PropFilterHelper::SortColumn::Name, false}
     };
     std::vector<PropView> allPropViewsCache_{};
+    std::vector<std::string> propSearchTexts_{};
+    TextSearch::Suggester suggester_{};
     std::vector<PropView> filteredPropsCache_{};
     size_t cachedPropCount_{0};
     // Counted with the views, so once per props.cbor.
     PackFilter packFilter_{};
     bool filteredPropsDirty_{true};
+    // Stars can also change in the Prop Families tab.
+    size_t appliedFavoriteCount_{0};
     uint64_t selectedPropKey_{0};
 };

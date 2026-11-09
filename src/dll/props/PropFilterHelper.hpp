@@ -15,6 +15,8 @@ struct PropView {
     const Prop* prop = nullptr;
     // Every pack and file the catalog has the prop in; empty when it does not know it.
     std::span<const PackCatalogRepository::ExemplarRow> packs{};
+    // Name, IDs, packs and files, from TextSearch::Normalize.
+    const std::string* searchText = nullptr;
 };
 
 class PropFilterHelper {
@@ -32,6 +34,8 @@ public:
     };
 
     std::string searchBuffer;
+    // searchBuffer, ready to use. Set before filtering.
+    TextSearch::Query query;
     float propWidth[2] = {PropSize::kMinSize, PropSize::kMaxSize};
     float propHeight[2] = {PropSize::kMinSize, PropSize::kMaxSize};
     float propDepth[2] = {PropSize::kMinSize, PropSize::kMaxSize};
@@ -52,6 +56,8 @@ public:
     ) const;
 
     void ResetFilters();
+    // How many filters narrow the list now.
+    [[nodiscard]] int ActiveFilterCount() const;
 
 private:
     [[nodiscard]] bool PassesTextFilter_(const PropView& view) const;

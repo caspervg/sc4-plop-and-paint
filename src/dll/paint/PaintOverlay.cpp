@@ -295,7 +295,8 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
                                         const bool cursorValid,
                                         cISTETerrain* terrain,
                                         const PropPaintSettings& settings,
-                                        const std::vector<PreviewPlacement>& plannedPlacements) {
+                                        const std::vector<PreviewPlacement>& plannedPlacements,
+                                        const bool followCursor) {
     ClearLayers_();
 
     if (cursorValid) {
@@ -304,11 +305,11 @@ void PaintOverlay::BuildLinePreview(const std::vector<cS3DVector3>& points,
 
     EmitScreenLine_(points, kPathWidthPx, kLineColor, false, kLayerShape);
 
-    if (!points.empty() && cursorValid) {
+    if (!points.empty() && cursorValid && followCursor) {
         EmitScreenLine_({points.back(), cursorPos}, kPathWidthPx, kCursorColor, false, kLayerShape);
     }
 
-    for (const auto& pt : points) {
+    for (const auto& pt : followCursor ? points : std::vector<cS3DVector3>{}) {
         EmitMarker_(pt, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 
@@ -328,7 +329,8 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
                                            cISTETerrain* terrain,
                                            const PropPaintSettings& settings,
                                            const std::vector<PreviewPlacement>& plannedPlacements,
-                                           const uint32_t fillColor) {
+                                           const uint32_t fillColor,
+                                           const bool followCursor) {
     ClearLayers_();
 
     if (cursorValid) {
@@ -337,11 +339,11 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
 
     EmitScreenLine_(vertices, kPathWidthPx, kLineColor, false, kLayerShape);
 
-    if (!vertices.empty() && cursorValid) {
+    if (!vertices.empty() && cursorValid && followCursor) {
         EmitScreenLine_({vertices.back(), cursorPos}, kPathWidthPx, kCursorColor, false, kLayerShape);
     }
 
-    if (vertices.size() >= 2 && cursorValid) {
+    if (vertices.size() >= 2 && cursorValid && followCursor) {
         EmitScreenLine_({cursorPos, vertices.front()}, kCursorCloseWidthPx, kCursorColor, false, kLayerShape);
     }
 
@@ -356,7 +358,7 @@ void PaintOverlay::BuildPolygonPreview(const std::vector<cS3DVector3>& vertices,
         }
     }
 
-    for (const auto& vertex : vertices) {
+    for (const auto& vertex : followCursor ? vertices : std::vector<cS3DVector3>{}) {
         EmitMarker_(vertex, kMarkerSize, kMarkerColor, kLayerMarkers);
     }
 

@@ -245,7 +245,8 @@ void DecalPainterInputControl::AdjustRotationFaSnap_(const int direction) {
     int nearestIdx = 0;
     float bestDiff = 360.0f;
     for (int i = 0; i < static_cast<int>(fa_angles::kFullCircleDegrees.size()); ++i) {
-        const float diff = std::fabs(fa_angles::kFullCircleDegrees[i] - currentDegrees);
+        const float rawDiff = std::fabs(fa_angles::kFullCircleDegrees[i] - currentDegrees);
+        const float diff = std::min(rawDiff, 360.0f - rawDiff);
         if (diff < bestDiff) {
             bestDiff = diff;
             nearestIdx = i;

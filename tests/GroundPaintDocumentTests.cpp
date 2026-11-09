@@ -1,5 +1,6 @@
 // Checks for the ground paint document against a fake terrain paint service: run
 // GroundPaintDocumentTests.exe, it prints "ok" or aborts.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -188,6 +189,18 @@ int main() {
     CHECK(service.creates == createsBefore + 1 && service.paints.contains(loaded.Find(b)->paintId));
     CHECK(loaded.Add(Square(200, 200, 4)) > b);  // ids continue after the loaded ones
     CHECK(!loaded.Load(std::vector<char>{'x', 'y'}));
+    {
+        // A save from a newer version, with a kind of shape this one does not know, cannot be read.
+        std::vector<char> newer = saved;
+        constexpr char kKnown[] = {'A', 'r', 'e', 'a'};
+        int renamed = 0;
+        for (auto it = newer.begin(); (it = std::search(it, newer.end(), kKnown, kKnown + 4)) != newer.end(); ++renamed) {
+            it[3] = 'x';
+        }
+        CHECK(renamed > 0);
+        GroundPaintDocument older(kWhite);
+        CHECK(!older.Load(newer) && older.Objects().empty());
+    }
 
     // Duplicate: copies on top, moved, selected.
     GroundPaintDocument edits(kWhite);
@@ -388,6 +401,61 @@ int main() {
         CHECK(!along.closed && along.points.size() <= 32);
         CHECK(std::hypot(along.points.front().x, along.points.front().z) < 0.01f);
         CHECK(std::hypot(along.points.back().x - 50, along.points.back().z - 50) < 0.01f);
+    }
+
+    // Pen shapes: handles and corner radii stay with their points, move with the shape and are saved.
+    {
+        PaintObject pen = Square(0, 0, 10);
+        pen.shape.points = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        pen.shape.handles = {{0, 2}, {}, {}, {}};
+        CHECK(std::abs(AreaOf(BuildArea(pen)) - 100.0) > 0.5);
+
+        InsertShapePoint(pen.shape, 1, {5, 0});
+        CHECK(pen.shape.points.size() == 5 && pen.shape.handles.size() == 5 && pen.shape.handles[1] == Vec2{});
+        EraseShapePoint(pen.shape, 1);
+        CHECK(pen.shape.points.size() == 4 && pen.shape.handles.size() == 4 && (pen.shape.handles[0] == Vec2{0, 2}));
+
+        PaintObject moved = pen;
+        moved.shape.pointRadii = {-1.0f, 1.0f, -1.0f, -1.0f};
+        TransformObject(moved, {.scale = 2.0f, .offset = {3.0f, 0.0f}});
+        CHECK((moved.shape.handles[0] == Vec2{0, 4}));
+        CHECK(moved.shape.pointRadii[0] < 0.0f && moved.shape.pointRadii[1] == 2.0f);
+
+        const std::vector<Vec2> row{{0, 0}, {10, 0}, {20, 0}};
+        CHECK(std::abs(SmoothHandle(row, 1, false).x - 20.0f / 6.0f) < 0.001f);
+        CHECK(std::abs(SmoothHandle(row, 0, false).x - 10.0f / 3.0f) < 0.001f);
+        CHECK(std::abs(SmoothHandle(row, 0, true).x - (10.0f - 20.0f) / 6.0f) < 0.001f);
+
+        // Splitting a point's handles keeps the others mirrored, and joining them works.
+        {
+            PaintObject split = pen;
+            SetPointHandles(split.shape, 1, {2, 0}, {0, 3});
+            CHECK(split.shape.inHandles.size() == 4 && (InHandleOf(split.shape, 0) == Vec2{0, -2}));
+            CHECK((split.shape.handles[1] == Vec2{2, 0}) && (InHandleOf(split.shape, 1) == Vec2{0, 3}));
+            const double before = AreaOf(BuildArea(split));
+            InsertShapePoint(split.shape, 1, {5, 0});
+            CHECK(split.shape.inHandles.size() == 5);
+            EraseShapePoint(split.shape, 1);
+            CHECK((InHandleOf(split.shape, 1) == Vec2{0, 3}));
+            PaintObject doubled = split;
+            TransformObject(doubled, {.scale = 2.0f});
+            CHECK((InHandleOf(doubled.shape, 1) == Vec2{0, 6}));
+            CHECK(std::abs(AreaOf(BuildArea(split)) - before) < 0.001);
+            MirrorObject(split, {}, 0.0f);
+            CHECK((InHandleOf(split.shape, 1) == Vec2{0, -3}));
+            GroundPaintDocument splitDoc(kWhite);
+            const uint32_t splitId = splitDoc.Add(doubled);
+            GroundPaintDocument splitLoaded(kWhite);
+            CHECK(splitLoaded.Load(splitDoc.Save()) && splitLoaded.Find(splitId)->shape.inHandles == doubled.shape.inHandles);
+        }
+
+        GroundPaintDocument penDoc(kWhite);
+        const uint32_t id = penDoc.Add(moved);
+        CHECK(id != 0);
+        GroundPaintDocument penLoaded(kWhite);
+        CHECK(penLoaded.Load(penDoc.Save()));
+        CHECK(penLoaded.Find(id)->shape.handles == moved.shape.handles);
+        CHECK(penLoaded.Find(id)->shape.pointRadii == moved.shape.pointRadii);
     }
 
     std::puts("ok");

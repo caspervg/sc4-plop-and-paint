@@ -124,6 +124,11 @@ public:
             }
             loaded += 1;
         }
+
+        // What was not reached is dropped. Whatever is still on screen is requested again next
+        // frame, and what was only scrolled past is gone, so a fast scroll leaves no backlog.
+        loadQueue_.clear();
+        loading_.clear();
     }
 
     void OnDeviceReset() {

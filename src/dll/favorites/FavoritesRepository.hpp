@@ -24,6 +24,17 @@ public:
     [[nodiscard]] const TabViewSettings* GetTabView(std::string_view tab) const;
     void SetTabView(TabViewSettings settings);
 
+    // Family favorites: built-in families by their ID, own families by their persistent ID.
+    [[nodiscard]] static uint64_t FamilyFavoriteKey(const bool builtIn, const uint64_t id) {
+        return (builtIn ? uint64_t{1} << 63 : uint64_t{0}) | id;
+    }
+    // Flora collections are starred the same way, in a range of keys of their own.
+    [[nodiscard]] static uint64_t FloraCollectionFavoriteKey(const uint32_t type, const uint32_t id) {
+        return uint64_t{1} << 62 | static_cast<uint64_t>(type) << 32 | id;
+    }
+    [[nodiscard]] bool IsFamilyFavorite(uint64_t key) const { return favoriteFamilyKeys_.contains(key); }
+    void ToggleFamilyFavorite(uint64_t key);
+
     // Lot favorites
     [[nodiscard]] bool IsLotFavorite(uint32_t lotInstanceId) const;
     [[nodiscard]] const std::unordered_set<uint32_t>& GetFavoriteLotIds() const;
@@ -66,6 +77,13 @@ public:
     void AddPropToNewUserFamily(uint32_t propID, const std::string& baseName);
     bool AddPropFamilyToNewUserFamily(uint32_t familyID);
 
+    // Named sets of ground textures and colours. Change them in place, then call Save.
+    [[nodiscard]] std::vector<PaintPalette>& GetPaintPalettes() { return paintPalettes_; }
+
+    // The grid last chosen per kind of painter, kept between sessions. SetGridChoice saves.
+    [[nodiscard]] const PaintGridChoices& GetGridChoices() const { return gridChoices_; }
+    void SetGridChoice(PaintGridChoice PaintGridChoices::* kind, const PaintGridChoice& choice);
+
     // User-created seasonal sets
     [[nodiscard]] const std::vector<SeasonalSet>& GetUserSeasonalSets() const;
     bool CreateUserSeasonalSet(const std::string& name);
@@ -85,9 +103,12 @@ private:
     std::unordered_set<uint64_t> favoritePropIds_;
     std::unordered_set<uint64_t> favoriteFloraIds_;
     std::unordered_set<uint32_t> favoriteDecalIds_;
+    std::unordered_set<uint64_t> favoriteFamilyKeys_;
     std::unordered_map<uint32_t, std::vector<NamedDecalPreset>> favoriteDecalPresets_;
     std::vector<PropFamily> userFamilies_;
     std::vector<SeasonalSet> userSeasonalSets_;
+    std::vector<PaintPalette> paintPalettes_;
+    PaintGridChoices gridChoices_{};
     std::vector<RecentPaintEntryData> recentPaintsCache_;
     std::vector<TabViewSettings> tabViews_;
     size_t activeUserFamilyIndex_{0};

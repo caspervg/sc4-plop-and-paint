@@ -48,9 +48,12 @@ void FavoritesRepository::Load() {
     favoritePropIds_.clear();
     favoriteFloraIds_.clear();
     favoriteDecalIds_.clear();
+    favoriteFamilyKeys_.clear();
     favoriteDecalPresets_.clear();
     userFamilies_.clear();
     userSeasonalSets_.clear();
+    paintPalettes_.clear();
+    gridChoices_ = {};
     recentPaintsCache_.clear();
     tabViews_.clear();
     activeUserFamilyIndex_ = 0;
@@ -123,6 +126,23 @@ void FavoritesRepository::Load() {
             if (result->tabViews) {
                 tabViews_ = *result->tabViews;
             }
+            if (result->paintPalettes) {
+                paintPalettes_ = *result->paintPalettes;
+            }
+            if (result->familyFavorites) {
+                for (const auto& hexId : result->familyFavorites->items) {
+                    favoriteFamilyKeys_.insert(hexId.value());
+                }
+            }
+            if (result->gridChoices) {
+                gridChoices_ = *result->gridChoices;
+            }
+            else if (result->gridSteps) {
+                gridChoices_.props.step = result->gridSteps->props;
+                gridChoices_.flora.step = result->gridSteps->flora;
+                gridChoices_.decals.step = result->gridSteps->decals;
+                gridChoices_.ground.step = result->gridSteps->ground;
+            }
 
             LOG_INFO("Loaded {} favorite lots, {} favorite decals, {} user families from {}",
                      favoriteLotIds_.size(), favoriteDecalIds_.size(), userFamilies_.size(), cborPath.string());
@@ -142,7 +162,7 @@ void FavoritesRepository::Save() const {
         const auto cborPath = pluginsPath / "favorites.cbor";
 
         AllFavorites allFavorites;
-        allFavorites.version = 7;
+        allFavorites.version = 11;
 
         for (const uint32_t id : favoriteLotIds_) {
             allFavorites.lots.items.emplace_back(id);
@@ -196,6 +216,16 @@ void FavoritesRepository::Save() const {
             ? std::nullopt
             : std::make_optional(recentPaintsCache_);
         allFavorites.tabViews = tabViews_.empty() ? std::nullopt : std::make_optional(tabViews_);
+        allFavorites.paintPalettes = paintPalettes_.empty() ? std::nullopt : std::make_optional(paintPalettes_);
+        allFavorites.gridChoices = gridChoices_;
+        if (!favoriteFamilyKeys_.empty()) {
+            TabFavorites familyFavorites;
+            familyFavorites.items.reserve(favoriteFamilyKeys_.size());
+            for (const uint64_t key : favoriteFamilyKeys_) {
+                familyFavorites.items.emplace_back(key);
+            }
+            allFavorites.familyFavorites = std::move(familyFavorites);
+        }
 
         if (const auto saveResult = rfl::cbor::save(cborPath.string(), allFavorites)) {
             LOG_INFO("Saved {} favorite lots, {} favorite decals, {} user families to {}",
@@ -207,6 +237,13 @@ void FavoritesRepository::Save() const {
     }
     catch (const std::exception& e) {
         LOG_ERROR("Error saving favorites: {}", e.what());
+    }
+}
+
+void FavoritesRepository::SetGridChoice(PaintGridChoice PaintGridChoices::* const kind, const PaintGridChoice& choice) {
+    if (!(gridChoices_.*kind == choice)) {
+        gridChoices_.*kind = choice;
+        Save();
     }
 }
 
@@ -240,6 +277,13 @@ bool FavoritesRepository::IsLotFavorite(const uint32_t lotInstanceId) const {
 
 const std::unordered_set<uint32_t>& FavoritesRepository::GetFavoriteLotIds() const {
     return favoriteLotIds_;
+}
+
+void FavoritesRepository::ToggleFamilyFavorite(const uint64_t key) {
+    if (!favoriteFamilyKeys_.erase(key)) {
+        favoriteFamilyKeys_.insert(key);
+    }
+    Save();
 }
 
 void FavoritesRepository::ToggleLotFavorite(const uint32_t lotInstanceId) {
@@ -473,6 +517,9 @@ bool FavoritesRepository::CreateUserFamily(const std::string& name) {
 bool FavoritesRepository::DeleteUserFamily(const size_t index) {
     if (index >= userFamilies_.size()) {
         return false;
+    }
+    if (userFamilies_[index].persistentId.has_value()) {
+        favoriteFamilyKeys_.erase(FamilyFavoriteKey(false, userFamilies_[index].persistentId->value()));
     }
     userFamilies_.erase(userFamilies_.begin() + static_cast<std::ptrdiff_t>(index));
     if (userFamilies_.empty()) {

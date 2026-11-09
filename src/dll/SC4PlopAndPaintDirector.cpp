@@ -278,6 +278,11 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         propRepository_->Load();
         floraRepository_->Load();
         favoritesRepository_->Load();
+        // Decals have their own defaults, so only what was chosen replaces them.
+        const PaintGridChoice& decalGrid = favoritesRepository_->GetGridChoices().decals;
+        lastDecalPlacementSettings_.gridStepMeters = decalGrid.step.value_or(lastDecalPlacementSettings_.gridStepMeters);
+        lastDecalPlacementSettings_.showGrid = decalGrid.show.value_or(lastDecalPlacementSettings_.showGrid);
+        lastDecalPlacementSettings_.snapPointsToGrid = decalGrid.snap.value_or(lastDecalPlacementSettings_.snapPointsToGrid);
         propRepository_->ApplyUserSeasonalSets(favoritesRepository_->GetUserSeasonalSets());
 
         cIGZPersistResourceManagerPtr pRMForPanel;
@@ -551,11 +556,28 @@ bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     return true;
 }
 
-void SC4PlopAndPaintDirector::TriggerLotPlop(uint32_t lotInstanceId) const {
+bool SC4PlopAndPaintDirector::IsLotPlopping() {
+    const cISC4ViewInputControl* current = pView3D_ ? pView3D_->GetCurrentViewInputControl() : nullptr;
+    if (plopWatchFrames_ > 0) {
+        --plopWatchFrames_;
+        if (current != controlBeforePlop_) {
+            plopControl_ = current;
+            plopWatchFrames_ = 0;
+        }
+    }
+    return current != nullptr && current == plopControl_;
+}
+
+void SC4PlopAndPaintDirector::TriggerLotPlop(uint32_t lotInstanceId) {
     if (!pView3D_) {
         LOG_WARN("Cannot plop: View3D not available (city not loaded?)");
         return;
     }
+
+    // The game may take a moment to change tools.
+    constexpr int kPlopWatchFrames = 10;
+    controlBeforePlop_ = pView3D_->GetCurrentViewInputControl();
+    plopWatchFrames_ = kPlopWatchFrames;
 
     cIGZCommandServerPtr pCmdServer;
     if (!pCmdServer) {
@@ -641,10 +663,12 @@ bool SC4PlopAndPaintDirector::StartPropPainting(uint32_t propId, const PropPaint
         ActivateRecentPaint(index);
     }) : std::function<void(size_t)>());
     propPainterControl_->SetGroundShapeLookup(MakeGroundShapeLookup_());
+    propPainterControl_->SetHasPaintedGround([this]() { return HasPaintedGround(); });
     propPainterControl_->SetCity(pCity_);
     propPainterControl_->SetWindow(pView3D_->AsIGZWin());
     propPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     propPainterControl_->SetPropRepository(propRepository_.get());
+    propPainterControl_->SetOnGridChanged([this]() { SaveGridChoice(&PaintGridChoices::props, propPainterControl_->GetSettings()); });
     propPainterControl_->SetOnCancel([this]() {
         if (pView3D_ && propPainterControl_ &&
             pView3D_->GetCurrentViewInputControl() == propPainterControl_) {
@@ -693,7 +717,7 @@ bool SC4PlopAndPaintDirector::SwitchPropPaintingTarget(uint32_t propId, const st
 
 void SC4PlopAndPaintDirector::StopPropPainting() {
     if (propPainterControl_) {
-        propPainterControl_->CancelAllPlacements();
+        propPainterControl_->FinishPlacements();
     }
 
     if (pView3D_ && propPainterControl_) {
@@ -709,6 +733,18 @@ void SC4PlopAndPaintDirector::StopPropPainting() {
 
 bool SC4PlopAndPaintDirector::IsPropPainting() const {
     return propPainting_;
+}
+
+bool SC4PlopAndPaintDirector::SwitchFloraPaintingTarget(const uint32_t floraTypeId, const std::string& name,
+                                                        std::vector<FamilyEntry> palette,
+                                                        const std::optional<RecentPaintSource>& source) {
+    if (!floraPlacerControl_ || !IsFloraPainting() || !pView3D_ ||
+        pView3D_->GetCurrentViewInputControl() != floraPlacerControl_) {
+        return false;
+    }
+    PropPaintSettings settings = floraPlacerControl_->GetSettings();
+    settings.activePalette = std::move(palette);
+    return StartFloraPainting(floraTypeId, settings, name, source);
 }
 
 bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
@@ -754,10 +790,12 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
         ActivateRecentPaint(index);
     }) : std::function<void(size_t)>());
     floraPlacerControl_->SetGroundShapeLookup(MakeGroundShapeLookup_());
+    floraPlacerControl_->SetHasPaintedGround([this]() { return HasPaintedGround(); });
     floraPlacerControl_->SetCity(pCity_);
     floraPlacerControl_->SetWindow(pView3D_->AsIGZWin());
     floraPlacerControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     floraPlacerControl_->SetFloraRepository(floraRepository_.get());
+    floraPlacerControl_->SetOnGridChanged([this]() { SaveGridChoice(&PaintGridChoices::flora, floraPlacerControl_->GetSettings()); });
     floraPlacerControl_->SetOnCancel([this]() {
         if (pView3D_ && floraPlacerControl_ &&
             pView3D_->GetCurrentViewInputControl() == floraPlacerControl_) {
@@ -792,7 +830,7 @@ bool SC4PlopAndPaintDirector::StartFloraPainting(const uint32_t floraTypeId,
 
 void SC4PlopAndPaintDirector::StopFloraPainting() {
     if (floraPlacerControl_) {
-        floraPlacerControl_->CancelAllPlacements();
+        floraPlacerControl_->FinishPlacements();
     }
 
     if (pView3D_ && floraPlacerControl_) {
@@ -921,6 +959,7 @@ bool SC4PlopAndPaintDirector::StartDecalPainting(const uint32_t instanceId,
     decalPainterControl_->SetWindow(pView3D_->AsIGZWin());
     decalPainterControl_->SetWorldDrawService(GetOverlayWorldDrawService_());
     decalPainterControl_->SetDecalService(terrainDecalService_);
+    decalPainterControl_->SetOnGridChanged([this]() { SaveGridChoice(&PaintGridChoices::decals, decalPainterControl_->GetSettings()); });
     decalPainterControl_->SetOnCancel([this]() {
         if (pView3D_ && decalPainterControl_ &&
             pView3D_->GetCurrentViewInputControl() == decalPainterControl_) {
@@ -955,7 +994,7 @@ void SC4PlopAndPaintDirector::StopDecalPainting() {
     RememberDecalPlacementSettings_();
 
     if (decalPainterControl_) {
-        decalPainterControl_->CancelAllPlacements();
+        decalPainterControl_->FinishPlacements();
     }
 
     if (pView3D_ && decalPainterControl_) {
@@ -971,6 +1010,10 @@ void SC4PlopAndPaintDirector::StopDecalPainting() {
 
 bool SC4PlopAndPaintDirector::IsDecalPainting() const {
     return decalPainting_;
+}
+
+const TerrainDecalState* SC4PlopAndPaintDirector::GetLastDecalPaintState() const {
+    return decalPainterControl_ ? &decalPainterControl_->GetState() : nullptr;
 }
 
 bool SC4PlopAndPaintDirector::StartDecalStripping() {
@@ -1333,6 +1376,7 @@ bool SC4PlopAndPaintDirector::ActivateRecentPaint(const size_t index) {
     PropPaintSettings settings = activeControl->GetSettings();
     settings.activePalette = entry.palette;
     settings.randomSeed = 0;
+    ApplyGridChoice(entry.kind == RecentPaintEntry::Kind::Prop ? &PaintGridChoices::props : &PaintGridChoices::flora, settings);
 
     const RecentPaintSource source{
         .sourceKind = entry.sourceKind,
@@ -1366,6 +1410,40 @@ bool SC4PlopAndPaintDirector::GetDefaultSnapPlacementsToGrid() const noexcept {
 
 float SC4PlopAndPaintDirector::GetDefaultGridStepMeters() const noexcept {
     return defaultGridStepMeters_;
+}
+
+bool SC4PlopAndPaintDirector::HasPaintedGround() const {
+    return groundDocument_ && !groundDocument_->Objects().empty();
+}
+
+PaintGridChoice SC4PlopAndPaintDirector::GetGridChoice(PaintGridChoice PaintGridChoices::* const kind) const {
+    PaintGridChoice choice = favoritesRepository_ ? favoritesRepository_->GetGridChoices().*kind : PaintGridChoice{};
+    choice.step = choice.step.value_or(defaultGridStepMeters_);
+    choice.show = choice.show.value_or(defaultShowGridOverlay_);
+    choice.snap = choice.snap.value_or(defaultSnapPointsToGrid_);
+    choice.snapPlacements = choice.snapPlacements.value_or(defaultSnapPlacementsToGrid_);
+    return choice;
+}
+
+void SC4PlopAndPaintDirector::ApplyGridChoice(PaintGridChoice PaintGridChoices::* const kind, PropPaintSettings& settings) const {
+    const PaintGridChoice choice = GetGridChoice(kind);
+    settings.gridStepMeters = *choice.step;
+    settings.showGrid = *choice.show;
+    settings.snapPointsToGrid = *choice.snap;
+    settings.snapPlacementsToGrid = *choice.snap && *choice.snapPlacements;
+}
+
+void SC4PlopAndPaintDirector::SaveGridChoice(PaintGridChoice PaintGridChoices::* const kind, const PaintGridChoice& choice) {
+    if (favoritesRepository_) {
+        favoritesRepository_->SetGridChoice(kind, choice);
+    }
+}
+
+void SC4PlopAndPaintDirector::SaveGridChoice(PaintGridChoice PaintGridChoices::* const kind, const PropPaintSettings& settings) {
+    SaveGridChoice(kind, PaintGridChoice{.step = settings.gridStepMeters,
+                                         .show = settings.showGrid,
+                                         .snap = settings.snapPointsToGrid,
+                                         .snapPlacements = settings.snapPlacementsToGrid});
 }
 
 PreviewMode SC4PlopAndPaintDirector::GetDefaultPropPreviewMode() const noexcept {
@@ -1724,6 +1802,7 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     }
     if (groundDocument_) {
         groundDocument_->Reset();
+        unreadableGroundPaint_.clear();
     }
     pCity_ = nullptr;
     if (pView3D_) {
@@ -1841,6 +1920,12 @@ bool SC4PlopAndPaintDirector::StartGroundPainting(const Ground::ToolSettings& se
     groundPainterControl_->SetDocument(groundDocument_.get());
     groundPainterControl_->SetSettings(settings);
     groundPainterControl_->SetOnCancel([this]() { StopGroundPainting(); });
+    groundPainterControl_->SetOnGridChanged([this]() {
+        const Ground::ToolSettings& current = groundPainterControl_->Settings();
+        SaveGridChoice(&PaintGridChoices::ground, PaintGridChoice{.step = current.gridStepMeters,
+                                                                  .show = current.showGrid,
+                                                                  .snap = current.snapPointsToGrid});
+    });
 
     if (!RaiseToTop_(groundPainterControl_, groundPainterControl_->IsActive()) &&
         !pView3D_->SetCurrentViewInputControl(
@@ -1929,7 +2014,9 @@ bool SC4PlopAndPaintDirector::PlantOnGround(const uint32_t objectId, const bool 
     BasePainterInputControl* const control =
         prop ? static_cast<BasePainterInputControl*>(propPainterControl_) : floraPlacerControl_;
     PropPaintSettings settings = control ? control->GetSettings() : PropPaintSettings{};
-    settings.mode = along ? PaintMode::Line : PaintMode::Polygon;
+    SetPaintMode(settings, along ? PaintMode::Line : PaintMode::Polygon);
+    settings.pickFromGround = false;
+    ApplyGridChoice(prop ? &PaintGridChoices::props : &PaintGridChoices::flora, settings);
     settings.activePalette = entry.palette;
     settings.randomSeed = 0;
     const RecentPaintSource source{.sourceKind = entry.sourceKind, .sourceId = entry.sourceId};
@@ -1957,6 +2044,7 @@ void SC4PlopAndPaintDirector::LoadCity_(const cIGZMessage2Standard* const pStand
         return;
     }
     groundDocument_->Reset();
+    unreadableGroundPaint_.clear();
     cISC4DBSegment* const segment = SaveSegment(pStandardMsg);
     if (!segment) {
         return;
@@ -1966,7 +2054,8 @@ void SC4PlopAndPaintDirector::LoadCity_(const cIGZMessage2Standard* const pStand
             LOG_INFO("Loaded {} ground paint objects", groundDocument_->Objects().size());
         }
         else {
-            LOG_WARN("Ground paint: could not read the objects in the save");
+            LOG_WARN("Ground paint: could not read the objects in the save. They are kept unless you paint in this city.");
+            unreadableGroundPaint_ = *payload;
         }
     }
     segment->Release();
@@ -1980,7 +2069,7 @@ void SC4PlopAndPaintDirector::SaveCity_(const cIGZMessage2Standard* const pStand
     if (!segment) {
         return;
     }
-    const std::vector<char> payload = groundDocument_->Objects().empty() ? std::vector<char>{} : groundDocument_->Save();
+    const std::vector<char> payload = groundDocument_->Objects().empty() ? unreadableGroundPaint_ : groundDocument_->Save();
     Ground::SaveRecord::Write(*segment, payload);
     segment->Release();
 }

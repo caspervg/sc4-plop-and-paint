@@ -27,6 +27,8 @@ private:
     ImGuiTexture LoadBuildingTexture_(uint64_t buildingKey);
 
     void RenderFilterUI_();
+    // How many are shown, how many filters are on, and the way to clear them.
+    void RenderResultLine_();
     void RenderBuildingsTable_(float tableHeight);
     void RenderLotsDetailTable_(float tableHeight);
     void RenderBuildingRow_(const Building& building, bool isSelected);
@@ -36,7 +38,9 @@ private:
     void RenderFavButton_(uint32_t lotInstanceId) const;
     void HandlePickedLot_(const PickedLot& picked);
 
+    // Filters and sorts the list again only when something it depends on has changed.
     void ApplyFilters_();
+    void SortBuildings_();
     [[nodiscard]] const std::vector<BuildingStyleEntry>& GetBuildingStyles_() const;
     [[nodiscard]] const BuildingStyleContext& GetBuildingStyleContext_() const;
 
@@ -48,6 +52,13 @@ private:
     std::vector<const Building*> filteredBuildings_;
 
     LotFilterHelper filter_;
+    std::unordered_map<const Lot*, std::string> lotSearchTexts_{};
+    TextSearch::Suggester suggester_{};
+    // What the list was last made from.
+    LotFilterHelper appliedFilter_;
+    BuildingStyleContext appliedContext_;
+    size_t appliedFavoriteCount_ = 0;
+    size_t appliedBuildingCount_ = SIZE_MAX;
     BuildingStyleService* buildingStyleService_ = nullptr;
     // The cache was built before the building style data existed.
     bool cacheNeedsRebuild_ = false;

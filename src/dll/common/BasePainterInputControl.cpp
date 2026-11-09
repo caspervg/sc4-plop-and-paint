@@ -121,6 +121,25 @@ bool BasePainterInputControl::OnMouseDownX(const int32_t /*x*/, const int32_t /*
     return true;
 }
 
+std::optional<PaintStop> BasePainterInputControl::NextStop() const {
+    if (sketchFromGround_) {
+        return std::nullopt;
+    }
+    return NextPaintStop(settings_.mode, settings_.pickFromGround, HasPendingSketch(),
+                         hasPaintedGround_ && hasPaintedGround_());
+}
+
+void BasePainterInputControl::CycleMode_() {
+    const auto stop = NextStop();
+    if (!stop) {
+        return;
+    }
+    SetPaintMode(settings_, stop->mode);
+    settings_.pickFromGround = stop->fromGround;
+    polygonPreviewDirty_ = true;
+    TransitionTo_(ActiveStateForMode_(stop->mode), "M key");
+}
+
 void BasePainterInputControl::Turn_() {
     settings_.rotation = (settings_.rotation + 1) & 3;
     if (state_ == ControlState::ActivePolygon) {
@@ -154,6 +173,7 @@ void BasePainterInputControl::SetTypeToPaint(const uint32_t typeID, const PropPa
     const bool targetChanged = typeToPaint_ != typeID;
 
     typeToPaint_ = typeID;
+    paintName_ = name;
     settings_ = settings;
     if (SupportsVerticalAdjustment_()) {
         settings_.deltaYMeters = ClampVerticalOffset(settings_.deltaYMeters);
@@ -165,6 +185,9 @@ void BasePainterInputControl::SetTypeToPaint(const uint32_t typeID, const PropPa
         settings_.sketchHeightMode = SketchHeightMode::Terrain;
     }
     settings_.densityVariation = std::clamp(settings_.densityVariation, 0.0f, 1.0f);
+    settings_.edgeMarginMeters = std::clamp(settings_.edgeMarginMeters, 0.0f, 50.0f);
+    settings_.rowSpacingMeters = std::clamp(settings_.rowSpacingMeters, 0.5f, 50.0f);
+    settings_.rowStepMeters = std::clamp(settings_.rowStepMeters, 0.25f, 50.0f);
     if (settings_.randomSeed == 0) {
         settings_.randomSeed = static_cast<uint32_t>(GetTickCount64() ^ static_cast<uint64_t>(typeToPaint_));
     }
@@ -240,6 +263,7 @@ bool BasePainterInputControl::UseGroundShape(const GroundShape& shape) {
         fillMask_ = shape.mask;
         fillMaskBounds_ = Ground::BoundsOf(fillMask_);
     }
+    sketchFromGround_ = true;
     polygonPreviewDirty_ = true;
     RebuildPreviewOverlay_();
     LOG_INFO("Took a sketch of {} points from painted ground", collectedPoints_.size());
@@ -253,6 +277,7 @@ bool BasePainterInputControl::OutsideFillMask_(const cS3DVector3& position) cons
 
 void BasePainterInputControl::DropFillMask_() {
     fillMask_.clear();
+    sketchFromGround_ = false;
 }
 
 bool BasePainterInputControl::HasPendingSketch() const {
@@ -494,9 +519,23 @@ bool BasePainterInputControl::HandleActiveMouseDownL_(const int32_t x, const int
         if (!UpdateCursorWorldFromScreen_(x, z)) {
             return false;
         }
+        if (settings_.pickFromGround) {
+            // A click takes the painted ground under it. A click on bare ground does nothing.
+            if (groundShapeLookup_) {
+                if (const auto shape = groundShapeLookup_({currentCursorWorld_.fX, currentCursorWorld_.fZ},
+                                                          state_ == ControlState::ActiveLine)) {
+                    UseGroundShape(*shape);
+                }
+            }
+            return true;
+        }
         {
             const cS3DVector3 terrainPos = currentCursorWorld_;
             const float captureOffset = ShouldUseCustomSketchHeights_() ? settings_.sketchCaptureOffsetMeters : 0.0f;
+            // A click after a shape from painted ground starts a new sketch: it does not bend the shape.
+            if (sketchFromGround_) {
+                ClearCollectedPoints_();
+            }
             collectedPoints_.push_back({
                 terrainPos,
                 terrainPos.fY + captureOffset,
@@ -524,13 +563,18 @@ bool BasePainterInputControl::HandleActiveMouseMove_(const int32_t x, const int3
     return true;
 }
 
+void BasePainterInputControl::FinishPlacements() {
+    CommitPlacements();
+    ClearCollectedPoints_();
+}
+
 bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const uint32_t modifiers) {
     if (vkCode == VK_ESCAPE) {
         if (HasPendingSketch()) {
             ClearCollectedPoints_();
             return true;
         }
-        CancelAllPlacements();
+        FinishPlacements();
         cancelPending_ = true;
         return true;
     }
@@ -547,6 +591,11 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
 
     if (vkCode == 'R') {
         Turn_();
+        return true;
+    }
+
+    if (vkCode == 'M' && (modifiers & (MOD_CONTROL | MOD_SHIFT)) == 0) {
+        CycleMode_();
         return true;
     }
 
@@ -577,8 +626,14 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
 
     if (vkCode == VK_BACK && (state_ == ControlState::ActiveLine || state_ == ControlState::ActivePolygon)) {
         if (!collectedPoints_.empty()) {
-            collectedPoints_.pop_back();
-            DropFillMask_();
+            // A shape from painted ground goes as a whole: it has no points of its own to take back.
+            if (sketchFromGround_) {
+                ClearCollectedPoints_();
+            }
+            else {
+                collectedPoints_.pop_back();
+                DropFillMask_();
+            }
             if (state_ == ControlState::ActivePolygon) {
                 polygonPreviewDirty_ = true;
             }
@@ -609,6 +664,9 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
 
     if (vkCode == 'G') {
         settings_.showGrid = !settings_.showGrid;
+        if (onGridChanged_) {
+            onGridChanged_();
+        }
         SyncPreviewForState_();
         return true;
     }
@@ -618,6 +676,9 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         settings_.snapPointsToGrid = !settings_.snapPointsToGrid;
         if (!settings_.snapPointsToGrid) {
             settings_.snapPlacementsToGrid = false;
+        }
+        if (onGridChanged_) {
+            onGridChanged_();
         }
         SyncPreviewForState_();
         return true;
@@ -679,6 +740,9 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         }
 
         settings_.gridStepMeters = kGridSteps[currentIdx];
+        if (onGridChanged_) {
+            onGridChanged_();
+        }
         SyncPreviewForState_();
         return true;
     }
@@ -691,7 +755,11 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
             settings_.spacingMeters = std::clamp(settings_.spacingMeters + lineDelta, 0.5f, 50.0f);
         }
         else if (state_ == ControlState::ActivePolygon) {
-            if (controlHeld) {
+            if (settings_.polygonFill == PolygonFillStyle::Rows) {
+                float& value = controlHeld ? settings_.rowStepMeters : settings_.rowSpacingMeters;
+                value = std::clamp(value + lineDelta, controlHeld ? 0.25f : 0.5f, 50.0f);
+            }
+            else if (controlHeld) {
                 const float variationDelta = (vkCode == VK_OEM_PLUS) ? 0.05f : -0.05f;
                 settings_.densityVariation = std::clamp(settings_.densityVariation + variationDelta, 0.0f, 1.0f);
             }
@@ -1011,6 +1079,45 @@ void BasePainterInputControl::ExecuteLinePlacement_() {
     ClearCollectedPoints_();
 }
 
+std::vector<PlannedPaint> BasePainterInputControl::ComputePolygonPlacements_(const std::vector<cS3DVector3>& vertices,
+                                                                             WeightedPicker* const picker,
+                                                                             const uint32_t singleTypeID,
+                                                                             const size_t maxPlacements) const {
+    const PolygonHeightSamplingMode heights = ShouldUseCustomSketchHeights_()
+                                                  ? PolygonHeightSamplingMode::InterpolateVertices
+                                                  : PolygonHeightSamplingMode::Terrain;
+    if (settings_.polygonFill == PolygonFillStyle::Rows) {
+        return PolygonPlacer::ComputeRowPlacements(
+            vertices,
+            {.spacingMeters = settings_.rowSpacingMeters,
+             .stepMeters = settings_.rowStepMeters,
+             .angleDegrees = settings_.rowAngleDegrees,
+             .alignToRows = settings_.alignToPath},
+            settings_.edgeMarginMeters,
+            settings_.rotation,
+            settings_.randomRotation,
+            GetTerrain_(),
+            settings_.randomSeed,
+            heights,
+            picker,
+            singleTypeID,
+            maxPlacements);
+    }
+    return PolygonPlacer::ComputePlacements(
+        vertices,
+        std::max(settings_.densityPer100Sqm, 0.1f),
+        settings_.densityVariation,
+        settings_.rotation,
+        settings_.randomRotation,
+        GetTerrain_(),
+        settings_.randomSeed,
+        heights,
+        picker,
+        singleTypeID,
+        maxPlacements,
+        settings_.edgeMarginMeters);
+}
+
 void BasePainterInputControl::ExecutePolygonPlacement_() {
     if (collectedPoints_.size() < 3) {
         return;
@@ -1034,19 +1141,7 @@ void BasePainterInputControl::ExecutePolygonPlacement_() {
         singleTypeID = 0;
     }
 
-    const auto placements = PolygonPlacer::ComputePlacements(
-        polygonVertices,
-        std::max(settings_.densityPer100Sqm, 0.1f),
-        settings_.densityVariation,
-        settings_.rotation,
-        settings_.randomRotation,
-        GetTerrain_(),
-        settings_.randomSeed,
-        ShouldUseCustomSketchHeights_()
-            ? PolygonHeightSamplingMode::InterpolateVertices
-            : PolygonHeightSamplingMode::Terrain,
-        picker.get(),
-        singleTypeID);
+    const auto placements = ComputePolygonPlacements_(polygonVertices, picker.get(), singleTypeID, static_cast<size_t>(-1));
 
     BeginUndoGroup_();
     size_t placedCount = 0;
@@ -1128,9 +1223,14 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
     std::vector<cS3DVector3> points = GetResolvedCollectedPoints();
     std::vector<cS3DVector3> terrainAnchors = GetCollectedPointTerrainAnchors();
 
+    if (IsPickingGround()) {
+        ShowGroundUnderCursor_();
+        return;
+    }
+
     std::vector<cS3DVector3> previewPoints = points;
     std::vector<cS3DVector3> previewTerrainAnchors = terrainAnchors;
-    if (cursorValid_) {
+    if (cursorValid_ && !sketchFromGround_) {
         previewPoints.push_back(ResolveCursorSketchPoint_());
         previewTerrainAnchors.push_back(currentCursorWorld_);
     }
@@ -1190,7 +1290,8 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
                                   cursorValid_,
                                   GetTerrain_(),
                                   settings_,
-                                  plannedPlacements);
+                                  plannedPlacements,
+                                  !sketchFromGround_);
         ShowPlannedModels_(showModels ? plannedPlacements : std::vector<PaintOverlay::PreviewPlacement>{});
         return;
     }
@@ -1199,20 +1300,7 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
         cachedPolygonPlacements_.clear();
         cachedPolygonPlacements_.reserve(kMaxPreviewPlacements);
 
-        const auto placements = PolygonPlacer::ComputePlacements(
-            points,
-            std::max(settings_.densityPer100Sqm, 0.1f),
-            settings_.densityVariation,
-            settings_.rotation,
-            settings_.randomRotation,
-            GetTerrain_(),
-            settings_.randomSeed,
-            ShouldUseCustomSketchHeights_()
-                ? PolygonHeightSamplingMode::InterpolateVertices
-                : PolygonHeightSamplingMode::Terrain,
-            picker.get(),
-            singleTypeID,
-            kMaxPreviewPlacements);
+        const auto placements = ComputePolygonPlacements_(points, picker.get(), singleTypeID, kMaxPreviewPlacements);
 
         for (const auto& placement : placements) {
             if (OutsideFillMask_(placement.position)) {
@@ -1254,8 +1342,37 @@ void BasePainterInputControl::RebuildPreviewOverlay_() {
                                  cursorValid_,
                                  GetTerrain_(),
                                  settings_,
-                                 polygonPlacements);
+                                 polygonPlacements,
+                                 PaintOverlay::kPolygonFillColor,
+                                 !sketchFromGround_);
     ShowPlannedModels_(showModels ? polygonPlacements : std::vector<PaintOverlay::PreviewPlacement>{});
+}
+
+void BasePainterInputControl::ShowGroundUnderCursor_() {
+    const bool along = state_ == ControlState::ActiveLine;
+    // ponytail: looks the shape up on every mouse move. Cache it by object if big shapes stutter.
+    const auto shape = cursorValid_ && groundShapeLookup_
+                           ? groundShapeLookup_({currentCursorWorld_.fX, currentCursorWorld_.fZ}, along)
+                           : std::nullopt;
+    std::vector<cS3DVector3> outline;
+    if (shape) {
+        cISTETerrain* const terrain = GetTerrain_();
+        outline.reserve(shape->points.size() + 1);
+        for (const Ground::Vec2 p : shape->points) {
+            outline.emplace_back(p.x, terrain ? SampleStableTerrainHeight(terrain, p.x, p.z) : 0.0f, p.z);
+        }
+        if (along && shape->closed && !outline.empty()) {
+            outline.push_back(outline.front());  // all the way round
+        }
+    }
+    if (along) {
+        overlay_.BuildLinePreview(outline, {}, currentCursorWorld_, currentCursorWorld_, cursorValid_, GetTerrain_(), settings_, {}, false);
+    }
+    else {
+        overlay_.BuildPolygonPreview(outline, {}, currentCursorWorld_, currentCursorWorld_, cursorValid_, GetTerrain_(), settings_, {},
+                                     PaintOverlay::kPolygonFillColor, false);
+    }
+    ShowPlannedModels_({});
 }
 
 size_t BasePainterInputControl::PendingPlacementCount_() const {

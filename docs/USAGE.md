@@ -43,14 +43,14 @@ Filters:
 - `Favorites only`
 - `Width` and `Depth` min/max sliders
 - `Building Styles`: expandable list of styles with `Clear styles`
-- `Occupant Groups`: expandable tree filter with `Clear OGs`
-- `Clear filters`: resets all of the above
+- `Occupant Groups`: expandable tree filter with `Clear occupant groups`
+- `Clear filters`: next to the number of buildings shown, resets all of the above. The line also says how many filters are on, and the `Building Styles` and `Occupant Groups` headers show what is selected while they are closed
 
 Important behavior:
 
 - Filtering is lot-based, but the list shows buildings. A building stays visible if any of its lots matches the current filters.
 - The upper table lists buildings. Single-click selects one.
-- Double-clicking a building row auto-plops only when that building has exactly one lot.
+- Double-clicking a building row auto-plops only when that building has exactly one lot. While you are plopping from this panel, one click does the same
 - The lower table shows the selected building's lots.
 
 Building styles and wall-to-wall buildings:
@@ -64,7 +64,7 @@ Building styles and wall-to-wall buildings:
 
 Lot actions:
 
-- Double-click a lot row to plop it
+- Double-click a lot row to plop it. While you are plopping from this panel, one click changes to that lot
 - Press `Plop` to plop it
 - Use `Star` / `Unstar` to manage lot favorites
 
@@ -88,7 +88,8 @@ Per-prop actions:
 
 - `Paint`: start painting that prop, or switch the active paint tool to that prop if you are already painting
 - `Star` / `Unstar`: manage prop favorites
-- `Fam`: add the prop to one of your custom families
+- `...`, or a right-click on the row: add the prop to one of your custom families or to a seasonal set, or make a new family from it
+- A click selects a row, and a double-click paints that prop
 
 If you hover a prop name and it belongs to built-in families, the tooltip shows those family IDs and names.
 
@@ -125,8 +126,10 @@ This tab combines built-in families from the cache with your own custom families
 Filters and top actions:
 
 - `Search family name...`
+- Pack list: families with at least one prop from a pack or file. Type to find a pack or a file in it
 - `Filter IID (0x...)`
-- `Clear filters`
+- `Favorites only`: only the families that you starred
+- `Clear filters`, next to the number of families shown
 - `New family`
 - `Stop painting` while paint mode is active
 
@@ -135,12 +138,14 @@ Family list:
 - `Built-in` families are read-only and show their instance IDs
 - `Own` families are your editable custom families
 - Double-click a family row or press `Paint` to open the family paint options
+- `Star` / `Unstar` on a family row manages family favorites. The props inside a family have their own `Star` button, the same favorites as in the `Props` tab
 
 Custom family management:
 
 - Create a family with `New family`
-- Delete the selected custom family with `Delete family`
-- Add props from the `Props` tab using `Fam`
+- Rename the selected custom family in the name field above its props
+- Delete the selected custom family with `Delete family`, which asks first
+- Add props from the `Props` tab: click `...` on a prop, then `Add to family`
 - Adjust entry `Weight` values to bias random selection
 - Remove entries with the `x` button
 
@@ -157,19 +162,22 @@ This tab is for individual flora items.
 Filters:
 
 - `Search flora...`: also matches the pack a flora item comes from
+- In every pack list you can type to find a pack, or a file in a pack, and pick it. Words can be in any order. Enter takes the first match
 - The pack list: shows only the flora of one pack, as the [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) knows them (from `packs.cbor`). An item in several packs shows under each of them
 - `Favorites only`
 - `Clear filters`
 
 Per-flora actions:
 
-- `Paint`: start painting that flora item
+- `Paint`: start painting that flora item, or switch the active paint tool to it if you are already painting
 - `Star` / `Unstar`: manage flora favorites
+- A click selects a row, a double-click paints that flora, and a right-click opens a menu with both actions
 
 Important behavior:
 
 - Search also matches flora group and instance IDs in `0x...` form
 - Flora painting uses the same paint popup and the same direct, line, and polygon modes as prop painting
+- `Place on roads and lots` lets flora stand on roads, buildings, props and other flora
 - Flora thumbnails reflect the current in-game season when seasonal variants are available
 - While flora painting is active, the tab shows `Stop painting`
 - Scene picking: while in flora paint mode, you can click an existing flora item in the city to switch to painting that type
@@ -186,20 +194,22 @@ Collection types:
 Filters:
 
 - `Search collection name...`
+- Pack list: collections with at least one flora item from a pack or file. Type to find a pack or a file in it
 - `Filter IID (0x...)`
 - Type: `All types`, `Families`, `Multi-stage`
 - `Favorites only`
-- `Clear filters`
+- `Clear filters`, next to the number of collections shown
 
 Important behavior:
 
-- `Favorites only` shows only collections that contain at least one favorited flora item
-- Double-clicking a collection row or pressing `Paint` opens the flora paint options for that collection
+- `Star` / `Unstar` on a collection row manages collection favorites
+- `Favorites only` shows the collections that you starred, and those with at least one favorited flora item
+- Double-clicking a collection row or pressing `Paint` opens the flora paint options for that collection. While you are already painting flora, it switches to that collection and keeps your settings
 - Selecting a collection shows its members below, including thumbnails, IDs, and favorite buttons for the individual flora entries
 
 ## Terrain Paint
 
-This tab paints the ground: areas, lines, brush strokes and road markings in any shape, with a ground texture or a plain colour. Everything you paint stays editable and is saved with the city. It needs SC4RenderServices with terrain paint and `EnableCustomTerrainDecalRenderer=true`.
+This tab paints the ground: areas, lines, brush strokes and road markings in any shape, with a ground texture or a plain color. Everything you paint stays editable and is saved with the city. It needs SC4RenderServices with terrain paint and `EnableCustomTerrainDecalRenderer=true`.
 
 Tools (pick one to start, `Stop` or Esc to end):
 
@@ -217,23 +227,25 @@ Tools (pick one to start, `Stop` or Esc to end):
 - `Select`: click painted ground to select it (Ctrl+click adds to the selection), drag to move it, Delete to remove it. Shift+drag moves its texture instead of the shape. With one area, line or marking selected, its points show: drag a point to move it, Ctrl+click its path to add a point, Alt+click a point to remove it.
 - `Stamp`: the texture decal painter described below.
 
-`Draw` chooses straight lines between clicks, a smooth curve through them, or freehand drawing (drag). Backspace removes the last point, Esc cancels the shape, and a second Esc stops the tool. Right-drag pans the camera, even halfway through a shape. The grid works as in the other painters: G shows it, Shift+S snaps points to it, Ctrl+[ and Ctrl+] change its step.
+`Draw` chooses straight lines between clicks, a smooth curve through them, freehand drawing (drag), or the `Pen`. With the pen, a click makes a corner, and if you hold the button and drag you pull out handles that bend the line. Hold `Shift` to turn a handle in 15 degree steps. Hold `Alt` while you drag to bend only the side that comes next, for a sharp change of direction at a curved point. Press on the last point and drag to change its curve. A ring shows on the first point when a click closes the shape. With `Select`, drag a handle to change its curve, and `Alt`+drag a handle to bend only that side. Drag it back onto the point to remove that side. `Join handles` makes a smooth curve again. Click a point, then use `Make curve` or `Make corner`, or `This corner` to round only that corner. Backspace removes the last point, Esc cancels the shape, and a second Esc stops the tool. Right-drag pans the camera, even halfway through a shape. The grid works as in the other painters: G shows it, Shift+S snaps points to it, Ctrl+[ and Ctrl+] change its step.
 
 `Snap to paint` (M) snaps clicked and dragged points to what is already painted: corners, the middles of sides, and edges. After snapping to an edge, a side drawn within 2° of parallel or square to it lines up with it. Hold Shift for 15° steps from the last point. A small ring shows what the point snapped to. The status box shows the length of the side being drawn, how far it turns from the last, and the length and area of the whole shape; with one object selected, its area.
 
-`Paint with`: `Copy look` (or Alt+click in the city) takes the colour or textures and finish from something already painted.
+`Paint with`: `Copy look` (or Alt+click in the city) takes the color or textures and finish from something already painted.
 
-- `Colour`, or `Texture`: pick ground textures from the library below it.
+- `Palettes`: named sets of colors and textures that you use together. They are the same in all your cities. `Add this look` adds the color or the textures that you paint with now. `...` makes a new palette, or renames or deletes this one. Click a tile to paint with it, or right-click a tile to remove it. `Mix all` paints with all textures of the palette as a mix.
+- A mix shows as a row of tiles with the share of each. Click a tile to change its share or remove it. With soft patches, `Make base` chooses the texture that covers the shape.
+- `Color`, or `Texture`: pick ground textures from the library below it.
   - Click a texture to paint with it. Ctrl+click adds it to a mix, or takes it out again. In a mix, each 16 m square of ground takes one of the textures, by its share, for natural variation.
-  - Right-click a texture to make it a favourite; `Favourites only` shows just those. They are the same favourites as in `Stamp`.
+  - Right-click a texture to make it a favorite; `Favorites only` shows just those. They are the same favorites as in `Stamp`.
   - `Pack` shows the textures of one pack. With `All packs`, a pack's textures sit together. The search finds textures by the name of the file they first shipped in, their pack, or their instance ID. Pack and file names come from the [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog), through `packs.cbor`. Without that file, the search goes by instance ID only.
   - The textures you used last are at the top.
 - `Texture size` and `Texture turn` scale and turn the texture. `Texture shift` moves it, to line it up with a kerb or a lot; Shift+drag in `Select` does the same in the city.
 - `Mix` (with two or more textures): `By 16 m square`, or `In soft patches`: the first texture covers the shape and the others lie on it in natural, blended patches, each by its share. `Patch size` sets how big they are, `Patch blend` how far their edges fade.
 - `Follow the line` (lines with a texture): the texture runs along the line and spans its width, like a dirt track or a kerb. `Texture length` is how often it repeats along the line.
-- `Finish`: opacity, a soft edge (how far in from the edge the paint fades out), worn paint (patches missing, as on an old road), a rough edge (an uneven, natural outline that wanders this far in and out, for grass, dirt and gravel; not for markings) and the depth (raise it when the paint flickers or hides under lot textures; 4 and up draws over the game's shadows).
+- `Finish`: opacity, a soft edge (how far in from the edge the paint fades out), worn paint (patches missing, as on an old road), a rough edge (an uneven, natural outline that wanders this far in and out, for grass, dirt and gravel; not for markings) and, under `Advanced`, the depth (raise it when the paint flickers or hides under lot textures; 4 and up draws over the game's shadows).
 
-Colour and opacity changes show in the city while the slider moves; changes to the shape show every so often and apply when you let go.
+Color and opacity changes show in the city while the slider moves; changes to the shape show every so often and apply when you let go.
 
 
 `Painted in this city` lists everything painted, top first: show or hide it, lock it against erasing and moving, and click a row to select it. With one object selected, its name, shape settings and look can be changed; changes apply when you let go of a control. `Up`, `Down`, `Top` and `Bottom` change what lies on top. With the selection:
@@ -265,33 +277,46 @@ Shortcuts, by key and with a mouse that has a middle and back/forward buttons:
 
 ### Stamp
 
-Stamp paints single texture decals on terrain and lot surfaces.
+Stamp paints single texture decals on terrain and lot surfaces. Its search and pack list stay the same when you change between `Stamp decals` and the other Terrain Paint tools.
 
 Filters:
 
-- `Search decals...`
+- Pack list: textures from one pack or file. Type to find a pack or a file in it
+- `Search pack, file or ID`
+- Wealth and state
 - `Favorites only`
-- `Clear filters`
+- `Base` and `Overlay`: solid textures, and textures with transparent parts
 
-Per-decal actions:
+`Clear filters` is next to the number of textures shown.
 
-- `Paint`: start painting that decal
+Actions on the selected texture:
+
+- `Paint...`: choose the settings, then paint. Enter and a double-click do the same
+- `Paint now`: paint with the settings you used last
 - `Star` / `Unstar`: manage decal favorites
+- Right-click a texture for the same actions. While you are painting, a click switches to that texture and keeps your settings, including what you changed with the keyboard
 
-Paint options specific to decals:
+Paint settings:
 
-- `Rotation`: continuous rotation (any angle, not limited to 90-degree steps)
-- `UV offset`: adjust the texture offset within the decal
+- `Base size`, `Rotation`, `FA angle`, `Mirror`, `Opacity` and `Color tint`
 - `Depth offset`: raise or lower the decal surface relative to terrain
-- `Mirror`: flip the decal horizontally
+- `Part of the texture`: drag on the texture to use only that area
+- `Preset`: save settings under a name for this texture and use them again. Saving a preset also stars the texture
 
-Favorites for decals also save the current paint settings as a preset, so reopening a favorited decal restores the rotation, UV, and depth values you last used with it.
+Tools:
 
-Pickers:
+- `Pick decal`: click a decal, or the base or overlay texture of a lot, to select it in the list
+- `Strip decals`: click a decal to remove it. Press `B` for brush mode and `Ctrl+Z` to undo a click or a whole brush stroke
 
-- **Scene pick**: click an existing decal in the city to switch to painting that decal
-- **Lot texture pick**: click a lot surface to use its texture as the decal source
-- **Lot pick**: click a lot to use its associated decal
+## Searching
+
+Every search box and pack list works the same way:
+
+- Words count in any order and any case: `aln bsc mega`
+- Punctuation does not count, and numbers match loosely: `vol 1` finds `Vol01`
+- Props, flora, buildings and textures also match on their IDs. Props, flora and textures also match on the pack and file they come from
+- Put a minus before a word to leave it out: `tree -winter`
+- If nothing matches and a word looks like a typo, a `Did you mean` button offers the corrected search
 
 ## Favorites
 
@@ -323,19 +348,19 @@ Painting can be started from the `Props` tab for a single fixed prop, from the `
 
 Common options:
 
-- `Mode`: `Direct paint`, `Paint along line`, or `Paint inside polygon`
+- `Mode`: `Direct paint`, `Paint along line`, `Paint inside polygon`, or `Paint on painted ground`. With the last one, choose `Fill it` or `Along its edge`, then click ground that you painted in the `Terrain Paint` tab and press Enter. The shape under the cursor is outlined before you click. The `F` key does the same in line and polygon mode
 - `Rotation`: fixed 0 / 90 / 180 / 270 degrees
 - `Show grid overlay`: shows the preview grid on the terrain
 - `Snap points to grid`: snaps the points you click to the grid
 - `Also snap placements to grid`: snaps final placed props to the grid as well
-- `Grid step (m)`: grid size in meters. Dragging moves in 0.5 m steps, the buttons set 2, 4, 8 or 16 m, and Ctrl+click takes any value
+- `Grid step (m)`: grid size in meters. Dragging moves in 0.5 m steps, the buttons set 2, 4, 8 or 16 m, and Ctrl+click takes any value. The size you last chose is kept, also after a restart, and so are `Show grid overlay` and `Snap points to grid`: one set for props and prop families, one for flora and flora collections, one for decals and one for terrain paint
 - `Vertical offset (m)`: raises placed props and the preview above the terrain
-- `Direct preview`: `Outline only`, `Full prop only`, or `Outline + full prop`
+- `Preview`: `Outline only`, `Full model only`, `Outline and model`, or `Hidden`
 
 Mode-specific options:
 
 - Line mode: `Spacing (m)` (moves in 0.5 m steps, with the same buttons and Ctrl+click), `Align to path direction`, `Random rotation`, and `Lateral jitter (m)`
-- Polygon mode: `Density (/100 m^2)`, `Density variation`, and `Random rotation`
+- Polygon mode: `Fill` is `Scatter` (`Density (/100 m^2)`, `Density variation`) or `Rows` (`Row spacing`, `Step along row`, `Row angle`, `Turn items with the rows`), and both have `Edge margin` and `Random rotation`. With `Rows`, `-` and `+` change the row spacing, and `Ctrl` with `-` or `+` changes the step along the row
 
 Polygon notes:
 
@@ -353,7 +378,7 @@ The paint options popup, shown here in polygon mode with density and density var
 
 ## How the paint tool works
 
-After you press `Start`, the paint tool takes over map input until you commit or cancel.
+After you press `Start`, the paint tool takes over map input until you stop it with `Esc` or `Stop painting`.
 
 In `Direct paint`, left-click places one prop at a time.
 
@@ -376,6 +401,7 @@ Polygon paint mode in action, with the live overlay preview and the status windo
 While paint mode is active:
 
 - `R` or a middle click: rotate the fixed rotation (cycles 0 / 90 / 180 / 270)
+- `M`: next paint mode for props and flora: Direct, Line, Polygon, then filling painted ground if the city has any. While you sketch, it changes between Line and Polygon and keeps your points. On decals, `M` mirrors
 - `G`: toggle the grid overlay
 - `Shift+S`: toggle point snapping (turning it off also disables placement snapping)
 - `Ctrl+[` / `Ctrl+]`: step the grid size through preset values (`1`, `2`, `4`, `8`, `16` meters)
@@ -384,7 +410,7 @@ While paint mode is active:
 - `Ctrl+Z` or the back mouse button: undo the whole last pending placement group
 - `Ctrl+Backspace`: undo only the last prop in the current top group
 - `Enter`: place the current line or polygon batch, or commit pending placements
-- `Esc`: cancel the line or polygon being drawn; with none, cancel all pending placements and leave paint mode
+- `Esc`: clear the line or polygon being drawn; with none, keep what you placed and leave paint mode
 - Right-drag pans the camera as usual, also while drawing a line or polygon
 
 Flora-specific note:
@@ -402,9 +428,9 @@ While painting, a small status window also shows up to help you out and to mirro
 
 ## What "pending placements" means
 
-Painted props are first placed in a temporary highlighted state. They are visible immediately, but they are still considered pending until you commit them. While they are pending, you can undo them. Press `Enter` to commit everything currently pending, or press `Esc` to remove all pending placements instead.
+Painted props are first placed in a temporary highlighted state. They are visible immediately, and while they are pending you can undo them. Press `Enter` to commit everything currently pending. Press `Esc` or `Stop painting` to keep it all and stop painting, so undo first what you do not want.
 
-That means even in direct mode there are usually two stages: you click to place one or more props, then you press `Enter` when you are satisfied and want to make them final.
+That means even in direct mode you can click to place one or more props, undo the ones you do not want, then press `Enter` to go on or `Esc` to finish.
 
 ## Typical flows
 
@@ -424,7 +450,7 @@ That means even in direct mode there are usually two stages: you click to place 
 5. Press `Start`.
 6. Click to place props.
 7. Use `Ctrl+Z` or `Ctrl+Backspace` if needed.
-8. Press `Enter` to commit, or `Esc` to cancel.
+8. Press `Enter` to commit, or `Esc` to keep them and stop.
 
 **Paint a row of props**
 
@@ -433,7 +459,7 @@ That means even in direct mode there are usually two stages: you click to place 
 3. Press `Start`.
 4. Click each control point along the line.
 5. Press `Enter` to generate the placements.
-6. Press `Enter` again to commit them, or undo or cancel instead.
+6. Press `Enter` again to commit them, or undo instead.
 
 **Paint a filled area**
 
@@ -555,7 +581,7 @@ When painting or stripping, you do not need to stop and start over for small cor
 
 1. While painting, use `Ctrl+Z` to remove the most recent group, or `Ctrl+Backspace` to trim the last prop from that group.
 2. While stripping, use `Ctrl+Z` to restore the most recently removed city, lot, or street prop.
-3. Use `Esc` if you want to abandon the current paint batch or leave strip mode.
+3. Use `Esc` to stop painting or to leave strip mode. What you placed stays, so undo first what you do not want.
 
 This makes it practical to work iteratively instead of treating each pass as all-or-nothing.
 
@@ -577,4 +603,4 @@ Thumbnail color options accept `RRGGBB` or `RRGGBBAA`. Set either one to an empt
 
 ## Stopping paint mode
 
-Press `Esc` to cancel pending placements and leave paint mode immediately. If you reopen the panel while painting, the `Props`, `Prop Families`, `Flora`, and `Flora Collections` tabs also show a `Stop painting` button.
+Press `Esc` to keep what you placed and leave paint mode immediately. If you reopen the panel while painting, the `Props`, `Prop Families`, `Flora`, and `Flora Collections` tabs also show a `Stop painting` button.

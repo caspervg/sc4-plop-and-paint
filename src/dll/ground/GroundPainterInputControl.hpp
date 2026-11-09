@@ -47,6 +47,8 @@ public:
     // The keys change the grid settings too.
     [[nodiscard]] const Ground::ToolSettings& Settings() const { return settings_; }
     void SetOnCancel(std::function<void()> onCancel);
+    // Called when the keys change the grid: its size, or showing or snapping to it.
+    void SetOnGridChanged(std::function<void()> onChanged) { onGridChanged_ = std::move(onChanged); }
     void ProcessPendingActions();
     // Pushed onto the view and not shut down since; it may be below a vanilla tool.
     [[nodiscard]] bool IsActive() const { return active_; }
@@ -64,6 +66,8 @@ public:
     // Goes up by one with every look copied, so the panel can take it over.
     [[nodiscard]] uint32_t LookPickCount() const { return lookPickCount_; }
     [[nodiscard]] size_t AnchorCount() const { return anchors_.size(); }
+    // The point of the selected object that was clicked last, if it is still there.
+    [[nodiscard]] std::optional<size_t> PickedPoint() const;
 
 private:
     bool UpdateCursor_(int32_t screenX, int32_t screenZ);
@@ -105,6 +109,13 @@ private:
     [[nodiscard]] Ground::PaintObject ObjectFrom_(const std::vector<Ground::Vec2>& points, bool curved) const;
     [[nodiscard]] std::vector<Ground::Vec2> PointsWithCursor_() const;
     [[nodiscard]] bool UsesStroke_() const;
+    [[nodiscard]] bool UsesPen_() const;
+    // How near the cursor must be to take a point: a few pixels on screen at any zoom.
+    [[nodiscard]] float PickDistance_() const;
+    [[nodiscard]] float CloseDistance_() const;
+    [[nodiscard]] bool DrawsCurve_() const;
+    // The path of the shape being drawn, up to the cursor.
+    [[nodiscard]] std::vector<Ground::Vec2> DrawingPath_() const;
     [[nodiscard]] bool ClosesShape_() const;
     void RefreshPreview_();
     // Shows what mouse moves since the last tick changed.
@@ -131,6 +142,7 @@ private:
     Ground::GroundPaintDocument* document_ = nullptr;
     Ground::ToolSettings settings_{};
     std::function<void()> onCancel_{};
+    std::function<void()> onGridChanged_{};
     PaintOverlay overlay_{};
 
     bool active_ = false;
@@ -143,6 +155,14 @@ private:
     bool cursorValid_ = false;
     Ground::Vec2 cursor_{};
     std::vector<Ground::Vec2> anchors_{};
+    // Pen: the handle of each anchor, and pulling out the handle of the last one.
+    std::vector<Ground::Vec2> anchorHandles_{};
+    std::vector<Ground::Vec2> anchorInHandles_{};
+    bool penDrag_ = false;
+    Ground::Vec2 penHandleBefore_{};
+    Ground::Vec2 penInHandleBefore_{};
+    int32_t penPressX_ = 0;
+    int32_t penPressZ_ = 0;
     // Freehand lines, brush and eraser strokes while the left button is down.
     bool strokeActive_ = false;
     std::vector<Ground::Vec2> stroke_{};
@@ -152,6 +172,13 @@ private:
     Ground::Vec2 dragStart_{};
     // Dragging one point of the selected object: which, and the object as it is being changed.
     std::optional<size_t> pointDrag_{};
+    // Or one end of a point's curve handle: the point, and which end.
+    std::optional<size_t> handleDrag_{};
+    float handleSign_ = 1.0f;
+    // The two ends of the handle move apart, not together.
+    bool handleSplit_ = false;
+    uint32_t pickedObject_ = 0;
+    size_t pickedIndex_ = 0;
     Ground::PaintObject pointEdit_{};
     // Middle-button drags: changing the brush radius, or turning (Shift: scaling) the selection.
     enum class MiddleDrag : uint8_t { None, Brush, Turn, Scale };

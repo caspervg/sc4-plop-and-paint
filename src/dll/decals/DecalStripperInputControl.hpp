@@ -41,7 +41,7 @@ private:
 
     bool UpdateCursorWorldFromScreen_(int32_t screenX, int32_t screenZ);
 
-    // Returns the ID of the nearest decal within kPickRadiusMeters, or {0} if none.
+    // Returns the ID of the decal that the cursor points at best, or {0} if none.
     TerrainDecalId PickNearestDecal_() const;
     void PickNearestDecalForHover_();
     void DeleteDecalsInBrush_();
@@ -49,10 +49,7 @@ private:
     void ClearHoveredDecal_();
     void DeleteHoveredDecal_();
     void BuildOverlay_();
-
-    struct DeletedDecalInfo {
-        TerrainDecalState state{};  // Full state for reconstruction via CreateDecal
-    };
+    void TrimUndoStack_();
 
     [[nodiscard]] cISTETerrain* GetTerrain_() const;
 
@@ -69,6 +66,8 @@ private:
     uint8_t                       hoveredOriginalDrawMode_{0};
 
     std::function<void()>         onCancel_;
-    std::vector<DeletedDecalInfo> undoStack_;
+    // One entry for a click or a brush stroke, with the full states to make the decals again.
+    std::vector<std::vector<TerrainDecalState>> undoStack_;
+    bool                          brushGroupOpen_{false};
     PaintOverlay                  overlay_{};
 };

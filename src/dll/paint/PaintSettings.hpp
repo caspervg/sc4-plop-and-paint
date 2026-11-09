@@ -22,6 +22,17 @@ enum class SketchHeightMode {
     Custom = 1
 };
 
+enum class PolygonFillStyle {
+    Scatter = 0,
+    Rows = 1
+};
+
+// In the order of PreviewMode.
+inline constexpr const char* kPreviewModeLabels[] = {"Outline only", "Full model only", "Outline and model", "Hidden"};
+
+struct PropPaintSettings;
+inline void SetPaintMode(PropPaintSettings& settings, PaintMode mode);
+
 struct PropPaintSettings {
     PaintMode mode = PaintMode::Direct;
     PreviewMode previewMode = PreviewMode::Combined;
@@ -42,4 +53,54 @@ struct PropPaintSettings {
     uint32_t randomSeed = 0;
     std::vector<FamilyEntry> activePalette{};
     float densityVariation = 0.0f;
+    bool placeFloraOverObjects = false;  // flora may stand on roads, lots and props
+    // Line or Polygon mode: a click takes the painted ground under it as the sketch.
+    bool pickFromGround = false;
+    PolygonFillStyle polygonFill = PolygonFillStyle::Scatter;
+    float edgeMarginMeters = 0.0f;
+    float rowSpacingMeters = 6.0f;
+    float rowStepMeters = 3.0f;
+    float rowAngleDegrees = 0.0f;
 };
+
+// Changes the mode. A fill looks natural with random rotation, and things along a line look
+// tidy without it, so a new mode starts that way. The checkbox can still change it.
+inline void SetPaintMode(PropPaintSettings& settings, const PaintMode mode) {
+    if (settings.mode != mode) {
+        settings.mode = mode;
+        settings.randomRotation = mode == PaintMode::Polygon;
+    }
+}
+
+// A stop of the M key: a paint mode, and whether it takes its shape from painted ground.
+struct PaintStop {
+    PaintMode mode = PaintMode::Direct;
+    bool fromGround = false;
+};
+
+// The stop after this one: Direct, Line, Polygon, then filling painted ground if there is any.
+// A sketch in progress keeps its points, so it can only go between Line and Polygon.
+[[nodiscard]] constexpr PaintStop NextPaintStop(const PaintMode mode, const bool fromGround, const bool sketching,
+                                                const bool hasPaintedGround) {
+    if (sketching) {
+        return {mode == PaintMode::Line ? PaintMode::Polygon : PaintMode::Line, false};
+    }
+    if (fromGround) {
+        return {PaintMode::Direct, false};
+    }
+    switch (mode) {
+    case PaintMode::Direct:
+        return {PaintMode::Line, false};
+    case PaintMode::Line:
+        return {PaintMode::Polygon, false};
+    default:
+        return hasPaintedGround ? PaintStop{PaintMode::Polygon, true} : PaintStop{PaintMode::Direct, false};
+    }
+}
+
+[[nodiscard]] constexpr const char* PaintStopName(const PaintStop stop) {
+    if (stop.fromGround) {
+        return "Fill painted ground";
+    }
+    return stop.mode == PaintMode::Direct ? "Direct" : stop.mode == PaintMode::Line ? "Line" : "Polygon";
+}

@@ -84,7 +84,10 @@ public:
     bool OnInstall() override;
     bool DoMessage(cIGZMessage2* pMsg) override;
 
-    void TriggerLotPlop(uint32_t lotInstanceId) const;
+    void TriggerLotPlop(uint32_t lotInstanceId);
+    // Whether a plop started from the panel is still going on. Plopping is the game's own tool, so
+    // this follows the view control that took over after the plop started. Call it every frame.
+    bool IsLotPlopping();
     bool StartPropPainting(uint32_t propId, const PropPaintSettings& settings, const std::string& name,
                            const std::optional<RecentPaintSource>& source = std::nullopt);
     bool SwitchPropPaintingTarget(uint32_t propId, const std::string& name,
@@ -94,6 +97,11 @@ public:
     bool StartFloraPainting(uint32_t floraTypeId, const PropPaintSettings& settings, const std::string& name,
                             const std::optional<RecentPaintSource>& source = std::nullopt);
     void StopFloraPainting();
+    // While flora painting is on: paints this flora, or this collection when a palette is given,
+    // with the settings in use, without the dialog.
+    bool SwitchFloraPaintingTarget(uint32_t floraTypeId, const std::string& name,
+                                   std::vector<FamilyEntry> palette = {},
+                                   const std::optional<RecentPaintSource>& source = std::nullopt);
     [[nodiscard]] bool IsFloraPainting() const;
     bool StartFloraStripping();
     void StopFloraStripping();
@@ -101,6 +109,8 @@ public:
     bool StartDecalPainting(uint32_t instanceId, const DecalPaintSettings& settings, const std::string& name);
     void StopDecalPainting();
     [[nodiscard]] bool IsDecalPainting() const;
+    // What decals were painted with last, or nullptr before the first time.
+    [[nodiscard]] const TerrainDecalState* GetLastDecalPaintState() const;
     bool StartDecalStripping();
     void StopDecalStripping();
     [[nodiscard]] bool IsDecalStripping() const;
@@ -144,6 +154,14 @@ public:
     [[nodiscard]] bool GetDefaultSnapPointsToGrid() const noexcept;
     [[nodiscard]] bool GetDefaultSnapPlacementsToGrid() const noexcept;
     [[nodiscard]] float GetDefaultGridStepMeters() const noexcept;
+    // The grid last chosen for this kind of painter, with the defaults from the INI file for what
+    // was not chosen yet.
+    // Whether there is painted ground to fill or to plant along.
+    [[nodiscard]] bool HasPaintedGround() const;
+    [[nodiscard]] PaintGridChoice GetGridChoice(PaintGridChoice PaintGridChoices::* kind) const;
+    void ApplyGridChoice(PaintGridChoice PaintGridChoices::* kind, PropPaintSettings& settings) const;
+    void SaveGridChoice(PaintGridChoice PaintGridChoices::* kind, const PaintGridChoice& choice);
+    void SaveGridChoice(PaintGridChoice PaintGridChoices::* kind, const PropPaintSettings& settings);
     // Which pack textures and props first shipped in; null before startup.
     [[nodiscard]] const PackCatalogRepository* GetPackCatalog() const { return packCatalog_.get(); }
     [[nodiscard]] PreviewMode GetDefaultPropPreviewMode() const noexcept;
@@ -197,6 +215,10 @@ private:
     cIGZWorldDrawService* worldDrawService_ = nullptr;
     cRZAutoRefCount<cISC4City> pCity_;
     cISC4View3DWin* pView3D_ = nullptr;
+    // Only compared, never used: the game owns these controls.
+    const cISC4ViewInputControl* controlBeforePlop_ = nullptr;
+    const cISC4ViewInputControl* plopControl_ = nullptr;
+    int plopWatchFrames_ = 0;
     cRZAutoRefCount<cIGZMessageServer2> pMS2_;
 
     std::unique_ptr<LotRepository>       lotRepository_;
@@ -228,6 +250,9 @@ private:
     cIGZTerrainDecalService* terrainDecalService_{nullptr};
     cIGZTerrainPaintService* terrainPaintService_{nullptr};
     std::unique_ptr<Ground::GroundPaintDocument> groundDocument_;
+    // The ground paint record of this city when it could not be read: saved back as it was, so an
+    // older version of the plugin does not delete what a newer one painted.
+    std::vector<char> unreadableGroundPaint_;
     cRZAutoRefCount<GroundPainterInputControl> groundPainterControl_;
     bool groundPainting_{false};
     std::unique_ptr<PaintStatusPanel> statusPanel_;

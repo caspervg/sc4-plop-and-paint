@@ -163,9 +163,33 @@ target_include_directories(GroundSnappingTests PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 target_link_libraries(GroundSnappingTests PRIVATE Clipper2::Clipper2 tinysplinecxx::tinysplinecxx)
 add_test(NAME GroundSnappingTests COMMAND GroundSnappingTests)
 
+add_executable(TextSearchTests
+    ${CMAKE_SOURCE_DIR}/tests/TextSearchTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/TextSearch.cpp
+)
+target_include_directories(TextSearchTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME TextSearchTests COMMAND TextSearchTests)
+
+add_executable(PackSearchTests ${CMAKE_SOURCE_DIR}/tests/PackSearchTests.cpp)
+target_include_directories(PackSearchTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME PackSearchTests COMMAND PackSearchTests)
+
+add_executable(DecalHitTests ${CMAKE_SOURCE_DIR}/tests/DecalHitTests.cpp)
+target_include_directories(DecalHitTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME DecalHitTests COMMAND DecalHitTests)
+
 add_executable(PropHitTests ${CMAKE_SOURCE_DIR}/tests/PropHitTests.cpp)
 target_include_directories(PropHitTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME PropHitTests COMMAND PropHitTests)
+
+add_executable(PolygonPlacerTests
+    ${CMAKE_SOURCE_DIR}/tests/PolygonPlacerTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/paint/PolygonPlacer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/WeightedPicker.cpp
+)
+target_include_directories(PolygonPlacerTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(PolygonPlacerTests PRIVATE reflectcpp::reflectcpp gzcom2)
+add_test(NAME PolygonPlacerTests COMMAND PolygonPlacerTests)
 
 add_executable(GroundPaintDocumentTests
     ${CMAKE_SOURCE_DIR}/tests/GroundPaintDocumentTests.cpp

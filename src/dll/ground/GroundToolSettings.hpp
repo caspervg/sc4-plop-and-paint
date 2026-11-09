@@ -22,6 +22,7 @@ namespace Ground {
         Clicks,    // straight lines between clicked points
         Curve,     // a smooth curve through clicked points
         Freehand,  // drag to draw, smoothed
+        Pen,       // a click is a corner, a drag pulls out curve handles
     };
 
     struct ToolSettings {

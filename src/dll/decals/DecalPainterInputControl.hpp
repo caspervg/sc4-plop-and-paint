@@ -18,6 +18,8 @@ public:
     [[nodiscard]] int GetDepthOffset() const { return stateTemplate_.depthOffset; }
     [[nodiscard]] bool IsMirrored() const { return (stateTemplate_.flags & kTerrainDecalFlagMirror) != 0; }
     [[nodiscard]] float GetRotationDegrees() const;
+    // What it paints with, including what was changed with the keyboard.
+    [[nodiscard]] const TerrainDecalState& GetState() const { return stateTemplate_; }
 
     // Override undo/commit to manage TerrainDecalId instead of occupants.
     void UndoLastPlacement() override;
