@@ -1,12 +1,15 @@
 #include <args.hxx>
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <set>
@@ -156,11 +159,81 @@ namespace {
             thumbnail);
     }
 
-    void NormalizeThumbnailEntries(std::vector<std::pair<uint64_t, Thumbnail>>& entries, const uint32_t targetSize) {
-        for (auto& [_, thumbnail] : entries) {
-            thumbnail = NormalizeThumbnailToSquare(thumbnail, targetSize);
+    using EncodedThumbnails = std::vector<std::pair<uint64_t, std::string>>;
+
+    // Encodes thumbnails on worker threads as soon as they exist. The raw pixels are gone right after,
+    // instead of all waiting in memory for the final write, and the encoding overlaps the render loop.
+    class ThumbnailEncoder {
+    public:
+        explicit ThumbnailEncoder(const uint32_t targetSize) : targetSize_(targetSize) {
+            // The thread that produces the thumbnails stays busy, so leave a core for it.
+            const uint32_t threadCount = std::max(2u, std::thread::hardware_concurrency()) - 1;
+            for (uint32_t i = 0; i < threadCount; ++i) {
+                workers_.emplace_back([this] { run_(); });
+            }
         }
-    }
+
+        ~ThumbnailEncoder() { finish(); }
+
+        void submit(EncodedThumbnails& out, const uint64_t key, Thumbnail thumbnail) {
+            {
+                std::scoped_lock lock(mutex_);
+                jobs_.push_back(Job{&out, key, std::move(thumbnail)});
+            }
+            wake_.notify_one();
+        }
+
+        // Waits for all submitted thumbnails. Nothing can be submitted afterwards.
+        void finish() {
+            {
+                std::scoped_lock lock(mutex_);
+                finishing_ = true;
+            }
+            wake_.notify_all();
+            for (auto& worker : workers_) {
+                if (worker.joinable()) {
+                    worker.join();
+                }
+            }
+        }
+
+    private:
+        struct Job {
+            EncodedThumbnails* out;
+            uint64_t key;
+            Thumbnail thumbnail;
+        };
+
+        void run_() {
+            while (true) {
+                std::optional<Job> job;
+                {
+                    std::unique_lock lock(mutex_);
+                    wake_.wait(lock, [this] { return finishing_ || !jobs_.empty(); });
+                    if (jobs_.empty()) {
+                        return;
+                    }
+                    job.emplace(std::move(jobs_.front()));
+                    jobs_.pop_front();
+                }
+                try {
+                    auto blob = ThumbnailBin::EncodeWebp(NormalizeThumbnailToSquare(job->thumbnail, targetSize_));
+                    std::scoped_lock lock(mutex_);
+                    job->out->emplace_back(job->key, std::move(blob));
+                }
+                catch (const std::exception& error) {
+                    spdlog::error("Failed to encode thumbnail 0x{:016X}: {}", job->key, error.what());
+                }
+            }
+        }
+
+        uint32_t targetSize_;
+        std::mutex mutex_;
+        std::condition_variable wake_;
+        std::deque<Job> jobs_;
+        std::vector<std::thread> workers_;
+        bool finishing_ = false;
+    };
 
     struct ResolvedPluginConfiguration {
         PluginConfiguration config;
@@ -404,6 +477,19 @@ namespace {
             std::unordered_set<uint64_t> seenPropKeys;
             std::unordered_set<uint64_t> seenFloraKeys;
 
+            // Declared before the encoder: its workers write to these until it is destroyed.
+            EncodedThumbnails buildingThumbnails;
+            EncodedThumbnails propThumbnails;
+            EncodedThumbnails floraThumbnails;
+            ThumbnailEncoder thumbnailEncoder(thumbnailSize);
+            const auto encodeThumbnail = [&thumbnailEncoder](auto& item, EncodedThumbnails& out) {
+                if (item.thumbnail.has_value()) {
+                    thumbnailEncoder.submit(out, MakeGIKey(item.groupId.value(), item.instanceId.value()),
+                                            std::move(*item.thumbnail));
+                    item.thumbnail.reset();
+                }
+            };
+
             // Use the index service to get exemplars and cohorts across all files.
             logger.info("Processing exemplar/cohort records using type index...");
 
@@ -511,7 +597,9 @@ namespace {
                                                     tgi.instance, tgi.group, existing->second.tgi.group);
                                     }
                                     buildingMap.insert_or_assign(tgi.instance, *building);
-                                    builtBuildings.insert_or_assign(tgi.instance, parser.buildingFromParsed(*building));
+                                    Building built = parser.buildingFromParsed(*building);
+                                    encodeThumbnail(built, buildingThumbnails);
+                                    builtBuildings.insert_or_assign(tgi.instance, std::move(built));
                                     buildingsFound++;
                                     logger.trace("  Building: {} (0x{:08X})", building->name, tgi.instance);
                                 }
@@ -531,6 +619,7 @@ namespace {
                                     allProps.emplace_back(
                                         parser.propFromParsed(*prop)
                                     );
+                                    encodeThumbnail(allProps.back(), propThumbnails);
                                     propSourceFiles.push_back(fileOrderIndex);
                                     seenPropKeys.insert(MakeGIKey(tgi.group, tgi.instance));
                                 }
@@ -544,6 +633,7 @@ namespace {
                                 if (auto flora = parser.parseFlora(*exemplarResult, tgi)) {
                                     logger.trace("  Flora: {} (0x{:08X})", flora->visibleName, tgi.instance);
                                     allFlora.emplace_back(parser.floraFromParsed(*flora));
+                                    encodeThumbnail(allFlora.back(), floraThumbnails);
                                     seenFloraKeys.insert(MakeGIKey(tgi.group, tgi.instance));
                                 }
                             }
@@ -714,12 +804,13 @@ namespace {
                 }
             }
 
-            const auto writeThumbnailBin = [&logger](const fs::path& binPath,
-                                                     std::vector<std::pair<uint64_t, Thumbnail>> entries,
-                                                     const std::string_view label) {
+            const auto writeThumbnailBin = [&logger, thumbnailSize](const fs::path& binPath,
+                                                                    EncodedThumbnails entries,
+                                                                    const std::string_view label) {
                 const auto count = entries.size();
                 try {
-                    if (ThumbnailBin::Write(binPath, std::move(entries))) {
+                    const auto size = static_cast<uint16_t>(thumbnailSize);
+                    if (ThumbnailBin::WriteEncoded(binPath, std::move(entries), size, size)) {
                         logger.info("Exported {} {} thumbnails to {}", count, label, binPath.string());
                     }
                     else {
@@ -735,19 +826,19 @@ namespace {
                 return WriteCborAtomic(logger, cborPath, data);
             };
 
-            // Extract building thumbnails into a sidecar binary file, then strip them
-            // from allBuildings so the CBOR stays lean.
+            thumbnailEncoder.finish();
+
+            // Buildings without lots and those replaced by a later plugin are not exported.
             {
-                std::vector<std::pair<uint64_t, Thumbnail>> buildingThumbnails;
-                for (auto& b : allBuildings) {
-                    if (b.thumbnail.has_value()) {
-                        const uint64_t key = MakeGIKey(b.groupId.value(), b.instanceId.value());
-                        buildingThumbnails.emplace_back(key, std::move(*b.thumbnail));
-                        b.thumbnail.reset();
-                    }
+                std::unordered_set<uint64_t> exportedBuildings;
+                exportedBuildings.reserve(allBuildings.size());
+                for (const auto& b : allBuildings) {
+                    exportedBuildings.insert(MakeGIKey(b.groupId.value(), b.instanceId.value()));
                 }
+                std::erase_if(buildingThumbnails, [&exportedBuildings](const auto& entry) {
+                    return !exportedBuildings.contains(entry.first);
+                });
                 if (!buildingThumbnails.empty()) {
-                    NormalizeThumbnailEntries(buildingThumbnails, thumbnailSize);
                     writeThumbnailBin(config.userPluginsRoot / "lot_thumbnails.bin",
                                       std::move(buildingThumbnails), "building");
                 }
@@ -763,21 +854,9 @@ namespace {
                 }
             }
 
-            // Extract prop thumbnails into a sidecar binary file, then strip them.
-            {
-                std::vector<std::pair<uint64_t, Thumbnail>> propThumbnails;
-                for (auto& p : allProps) {
-                    if (p.thumbnail.has_value()) {
-                        const uint64_t key = MakeGIKey(p.groupId.value(), p.instanceId.value());
-                        propThumbnails.emplace_back(key, std::move(*p.thumbnail));
-                        p.thumbnail.reset();
-                    }
-                }
-                if (!propThumbnails.empty()) {
-                    NormalizeThumbnailEntries(propThumbnails, thumbnailSize);
-                    writeThumbnailBin(config.userPluginsRoot / "prop_thumbnails.bin",
-                                      std::move(propThumbnails), "prop");
-                }
+            if (!propThumbnails.empty()) {
+                writeThumbnailBin(config.userPluginsRoot / "prop_thumbnails.bin",
+                                  std::move(propThumbnails), "prop");
             }
 
             if (!allProps.empty() || !propFamilies.empty()) {
@@ -822,21 +901,9 @@ namespace {
                 }
             }
 
-            // Extract flora thumbnails into a sidecar binary file, then strip them.
-            {
-                std::vector<std::pair<uint64_t, Thumbnail>> floraThumbnails;
-                for (auto& f : allFlora) {
-                    if (f.thumbnail.has_value()) {
-                        const uint64_t key = MakeGIKey(f.groupId.value(), f.instanceId.value());
-                        floraThumbnails.emplace_back(key, std::move(*f.thumbnail));
-                        f.thumbnail.reset();
-                    }
-                }
-                if (!floraThumbnails.empty()) {
-                    NormalizeThumbnailEntries(floraThumbnails, thumbnailSize);
-                    writeThumbnailBin(config.userPluginsRoot / "flora_thumbnails.bin",
-                                      std::move(floraThumbnails), "flora");
-                }
+            if (!floraThumbnails.empty()) {
+                writeThumbnailBin(config.userPluginsRoot / "flora_thumbnails.bin",
+                                  std::move(floraThumbnails), "flora");
             }
 
             if (!allFlora.empty()) {
