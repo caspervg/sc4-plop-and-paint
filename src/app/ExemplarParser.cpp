@@ -402,6 +402,9 @@ std::optional<ParsedBuildingExemplar> ExemplarParser::parseBuilding(const Exempl
         }
     }
 
+    parsedBuildingExemplar.styleData = ReadBuildingStyleExemplarData(
+        [&](const uint32_t propertyId) { return findProperty(exemplar, propertyId); });
+
     // Extract building family IDs
     if (pidBuildingPropFamily_) {
         if (auto* prop = findProperty(exemplar, *pidBuildingPropFamily_)) {
@@ -872,6 +875,11 @@ Building ExemplarParser::buildingFromParsed(const ParsedBuildingExemplar& parsed
     building.name = parsed.name;
     building.description = parsed.description;
     building.occupantGroups = std::unordered_set(parsed.occupantGroups.begin(), parsed.occupantGroups.end());
+    building.buildingStyles = parsed.styleData.buildingStyles;
+    building.buildingIsWallToWall = parsed.styleData.buildingIsWallToWall;
+    building.purposeType = parsed.styleData.purposeType;
+    building.exemplarCategory = parsed.styleData.exemplarCategory;
+    building.buildingStylesPimxTemplateMarker = parsed.styleData.buildingStylesPimxTemplateMarker;
     building.thumbnail = std::nullopt;
 
     // Load icon if TGI is available and we have index service

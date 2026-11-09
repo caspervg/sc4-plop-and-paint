@@ -55,7 +55,7 @@ void FloraPanelTab::OnRender() {
     }
 
     if (flora_->GetFloraItems().empty()) {
-        ImGui::TextUnformatted("No flora loaded. Please ensure flora.cbor exists in the Plugins directory.");
+        ImGui::TextUnformatted("No flora loaded. Make sure that flora.cbor is in the Plugins folder.");
         return;
     }
 
@@ -92,7 +92,7 @@ void FloraPanelTab::OnRender() {
             });
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click existing flora in the city to select it here.");
+            ImGui::SetTooltip("Click flora in the city to select it here.");
         }
     }
 
@@ -561,17 +561,17 @@ void FloraPanelTab::RenderPaintModal_() {
         ImGui::Checkbox("Align to path direction", &pendingPaint_.settings.alignToPath);
         ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
         ImGui::SliderFloat("Lateral jitter (m)", &pendingPaint_.settings.randomOffset, 0.0f, 5.0f, "%.1f");
-        ImGui::TextWrapped("Click to add line points. Enter places flora. Backspace removes the last point.");
+        ImGui::TextWrapped("Click to add line points. Press Enter to place the flora. Press Backspace to remove the last point.");
     }
     else if (pendingPaint_.settings.mode == PaintMode::Polygon) {
         ImGui::Separator();
         ImGui::SliderFloat("Density (/100 m^2)", &pendingPaint_.settings.densityPer100Sqm, 0.1f, 10.0f, "%.2f");
         ImGui::SliderFloat("Density variation", &pendingPaint_.settings.densityVariation, 0.0f, 1.0f, "%.2f");
         ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
-        ImGui::TextWrapped("Click to add polygon vertices. Enter fills with flora. Backspace removes the last vertex.");
+        ImGui::TextWrapped("Click to add polygon corners. Press Enter to fill the polygon with flora. Press Backspace to remove the last corner.");
     }
     else {
-        ImGui::TextWrapped("Click to place flora directly. Enter commits placed flora.");
+        ImGui::TextWrapped("Click to place flora. Press Enter to keep the flora that you placed.");
     }
 
     if (ImGui::Button("Start")) {

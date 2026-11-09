@@ -57,8 +57,8 @@ void FamiliesPanelTab::OnRender() {
     // Clamp selected index
     if (totalCount == 0) {
         ImGui::TextDisabled("No families yet.");
-        ImGui::TextWrapped("Built-in families appear after loading prop data. "
-            "Create a user family here, then add props from the Props tab.");
+        ImGui::TextWrapped("Built-in families show after the prop data loads. "
+            "Make a user family here. Then add props from the Props tab.");
         if (ImGui::Button("+")) {
             newFamilyPopupOpen_ = true;
             std::strncpy(newFamilyName_, "New family", sizeof(newFamilyName_) - 1);
@@ -258,7 +258,7 @@ void FamiliesPanelTab::OnRender() {
             ImGui::TextDisabled("Empty auto family.");
         }
         else {
-            ImGui::TextDisabled("Empty family. Use 'Fam' in the Props tab to add entries.");
+            ImGui::TextDisabled("This family is empty. Use 'Fam' in the Props tab to add props.");
         }
     }
     else {
@@ -634,9 +634,9 @@ void FamiliesPanelTab::RenderPaintOptionsPopup_() {
                     : SketchHeightMode::Terrain;
             }
         }
-        ImGui::TextDisabled("Use [ ] +/-1.0m, Shift+[ ] +/-5.0m, Shift+Alt+[ ] +/-0.1m.");
+        ImGui::TextDisabled("Press [ to lower or ] to raise by 1.0 m. Hold Shift for 5.0 m, or Shift+Alt for 0.1 m.");
         if (pendingPaint_.settings.mode == PaintMode::Direct) {
-            ImGui::TextDisabled("Press H in-game to capture the absolute reference height.");
+            ImGui::TextDisabled("Press H in the city to set the absolute reference height.");
         }
         static constexpr const char* kPreviewModeLabels[] = {
             "Outline only",
@@ -656,20 +656,20 @@ void FamiliesPanelTab::RenderPaintOptionsPopup_() {
             ImGui::Checkbox("Align to path direction", &pendingPaint_.settings.alignToPath);
             ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
             ImGui::SliderFloat("Lateral jitter (m)", &pendingPaint_.settings.randomOffset, 0.0f, 5.0f, "%.1f");
-            ImGui::TextWrapped("Click to add line points. Enter places props. Backspace removes the last point.");
+            ImGui::TextWrapped("Click to add line points. Press Enter to place the props. Press Backspace to remove the last point.");
         }
         else if (pendingPaint_.settings.mode == PaintMode::Polygon) {
             ImGui::Separator();
             ImGui::SliderFloat("Density (/100 m^2)", &pendingPaint_.settings.densityPer100Sqm, 0.1f, 10.0f, "%.2f");
             ImGui::SliderFloat("Density variation", &pendingPaint_.settings.densityVariation, 0.0f, 1.0f, "%.2f");
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("0 = uniform fill, 1 = patchier clusters and gaps.");
+                ImGui::SetTooltip("0 gives an even fill. 1 gives more clusters and gaps.");
             }
             ImGui::Checkbox("Random rotation", &pendingPaint_.settings.randomRotation);
-            ImGui::TextWrapped("Click to add polygon vertices. Enter fills with props. Backspace removes the last vertex.");
+            ImGui::TextWrapped("Click to add polygon corners. Press Enter to fill the polygon with props. Press Backspace to remove the last corner.");
         }
         else {
-            ImGui::TextWrapped("Click to place props directly. Enter commits placed props.");
+            ImGui::TextWrapped("Click to place props. Press Enter to keep the props that you placed.");
         }
 
         if (ImGui::Button("Start")) {

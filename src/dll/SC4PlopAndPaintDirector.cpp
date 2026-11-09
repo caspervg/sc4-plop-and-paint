@@ -26,6 +26,7 @@
 #include "flora/FloraRepository.hpp"
 #include "ground/GroundPaintRecord.hpp"
 #include "lots/LotRepository.hpp"
+#include "lots/BuildingStyleService.hpp"
 #include "paint/RecentSwapPanel.hpp"
 #include "pick/DecalPickStrategy.hpp"
 #include "pick/FloraPickStrategy.hpp"
@@ -206,6 +207,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
     if (pMS2) {
         pMS2->AddNotification(this, kSC4MessagePostCityInit);
         pMS2->AddNotification(this, kSC4MessagePreCityShutdown);
+        pMS2->AddNotification(this, kSC4MessagePostCityInitComplete);
+        pMS2->AddNotification(this, kMessageBuildingStyleCheckboxChanged);
         pMS2->AddNotification(this, kSC4MessagePostRegionInit);
         pMS2->AddNotification(this, kSC4MessageLoad);
         pMS2->AddNotification(this, kSC4MessageSave);
@@ -247,6 +250,8 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
         packCatalog_         = std::make_unique<PackCatalogRepository>();
         packCatalog_->Load();
         decalRepository_     = std::make_unique<DecalRepository>(packCatalog_.get());
+        buildingStyleService_ = std::make_unique<BuildingStyleService>();
+        buildingStyleService_->Acquire(mpCOM);
 
         if (mpFrameWork->GetSystemService(kTerrainDecalServiceID, GZIID_cIGZTerrainDecalService,
                                           reinterpret_cast<void**>(&terrainDecalService_))) {
@@ -283,6 +288,7 @@ bool SC4PlopAndPaintDirector::PostAppInit() {
             floraRepository_.get(),
             favoritesRepository_.get(),
             decalRepository_.get(),
+            buildingStyleService_.get(),
             static_cast<cIGZPersistResourceManager*>(pRMForPanel),
             imguiService_);
 
@@ -365,6 +371,8 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     if (pMS2_) {
         pMS2_->RemoveNotification(this, kSC4MessagePostCityInit);
         pMS2_->RemoveNotification(this, kSC4MessagePreCityShutdown);
+        pMS2_->RemoveNotification(this, kSC4MessagePostCityInitComplete);
+        pMS2_->RemoveNotification(this, kMessageBuildingStyleCheckboxChanged);
         pMS2_->RemoveNotification(this, kSC4MessagePostRegionInit);
         pMS2_->RemoveNotification(this, kSC4MessageLoad);
         pMS2_->RemoveNotification(this, kSC4MessageSave);
@@ -465,6 +473,11 @@ bool SC4PlopAndPaintDirector::PostAppShutdown() {
     }
     panel_.reset();
 
+    if (buildingStyleService_) {
+        buildingStyleService_->Shutdown();
+    }
+    buildingStyleService_.reset();
+
     favoritesRepository_.reset();
     floraRepository_.reset();
     propRepository_.reset();
@@ -520,6 +533,10 @@ bool SC4PlopAndPaintDirector::DoMessage(cIGZMessage2* pMsg) {
     case kSC4MessagePostCityInit: PostCityInit_(pStandardMsg);
         break;
     case kSC4MessagePreCityShutdown: PreCityShutdown_(pStandardMsg);
+        break;
+    case kSC4MessagePostCityInitComplete: PostCityInitComplete_();
+        break;
+    case kMessageBuildingStyleCheckboxChanged: BuildingStyleCheckboxChanged_();
         break;
     case kSC4MessagePostRegionInit: UpdateCheck::ShowNotice();
         break;
@@ -1643,6 +1660,23 @@ void SC4PlopAndPaintDirector::PostCityInit_(const cIGZMessage2Standard* pStandar
     }
 }
 
+void SC4PlopAndPaintDirector::PostCityInitComplete_() {
+    if (buildingStyleService_) {
+        if (!buildingStyleService_->HasStyleInfoApi()) {
+            buildingStyleService_->Acquire(mpCOM);
+        }
+        buildingStyleService_->RefreshForCity(pCity_);
+    }
+}
+
+void SC4PlopAndPaintDirector::BuildingStyleCheckboxChanged_() {
+    if (buildingStyleService_) {
+        // Re-read the tract developer instead of applying the message delta so
+        // the cache stays correct if notifications were missed or reordered.
+        buildingStyleService_->RefreshActiveStyles(pCity_);
+    }
+}
+
 void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMsg) {
     PersistRecentPaints_();
     SetLotPlopPanelVisible(false);
@@ -1681,6 +1715,9 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     }
     if (decalRepository_) {
         decalRepository_->Clear();
+    }
+    if (buildingStyleService_) {
+        buildingStyleService_->ClearCityState();
     }
     if (groundPainterControl_) {
         groundPainterControl_->SetCity(nullptr);
@@ -1837,6 +1874,11 @@ void SC4PlopAndPaintDirector::StopGroundPainting() {
 
 bool SC4PlopAndPaintDirector::IsGroundPainting() const {
     return groundPainting_;
+}
+
+bool SC4PlopAndPaintDirector::IsAnyToolActive() const {
+    return propPainting_ || floraPainting_ || floraStripping_ || decalPainting_ || decalStripping_ || propStripping_ ||
+           groundPainting_ || scenePicking_;
 }
 
 Ground::GroundPaintDocument* SC4PlopAndPaintDirector::GetGroundDocument() const {

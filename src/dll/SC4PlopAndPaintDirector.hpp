@@ -53,10 +53,13 @@ class LotRepository;
 class PropRepository;
 class FavoritesRepository;
 class RecentSwapPanel;
+class BuildingStyleService;
 class cIGZTerrainPaintService;
 
 static constexpr uint32_t kSC4MessagePostCityInit = 0x26D31EC1;
 static constexpr uint32_t kSC4MessagePreCityShutdown = 0x26D31EC2;
+static constexpr uint32_t kSC4MessagePostCityInitComplete = 0xEA8AE29A;
+static constexpr uint32_t kMessageBuildingStyleCheckboxChanged = 0x573D5E8F;
 static constexpr uint32_t kSC4MessagePostRegionInit = 0xCBB5BB45;
 static constexpr uint32_t kSC4MessageLoad = 0x26C63341;
 static constexpr uint32_t kSC4MessageSave = 0x26C63344;
@@ -111,6 +114,8 @@ public:
     void UpdateGroundPainting(const Ground::ToolSettings& settings);
     void StopGroundPainting();
     [[nodiscard]] bool IsGroundPainting() const;
+    // One of this plugin's painters, strippers or pickers has the city's mouse.
+    [[nodiscard]] bool IsAnyToolActive() const;
     [[nodiscard]] Ground::GroundPaintDocument* GetGroundDocument() const;
     [[nodiscard]] const GroundPainterInputControl* GetGroundPainter() const;
     [[nodiscard]] GroundPainterInputControl* GetGroundPainter();
@@ -148,6 +153,8 @@ public:
 
 private:
     void PostCityInit_(const cIGZMessage2Standard* pStandardMsg);
+    void PostCityInitComplete_();
+    void BuildingStyleCheckboxChanged_();
     void PreCityShutdown_(cIGZMessage2Standard* pStandardMsg);
     void LoadCity_(const cIGZMessage2Standard* pStandardMsg);
     void SaveCity_(const cIGZMessage2Standard* pStandardMsg) const;
@@ -198,6 +205,7 @@ private:
     std::unique_ptr<FavoritesRepository> favoritesRepository_;
     std::unique_ptr<PackCatalogRepository> packCatalog_;
     std::unique_ptr<DecalRepository>     decalRepository_;
+    std::unique_ptr<BuildingStyleService> buildingStyleService_;
 
     bool panelRegistered_{false};
     bool shortcutRegistered_{false};

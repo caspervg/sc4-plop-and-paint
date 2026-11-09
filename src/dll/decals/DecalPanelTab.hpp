@@ -7,6 +7,7 @@
 #include "../paint/DecalPaintSettings.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
 #include "DecalRepository.hpp"
+#include "TextureKindFilter.hpp"
 #include "public/ImGuiTexture.h"
 
 class cIGZPersistResourceManager;
@@ -60,6 +61,7 @@ private:
     bool    favoritesOnly_{false};
     int     wealthFilter_{0};
     int     dilapidationFilter_{0};
+    TextureKindFilter kindFilter_{};
 
     uint32_t selectedInstanceId_{0};
     uint32_t scrollToInstanceId_{0};

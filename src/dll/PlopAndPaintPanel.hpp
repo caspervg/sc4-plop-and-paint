@@ -10,6 +10,7 @@ class FloraRepository;
 class LotRepository;
 class PropRepository;
 class FavoritesRepository;
+class BuildingStyleService;
 class cIGZPersistResourceManager;
 
 class PlopAndPaintPanel final : public ImGuiPanel {
@@ -20,6 +21,7 @@ public:
                  FloraRepository* flora,
                  FavoritesRepository* favorites,
                  DecalRepository* decals,
+                 BuildingStyleService* buildingStyleService,
                  cIGZPersistResourceManager* pRM,
                  cIGZImGuiService* imguiService);
     void OnInit() override {}

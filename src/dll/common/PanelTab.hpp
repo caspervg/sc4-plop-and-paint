@@ -140,7 +140,7 @@ protected:
                     ImGui::SetTooltip("Click a prop to remove it.\nPress B to change between single, brush and polygon mode.\nIn brush mode, hold the left mouse button to remove all props in the circle.\nIn polygon mode, click the corners of an area, then press Enter to remove the props in it.\nPress Backspace to remove the last corner.\nPress Ctrl+Z to put back city, lot and street props.\nPress Esc to clear the polygon or to stop.");
                 }
                 else {
-                    ImGui::SetTooltip("Enable at least one prop source to start stripping.");
+                    ImGui::SetTooltip("Turn on at least one prop source before you start.");
                 }
             }
         }
@@ -164,7 +164,7 @@ protected:
                 director_->StartFloraStripping();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Click flora in the city to remove it one by one.\nPress B to toggle brush mode.\nHold left mouse in brush mode to strip within the preview radius.\nCtrl+Z to undo, ESC to stop.");
+                ImGui::SetTooltip("Click flora in the city to remove it.\nPress B to turn brush mode on or off.\nIn brush mode, hold the left mouse button to remove all flora in the circle.\nPress Ctrl+Z to undo.\nPress Esc to stop.");
             }
         }
     }
@@ -225,7 +225,7 @@ protected:
         ImGui::SameLine();
         changed |= ImGui::Checkbox("Grid", &gridView_);
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Show thumbnails only. Hover for details, double-click to paint, right-click for more.");
+            ImGui::SetTooltip("Show only the thumbnails.\nMove the mouse over a thumbnail to see its details.\nDouble-click a thumbnail to paint with it.\nRight-click a thumbnail for more options.");
         }
         if (gridView_) {
             ImGui::SameLine();
