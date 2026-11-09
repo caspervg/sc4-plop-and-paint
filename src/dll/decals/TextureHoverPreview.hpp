@@ -19,7 +19,7 @@ public:
     // Inside a tooltip. Loads the texture when another one is hovered.
     void Render(cIGZPersistResourceManager* pRM, cIGZImGuiService* imguiService, const uint32_t instanceId) {
         constexpr float kMinSide = 128.0f;
-        constexpr float kMaxSide = 256.0f;
+        constexpr float kMaxSide = 512.0f;
 
         if (instanceId != instanceId_) {
             Clear();
