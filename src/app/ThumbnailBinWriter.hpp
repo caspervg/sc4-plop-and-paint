@@ -41,7 +41,7 @@
 namespace ThumbnailBin {
     constexpr float kWebpQuality = 80.0f;
 
-    inline std::string EncodeWebp_(const Thumbnail& thumbnail) {
+    inline std::string EncodeWebp(const Thumbnail& thumbnail) {
         std::string blob;
         rfl::visit(
             [&](const auto& variant) {
@@ -64,8 +64,99 @@ namespace ThumbnailBin {
         return blob;
     }
 
-    // Writes atomically via a sibling .tmp file. Returns false if the file could not be
-    // written or moved into place; throws on malformed thumbnail data.
+    // Writes WebP blobs that all decode to width x height pixels, keyed by gi_key. Writes atomically via
+    // a sibling .tmp file. Returns false if the file could not be written or moved into place.
+    inline bool WriteEncoded(const std::filesystem::path& path,
+                             std::vector<std::pair<uint64_t, std::string>> entries,
+                             const uint16_t width,
+                             const uint16_t height) {
+        if (entries.empty()) {
+            return false;
+        }
+
+        // Sort by gi_key so the reader can easily binary-search.
+        std::ranges::sort(entries, [](const auto& a, const auto& b) { return a.first < b.first; });
+
+        // Blob table, storing each distinct blob once. The encoder is deterministic, so identical
+        // pixels give identical blobs.
+        std::vector<std::pair<uint32_t, uint32_t>> table(entries.size());
+        std::vector<size_t> uniqueBlobs;
+        {
+            std::unordered_map<std::string_view, uint32_t> offsetByBlob;
+            uint64_t dataSize = 0;
+            for (size_t i = 0; i < entries.size(); ++i) {
+                const std::string& blob = entries[i].second;
+                auto [it, inserted] = offsetByBlob.try_emplace(blob, static_cast<uint32_t>(dataSize));
+                if (inserted) {
+                    uniqueBlobs.push_back(i);
+                    dataSize += blob.size();
+                    if (dataSize > UINT32_MAX) {
+                        throw std::runtime_error("ThumbnailBin::Write data section exceeds 4 GB");
+                    }
+                }
+                table[i] = {it->second, static_cast<uint32_t>(blob.size())};
+            }
+        }
+
+        auto tempPath = path;
+        tempPath += ".tmp";
+
+        {
+            std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+            if (!file) {
+                return false;
+            }
+
+            // Header
+            constexpr char magic[4] = {'S', 'P', 'T', 'H'};
+            constexpr uint16_t version = 3;
+            constexpr uint16_t reserved = 0;
+            const uint32_t count = static_cast<uint32_t>(entries.size());
+
+            file.write(magic, 4);
+            file.write(reinterpret_cast<const char*>(&version), 2);
+            file.write(reinterpret_cast<const char*>(&reserved), 2);
+            file.write(reinterpret_cast<const char*>(&count), 4);
+            file.write(reinterpret_cast<const char*>(&width), 2);
+            file.write(reinterpret_cast<const char*>(&height), 2);
+
+            // Index
+            for (const auto& key : entries | std::views::keys) {
+                file.write(reinterpret_cast<const char*>(&key), 8);
+            }
+
+            // Blob table
+            for (const auto& [offset, size] : table) {
+                file.write(reinterpret_cast<const char*>(&offset), 4);
+                file.write(reinterpret_cast<const char*>(&size), 4);
+            }
+
+            // Data
+            for (const size_t i : uniqueBlobs) {
+                file.write(entries[i].second.data(), static_cast<std::streamsize>(entries[i].second.size()));
+            }
+
+            file.flush();
+            if (!file.good()) {
+                file.close();
+                std::error_code removeEc;
+                std::filesystem::remove(tempPath, removeEc);
+                return false;
+            }
+        }
+
+        std::error_code renameEc;
+        std::filesystem::rename(tempPath, path, renameEc);
+        if (renameEc) {
+            std::error_code removeEc;
+            std::filesystem::remove(tempPath, removeEc);
+            return false;
+        }
+        return true;
+    }
+
+    // Encodes raw thumbnails on all cores and writes them with WriteEncoded. Throws on malformed
+    // thumbnail data.
     inline bool Write(const std::filesystem::path& path, std::vector<std::pair<uint64_t, Thumbnail>> entries) {
         if (entries.empty()) {
             return false;
@@ -95,18 +186,14 @@ namespace ThumbnailBin {
                 thumbnail);
         }
 
-        // Sort by gi_key so the reader can easily binary-search.
-        std::ranges::sort(entries, [](const auto& a, const auto& b) { return a.first < b.first; });
-
-        // Encode on all cores. The encoder is deterministic, so identical pixels give identical blobs.
-        std::vector<std::string> blobs(entries.size());
+        std::vector<std::pair<uint64_t, std::string>> encoded(entries.size());
         {
             std::atomic<size_t> next{0};
             std::atomic<bool> failed{false};
             const auto worker = [&] {
                 try {
                     for (size_t i = next++; i < entries.size() && !failed; i = next++) {
-                        blobs[i] = EncodeWebp_(entries[i].second);
+                        encoded[i] = {entries[i].first, EncodeWebp(entries[i].second)};
                     }
                 }
                 catch (...) {
@@ -125,80 +212,7 @@ namespace ThumbnailBin {
             }
         }
 
-        // Blob table, storing each distinct blob once.
-        std::vector<std::pair<uint32_t, uint32_t>> table(entries.size());
-        std::vector<size_t> uniqueBlobs;
-        {
-            std::unordered_map<std::string_view, uint32_t> offsetByBlob;
-            uint64_t dataSize = 0;
-            for (size_t i = 0; i < blobs.size(); ++i) {
-                auto [it, inserted] = offsetByBlob.try_emplace(blobs[i], static_cast<uint32_t>(dataSize));
-                if (inserted) {
-                    uniqueBlobs.push_back(i);
-                    dataSize += blobs[i].size();
-                    if (dataSize > UINT32_MAX) {
-                        throw std::runtime_error("ThumbnailBin::Write data section exceeds 4 GB");
-                    }
-                }
-                table[i] = {it->second, static_cast<uint32_t>(blobs[i].size())};
-            }
-        }
-
-        auto tempPath = path;
-        tempPath += ".tmp";
-
-        {
-            std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
-            if (!file) {
-                return false;
-            }
-
-            // Header
-            constexpr char magic[4] = {'S', 'P', 'T', 'H'};
-            constexpr uint16_t version = 3;
-            constexpr uint16_t reserved = 0;
-            const uint32_t count = static_cast<uint32_t>(entries.size());
-
-            file.write(magic, 4);
-            file.write(reinterpret_cast<const char*>(&version), 2);
-            file.write(reinterpret_cast<const char*>(&reserved), 2);
-            file.write(reinterpret_cast<const char*>(&count), 4);
-            file.write(reinterpret_cast<const char*>(&commonWidth), 2);
-            file.write(reinterpret_cast<const char*>(&commonHeight), 2);
-
-            // Index
-            for (const auto& key : entries | std::views::keys) {
-                file.write(reinterpret_cast<const char*>(&key), 8);
-            }
-
-            // Blob table
-            for (const auto& [offset, size] : table) {
-                file.write(reinterpret_cast<const char*>(&offset), 4);
-                file.write(reinterpret_cast<const char*>(&size), 4);
-            }
-
-            // Data
-            for (const size_t i : uniqueBlobs) {
-                file.write(blobs[i].data(), static_cast<std::streamsize>(blobs[i].size()));
-            }
-
-            file.flush();
-            if (!file.good()) {
-                file.close();
-                std::error_code removeEc;
-                std::filesystem::remove(tempPath, removeEc);
-                return false;
-            }
-        }
-
-        std::error_code renameEc;
-        std::filesystem::rename(tempPath, path, renameEc);
-        if (renameEc) {
-            std::error_code removeEc;
-            std::filesystem::remove(tempPath, removeEc);
-            return false;
-        }
-        return true;
+        return WriteEncoded(path, std::move(encoded), commonWidth, commonHeight);
     }
 
 } // namespace ThumbnailBin
