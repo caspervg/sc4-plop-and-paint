@@ -599,7 +599,7 @@ void FamiliesPanelTab::RenderPaintOptionsPopup_() {
         ImGui::RadioButton("Direct paint", &mode, static_cast<int>(PaintMode::Direct));
         ImGui::RadioButton("Paint along line", &mode, static_cast<int>(PaintMode::Line));
         ImGui::RadioButton("Paint inside polygon", &mode, static_cast<int>(PaintMode::Polygon));
-        pendingPaint_.settings.mode = static_cast<PaintMode>(mode);
+        SetPaintMode(pendingPaint_.settings, static_cast<PaintMode>(mode));
 
         ImGui::Separator();
         ImGui::TextUnformatted("Rotation");

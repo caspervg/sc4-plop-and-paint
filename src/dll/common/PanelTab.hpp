@@ -111,7 +111,7 @@ protected:
         ImGui::RadioButton("Paint along line", &mode, static_cast<int>(PaintMode::Line));
         ImGui::SameLine();
         ImGui::RadioButton("Paint inside polygon", &mode, static_cast<int>(PaintMode::Polygon));
-        settings.mode = static_cast<PaintMode>(mode);
+        SetPaintMode(settings, static_cast<PaintMode>(mode));
 
         // Keeps the dialog the same width in every mode.
         char howTo[160];

@@ -27,6 +27,9 @@ enum class PolygonFillStyle {
     Rows = 1
 };
 
+struct PropPaintSettings;
+inline void SetPaintMode(PropPaintSettings& settings, PaintMode mode);
+
 struct PropPaintSettings {
     PaintMode mode = PaintMode::Direct;
     PreviewMode previewMode = PreviewMode::Combined;
@@ -54,3 +57,12 @@ struct PropPaintSettings {
     float rowStepMeters = 3.0f;
     float rowAngleDegrees = 0.0f;
 };
+
+// Changes the mode. A fill looks natural with random rotation, and things along a line look
+// tidy without it, so a new mode starts that way. The checkbox can still change it.
+inline void SetPaintMode(PropPaintSettings& settings, const PaintMode mode) {
+    if (settings.mode != mode) {
+        settings.mode = mode;
+        settings.randomRotation = mode == PaintMode::Polygon;
+    }
+}
