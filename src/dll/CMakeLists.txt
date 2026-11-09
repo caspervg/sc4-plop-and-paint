@@ -190,6 +190,15 @@ target_include_directories(ThumbnailBinTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(ThumbnailBinTests PRIVATE spdlog::spdlog reflectcpp::reflectcpp WebP::webp WebP::webpdecoder)
 add_test(NAME ThumbnailBinTests COMMAND ThumbnailBinTests)
 
+add_executable(TextureKindCacheTests
+    ${CMAKE_SOURCE_DIR}/tests/TextureKindCacheTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/decals/TextureKindCache.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/Logger.cpp
+)
+target_include_directories(TextureKindCacheTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(TextureKindCacheTests PRIVATE spdlog::spdlog reflectcpp::reflectcpp)
+add_test(NAME TextureKindCacheTests COMMAND TextureKindCacheTests)
+
 install(TARGETS ${PROJECT_NAME}
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib

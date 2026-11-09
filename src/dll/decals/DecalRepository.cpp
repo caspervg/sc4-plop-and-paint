@@ -2,7 +2,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
+#include <system_error>
+#include <wil/resource.h>
+#include <wil/win32_helpers.h>
 
+#include "TextureKindCache.hpp"
 #include "cGZPersistResourceKey.h"
 #include "cIGZPersistResourceKeyList.h"
 #include "cIGZPersistDBSegment.h"
@@ -16,9 +21,29 @@ namespace {
     constexpr uint32_t kDecalTextureGroup = 0x0986135E;
     constexpr uint32_t kZoom4Mask         = 0xF;
     constexpr uint32_t kZoom4Value        = 4;
+    constexpr auto kKindCacheFile = "textures.cbor";
+
+    std::filesystem::path PluginsPath() {
+        try {
+            const auto modulePath = wil::GetModuleFileNameW(wil::GetModuleInstanceHandle());
+            return std::filesystem::path(modulePath.get()).parent_path();
+        }
+        catch (const wil::ResultException& e) {
+            LOG_ERROR("DecalRepository: Failed to get DLL directory: {}", e.what());
+            return {};
+        }
+    }
+
+    // The cache builder writes props.cbor on every rebuild.
+    int64_t OutsideCacheStamp(const std::filesystem::path& plugins) {
+        std::error_code error;
+        const auto time = std::filesystem::last_write_time(plugins / "props.cbor", error);
+        return error ? 0 : time.time_since_epoch().count();
+    }
 }
 
 void DecalRepository::Populate(cIGZPersistResourceManager* pRM) {
+    SaveKinds_();
     instanceIds_.clear();
     preferred_.clear();
     kinds_.clear();
@@ -60,10 +85,12 @@ void DecalRepository::Populate(cIGZPersistResourceManager* pRM) {
     }
 
     kinds_.assign(instanceIds_.size(), decals::TextureKind::Unknown);
+    RestoreKinds_();
     LOG_INFO("DecalRepository: found {} unique zoom-4 decal textures", instanceIds_.size());
 }
 
 void DecalRepository::Clear() {
+    SaveKinds_();
     instanceIds_.clear();
     preferred_.clear();
     kinds_.clear();
@@ -147,12 +174,61 @@ decals::TextureKind DecalRepository::KindOf(const uint32_t instanceId) const {
 }
 
 bool DecalRepository::ClassifySome(const std::chrono::microseconds budget) {
-    // ponytail: classified again every session (a few seconds for thousands of textures). Keep them
-    // in a cache file if that gets slow.
     const auto end = std::chrono::steady_clock::now() + budget;
     while (classified_ < instanceIds_.size() && std::chrono::steady_clock::now() < end) {
-        kinds_[classified_] = decals::ClassifyDecalTexture(pRM_, instanceIds_[classified_]);
+        if (kinds_[classified_] == decals::TextureKind::Unknown) {
+            kinds_[classified_] = decals::ClassifyDecalTexture(pRM_, instanceIds_[classified_]);
+            kindsChanged_ |= kinds_[classified_] != decals::TextureKind::Unknown;
+        }
         ++classified_;
     }
-    return classified_ == instanceIds_.size();
+
+    const bool done = classified_ == instanceIds_.size();
+    if (done) {
+        SaveKinds_();
+    }
+    return done;
+}
+
+void DecalRepository::RestoreKinds_() {
+    const auto plugins = PluginsPath();
+    if (plugins.empty()) {
+        return;
+    }
+
+    const decals::TextureKindCache cache = decals::LoadTextureKindCache(plugins / kKindCacheFile, OutsideCacheStamp(plugins));
+    const auto restore = [this](const std::vector<uint32_t>& ids, const decals::TextureKind kind) {
+        for (const uint32_t id : ids) {
+            const auto it = std::lower_bound(instanceIds_.begin(), instanceIds_.end(), id);
+            if (it != instanceIds_.end() && *it == id) {
+                kinds_[static_cast<size_t>(it - instanceIds_.begin())] = kind;
+            }
+        }
+    };
+    restore(cache.base, decals::TextureKind::Base);
+    restore(cache.overlay, decals::TextureKind::Overlay);
+}
+
+void DecalRepository::SaveKinds_() {
+    if (!kindsChanged_) {
+        return;
+    }
+    kindsChanged_ = false;
+
+    const auto plugins = PluginsPath();
+    if (plugins.empty()) {
+        return;
+    }
+
+    decals::TextureKindCache cache;
+    cache.outsideCacheStamp = OutsideCacheStamp(plugins);
+    for (size_t i = 0; i < instanceIds_.size(); ++i) {
+        if (kinds_[i] == decals::TextureKind::Base) {
+            cache.base.push_back(instanceIds_[i]);
+        }
+        else if (kinds_[i] == decals::TextureKind::Overlay) {
+            cache.overlay.push_back(instanceIds_[i]);
+        }
+    }
+    decals::SaveTextureKindCache(plugins / kKindCacheFile, cache);
 }
