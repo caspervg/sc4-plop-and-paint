@@ -228,6 +228,9 @@ private:
     cIGZTerrainDecalService* terrainDecalService_{nullptr};
     cIGZTerrainPaintService* terrainPaintService_{nullptr};
     std::unique_ptr<Ground::GroundPaintDocument> groundDocument_;
+    // The ground paint record of this city when it could not be read: saved back as it was, so an
+    // older version of the plugin does not delete what a newer one painted.
+    std::vector<char> unreadableGroundPaint_;
     cRZAutoRefCount<GroundPainterInputControl> groundPainterControl_;
     bool groundPainting_{false};
     std::unique_ptr<PaintStatusPanel> statusPanel_;

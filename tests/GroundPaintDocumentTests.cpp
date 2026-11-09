@@ -1,5 +1,6 @@
 // Checks for the ground paint document against a fake terrain paint service: run
 // GroundPaintDocumentTests.exe, it prints "ok" or aborts.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -188,6 +189,18 @@ int main() {
     CHECK(service.creates == createsBefore + 1 && service.paints.contains(loaded.Find(b)->paintId));
     CHECK(loaded.Add(Square(200, 200, 4)) > b);  // ids continue after the loaded ones
     CHECK(!loaded.Load(std::vector<char>{'x', 'y'}));
+    {
+        // A save from a newer version, with a kind of shape this one does not know, cannot be read.
+        std::vector<char> newer = saved;
+        constexpr char kKnown[] = {'A', 'r', 'e', 'a'};
+        int renamed = 0;
+        for (auto it = newer.begin(); (it = std::search(it, newer.end(), kKnown, kKnown + 4)) != newer.end(); ++renamed) {
+            it[3] = 'x';
+        }
+        CHECK(renamed > 0);
+        GroundPaintDocument older(kWhite);
+        CHECK(!older.Load(newer) && older.Objects().empty());
+    }
 
     // Duplicate: copies on top, moved, selected.
     GroundPaintDocument edits(kWhite);

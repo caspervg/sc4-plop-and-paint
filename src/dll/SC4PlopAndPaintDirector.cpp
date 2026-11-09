@@ -1724,6 +1724,7 @@ void SC4PlopAndPaintDirector::PreCityShutdown_(cIGZMessage2Standard* pStandardMs
     }
     if (groundDocument_) {
         groundDocument_->Reset();
+        unreadableGroundPaint_.clear();
     }
     pCity_ = nullptr;
     if (pView3D_) {
@@ -1957,6 +1958,7 @@ void SC4PlopAndPaintDirector::LoadCity_(const cIGZMessage2Standard* const pStand
         return;
     }
     groundDocument_->Reset();
+    unreadableGroundPaint_.clear();
     cISC4DBSegment* const segment = SaveSegment(pStandardMsg);
     if (!segment) {
         return;
@@ -1966,7 +1968,8 @@ void SC4PlopAndPaintDirector::LoadCity_(const cIGZMessage2Standard* const pStand
             LOG_INFO("Loaded {} ground paint objects", groundDocument_->Objects().size());
         }
         else {
-            LOG_WARN("Ground paint: could not read the objects in the save");
+            LOG_WARN("Ground paint: could not read the objects in the save. They are kept unless you paint in this city.");
+            unreadableGroundPaint_ = *payload;
         }
     }
     segment->Release();
@@ -1980,7 +1983,7 @@ void SC4PlopAndPaintDirector::SaveCity_(const cIGZMessage2Standard* const pStand
     if (!segment) {
         return;
     }
-    const std::vector<char> payload = groundDocument_->Objects().empty() ? std::vector<char>{} : groundDocument_->Save();
+    const std::vector<char> payload = groundDocument_->Objects().empty() ? unreadableGroundPaint_ : groundDocument_->Save();
     Ground::SaveRecord::Write(*segment, payload);
     segment->Release();
 }
