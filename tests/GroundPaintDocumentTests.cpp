@@ -426,6 +426,29 @@ int main() {
         CHECK(std::abs(SmoothHandle(row, 0, false).x - 10.0f / 3.0f) < 0.001f);
         CHECK(std::abs(SmoothHandle(row, 0, true).x - (10.0f - 20.0f) / 6.0f) < 0.001f);
 
+        // Splitting a point's handles keeps the others mirrored, and joining them works.
+        {
+            PaintObject split = pen;
+            SetPointHandles(split.shape, 1, {2, 0}, {0, 3});
+            CHECK(split.shape.inHandles.size() == 4 && (InHandleOf(split.shape, 0) == Vec2{0, -2}));
+            CHECK((split.shape.handles[1] == Vec2{2, 0}) && (InHandleOf(split.shape, 1) == Vec2{0, 3}));
+            const double before = AreaOf(BuildArea(split));
+            InsertShapePoint(split.shape, 1, {5, 0});
+            CHECK(split.shape.inHandles.size() == 5);
+            EraseShapePoint(split.shape, 1);
+            CHECK((InHandleOf(split.shape, 1) == Vec2{0, 3}));
+            PaintObject doubled = split;
+            TransformObject(doubled, {.scale = 2.0f});
+            CHECK((InHandleOf(doubled.shape, 1) == Vec2{0, 6}));
+            CHECK(std::abs(AreaOf(BuildArea(split)) - before) < 0.001);
+            MirrorObject(split, {}, 0.0f);
+            CHECK((InHandleOf(split.shape, 1) == Vec2{0, -3}));
+            GroundPaintDocument splitDoc(kWhite);
+            const uint32_t splitId = splitDoc.Add(doubled);
+            GroundPaintDocument splitLoaded(kWhite);
+            CHECK(splitLoaded.Load(splitDoc.Save()) && splitLoaded.Find(splitId)->shape.inHandles == doubled.shape.inHandles);
+        }
+
         GroundPaintDocument penDoc(kWhite);
         const uint32_t id = penDoc.Add(moved);
         CHECK(id != 0);

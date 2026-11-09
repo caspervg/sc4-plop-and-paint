@@ -30,6 +30,8 @@ namespace Ground {
         // Area and line drawn with the pen: the curve handle of each point (see PenPath). Empty
         // when there are no handles.
         std::vector<Vec2> handles{};
+        // The handle on the side the curve arrives from. Empty: each mirrors its handle.
+        std::vector<Vec2> inHandles{};
         // Area and line: the corner radius of each point; negative uses cornerRadius. Empty when
         // all corners use it.
         std::vector<float> pointRadii{};
@@ -120,6 +122,8 @@ namespace Ground {
     [[nodiscard]] std::vector<Vec2> ShapePath(const ShapeSpec& shape, bool closed);
     // A handle that makes a smooth curve through the point, along the line between its neighbours.
     [[nodiscard]] Vec2 SmoothHandle(const std::vector<Vec2>& points, size_t index, bool closed);
+    [[nodiscard]] Vec2 InHandleOf(const ShapeSpec& shape, size_t index);
+    void SetPointHandles(ShapeSpec& shape, size_t index, Vec2 handle, Vec2 inHandle);
     // Add or remove a point, and what belongs to it.
     void InsertShapePoint(ShapeSpec& shape, size_t index, Vec2 point);
     void EraseShapePoint(ShapeSpec& shape, size_t index);

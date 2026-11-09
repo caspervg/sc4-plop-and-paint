@@ -154,8 +154,10 @@ private:
     std::vector<Ground::Vec2> anchors_{};
     // Pen: the handle of each anchor, and pulling out the handle of the last one.
     std::vector<Ground::Vec2> anchorHandles_{};
+    std::vector<Ground::Vec2> anchorInHandles_{};
     bool penDrag_ = false;
     Ground::Vec2 penHandleBefore_{};
+    Ground::Vec2 penInHandleBefore_{};
     int32_t penPressX_ = 0;
     int32_t penPressZ_ = 0;
     // Freehand lines, brush and eraser strokes while the left button is down.
@@ -170,6 +172,8 @@ private:
     // Or one end of a point's curve handle: the point, and which end.
     std::optional<size_t> handleDrag_{};
     float handleSign_ = 1.0f;
+    // The two ends of the handle move apart, not together.
+    bool handleSplit_ = false;
     uint32_t pickedObject_ = 0;
     size_t pickedIndex_ = 0;
     Ground::PaintObject pointEdit_{};

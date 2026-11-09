@@ -196,7 +196,7 @@ bool GroundPainterInputControl::DrawsCurve_() const {
 std::vector<Vec2> GroundPainterInputControl::DrawingPath_() const {
     const std::vector<Vec2> points = PointsWithCursor_();
     if (UsesPen_()) {
-        return PenPath(points, anchorHandles_, {}, 0.0f, ClosesShape_());
+        return PenPath(points, anchorHandles_, anchorInHandles_, {}, 0.0f, ClosesShape_());
     }
     return PathThrough(points, DrawsCurve_() ? PathStyle::Curved : PathStyle::Straight, ClosesShape_());
 }
@@ -386,8 +386,10 @@ bool GroundPainterInputControl::OnMouseDownL(const int32_t x, const int32_t z, c
         return true;
     }
 
-    // The eyedropper: Alt+click, or a click after "Copy look" in the panel.
-    if (settings_.tool != Tool::Erase && (lookPickArmed_ || KeyHeld(VK_MENU))) {
+    // The eyedropper: Alt+click, or a click after "Copy look" in the panel. With the pen, Alt on the
+    // last point is for pulling out a new handle on one side.
+    const bool penOnLastPoint = UsesPen_() && !anchors_.empty() && Distance(cursor_, anchors_.back()) <= snapReach_;
+    if (settings_.tool != Tool::Erase && !penOnLastPoint && (lookPickArmed_ || KeyHeld(VK_MENU))) {
         lookPickArmed_ = false;
         PickLook_();
         RefreshPreview_();
@@ -411,7 +413,9 @@ bool GroundPainterInputControl::OnMouseDownL(const int32_t x, const int32_t z, c
     }
     if (UsesPen_()) {
         anchorHandles_.resize(anchors_.size());
+        anchorInHandles_.resize(anchors_.size());
         penHandleBefore_ = anchorHandles_.back();
+        penInHandleBefore_ = anchorInHandles_.back();
         penDrag_ = true;
         penPressX_ = x;
         penPressZ_ = z;
@@ -494,7 +498,16 @@ bool GroundPainterInputControl::OnMouseMove(const int32_t x, const int32_t z, co
         const bool pulled = std::hypot(static_cast<float>(x - penPressX_), static_cast<float>(z - penPressZ_)) >= kPenDragPixels;
         const Vec2 anchor = anchors_.back();
         const Vec2 aim = KeyHeld(VK_SHIFT) ? SnapToAngle(anchor, cursor_, kAngleStep) : cursor_;
-        anchorHandles_.back() = pulled ? Vec2{aim.x - anchor.x, aim.z - anchor.z} : penHandleBefore_;
+        if (!pulled) {
+            anchorHandles_.back() = penHandleBefore_;
+            anchorInHandles_.back() = penInHandleBefore_;
+        }
+        else {
+            anchorHandles_.back() = {aim.x - anchor.x, aim.z - anchor.z};
+            if (!KeyHeld(VK_MENU)) {  // Alt leaves the side the curve arrives from as it is
+                anchorInHandles_.back() = {anchor.x - aim.x, anchor.z - aim.z};
+            }
+        }
     }
     else if (pointDrag_) {
         pointEdit_.shape.points[*pointDrag_] = cursor_;
@@ -502,7 +515,20 @@ bool GroundPainterInputControl::OnMouseMove(const int32_t x, const int32_t z, co
     else if (handleDrag_) {
         const Vec2 anchor = pointEdit_.shape.points[*handleDrag_];
         const Vec2 aim = KeyHeld(VK_SHIFT) ? SnapToAngle(anchor, cursor_, kAngleStep) : cursor_;
-        pointEdit_.shape.handles[*handleDrag_] = {(aim.x - anchor.x) * handleSign_, (aim.z - anchor.z) * handleSign_};
+        Vec2 pulled{aim.x - anchor.x, aim.z - anchor.z};
+        if (handleSplit_ && std::hypot(pulled.x, pulled.z) < snapReach_ * 0.5f) {
+            pulled = {};  // back on the point: this side has no handle any more
+        }
+        Vec2 handle = pointEdit_.shape.handles[*handleDrag_];
+        Vec2 inHandle = InHandleOf(pointEdit_.shape, *handleDrag_);
+        if (handleSplit_) {
+            (handleSign_ > 0.0f ? handle : inHandle) = pulled;
+        }
+        else {
+            handle = {pulled.x * handleSign_, pulled.z * handleSign_};
+            inHandle = {-handle.x, -handle.z};
+        }
+        SetPointHandles(pointEdit_.shape, *handleDrag_, handle, inHandle);
     }
     return true;
 }
@@ -558,6 +584,7 @@ bool GroundPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
         else if (!anchors_.empty()) {
             anchors_.pop_back();
             anchorHandles_.resize(anchors_.size());
+            anchorInHandles_.resize(anchors_.size());
             RefreshPreview_();
         }
         return true;
@@ -724,6 +751,7 @@ bool GroundPainterInputControl::OnMouseDownX(const int32_t /*x*/, const int32_t 
         if (!anchors_.empty()) {
             anchors_.pop_back();
             anchorHandles_.resize(anchors_.size());
+            anchorInHandles_.resize(anchors_.size());
             RefreshPreview_();
         }
         else {
@@ -791,6 +819,7 @@ PaintObject GroundPainterInputControl::ObjectFrom_(const std::vector<Vec2>& poin
     shape.pathStyle = curved ? PathStyle::Curved : PathStyle::Straight;
     if (UsesPen_()) {
         shape.handles = anchorHandles_;
+        shape.inHandles = anchorInHandles_;
     }
     shape.wear = settings_.tool == Tool::Erase ? 0.0f : settings_.wear;
     shape.roughness = settings_.tool == Tool::Erase || settings_.tool == Tool::Marking ? 0.0f : settings_.roughness;
@@ -996,6 +1025,34 @@ bool GroundPainterInputControl::StartPointEdit_(const bool insert, const bool re
     }
 
     pointEdit_ = *object;
+    if (!insert) {
+        // The end of a curve handle, when it is nearer than any point.
+        float best = nearest ? Distance(points[*nearest], cursor_) : PickDistance_();
+        std::optional<size_t> tip;
+        for (size_t i = 0; i < std::min(object->shape.handles.size(), points.size()); ++i) {
+            const Vec2 handle = object->shape.handles[i];
+            const Vec2 inHandle = InHandleOf(object->shape, i);
+            for (const float sign : {1.0f, -1.0f}) {
+                const Vec2 offset = sign > 0.0f ? handle : inHandle;
+                const float distance = Distance({points[i].x + offset.x, points[i].z + offset.z}, cursor_);
+                if (offset != Vec2{} && distance < best) {
+                    best = distance;
+                    tip = i;
+                    handleSign_ = sign;
+                }
+            }
+        }
+        if (tip) {
+            const Vec2 handle = object->shape.handles[*tip];
+            // Alt splits the two ends. Ends that are already apart stay apart.
+            handleSplit_ = remove || !(InHandleOf(object->shape, *tip) == Vec2{-handle.x, -handle.z});
+            handleDrag_ = tip;
+            pickedObject_ = object->id;
+            pickedIndex_ = *tip;
+            document_->ShowChanged(pointEdit_);
+            return true;
+        }
+    }
     if (remove) {
         // Alt+click takes a point out, as long as the shape keeps enough of them.
         if (!nearest || points.size() <= MinimumPoints(*object)) {
@@ -1005,29 +1062,6 @@ bool GroundPainterInputControl::StartPointEdit_(const bool insert, const bool re
         pickedObject_ = 0;
         document_->Update({pointEdit_});
         return true;
-    }
-    if (!insert) {
-        // The end of a curve handle, when it is nearer than any point.
-        const std::vector<Vec2>& handles = object->shape.handles;
-        float best = nearest ? Distance(points[*nearest], cursor_) : PickDistance_();
-        std::optional<size_t> tip;
-        for (size_t i = 0; i < std::min(handles.size(), points.size()); ++i) {
-            for (const float sign : {1.0f, -1.0f}) {
-                const float distance = Distance({points[i].x + handles[i].x * sign, points[i].z + handles[i].z * sign}, cursor_);
-                if (handles[i] != Vec2{} && distance < best) {
-                    best = distance;
-                    tip = i;
-                    handleSign_ = sign;
-                }
-            }
-        }
-        if (tip) {
-            handleDrag_ = tip;
-            pickedObject_ = object->id;
-            pickedIndex_ = *tip;
-            document_->ShowChanged(pointEdit_);
-            return true;
-        }
     }
     if (!nearest && insert) {
         // Ctrl+click on the path between two points adds one there.
@@ -1066,6 +1100,7 @@ void GroundPainterInputControl::FinishPointDrag_() {
 void GroundPainterInputControl::CancelShape_() {
     anchors_.clear();
     anchorHandles_.clear();
+    anchorInHandles_.clear();
     penDrag_ = false;
     stroke_.clear();
     strokeActive_ = false;
@@ -1087,15 +1122,17 @@ void GroundPainterInputControl::RefreshPreview_() {
     std::vector<Vec2> markers;
     float ring = 0.0f;
     uint32_t ringColor = kCursorPathColor;
-    // Curve handles: a line through the point, and a marker on each end.
-    const auto showHandles = [&](const std::vector<Vec2>& points, const std::vector<Vec2>& handles) {
+    // Curve handles: a line from the point to each end, and a marker on the end.
+    const auto showHandles = [&](const std::vector<Vec2>& points, const std::vector<Vec2>& handles,
+                                 const std::vector<Vec2>& inHandles) {
         for (size_t i = 0; i < std::min(points.size(), handles.size()); ++i) {
-            if (handles[i] != Vec2{}) {
-                const Vec2 ahead{points[i].x + handles[i].x, points[i].z + handles[i].z};
-                const Vec2 behind{points[i].x - handles[i].x, points[i].z - handles[i].z};
-                guides.push_back({{behind, ahead}, false, kSnapGuideColor});
-                markers.push_back(ahead);
-                markers.push_back(behind);
+            const Vec2 inHandle = i < inHandles.size() ? inHandles[i] : Vec2{-handles[i].x, -handles[i].z};
+            for (const Vec2 offset : {handles[i], inHandle}) {
+                if (offset != Vec2{}) {
+                    const Vec2 tip{points[i].x + offset.x, points[i].z + offset.z};
+                    guides.push_back({{points[i], tip}, false, kSnapGuideColor});
+                    markers.push_back(tip);
+                }
             }
         }
     };
@@ -1111,11 +1148,11 @@ void GroundPainterInputControl::RefreshPreview_() {
             }
             if (pointDrag_ || handleDrag_) {
                 markers = pointEdit_.shape.points;
-                showHandles(pointEdit_.shape.points, pointEdit_.shape.handles);
+                showHandles(pointEdit_.shape.points, pointEdit_.shape.handles, pointEdit_.shape.inHandles);
             }
             else if (const PaintObject* const target = PointEditTarget_()) {
                 markers = target->shape.points;
-                showHandles(target->shape.points, target->shape.handles);
+                showHandles(target->shape.points, target->shape.handles, target->shape.inHandles);
                 if (const auto picked = PickedPoint()) {
                     // A diamond round the point that the panel's corner radius is for.
                     const Vec2 p = target->shape.points[*picked];
@@ -1153,7 +1190,7 @@ void GroundPainterInputControl::RefreshPreview_() {
             if (!strokeActive_) {
                 guides.push_back({DrawingPath_(), ClosesShape_(), eraser ? kEraserColor : kPathColor});
                 markers = anchors_;
-                showHandles(anchors_, anchorHandles_);
+                showHandles(anchors_, anchorHandles_, anchorInHandles_);
             }
         }
     }
@@ -1331,7 +1368,7 @@ std::string GroundPainterInputControl::StatusText() const {
         return "Click painted ground to copy its look.";
     }
     if (penDrag_ || handleDrag_) {
-        return "Drag to shape the curve. Hold Shift to turn it in 15 degree steps. Release the button to keep it.";
+        return "Drag to shape the curve. Hold Shift to turn it in 15 degree steps. Hold Alt to bend one side only. Release the button to keep it.";
     }
     const size_t points = anchors_.size();
     const auto count = [&] { return std::to_string(points) + (points == 1 ? " point. " : " points. "); };
@@ -1395,7 +1432,7 @@ std::string GroundPainterInputControl::StatusText() const {
             return "Release the button to keep the texture here.";
         }
         if (PointEditTarget_()) {
-            return "Drag the shape, its points or their curve handles to move them. Ctrl+click its outline to add a point. Alt+click a point to remove it. "
+            return "Drag the shape, its points or their curve handles to move them. Ctrl+click its outline to add a point. Alt+click a point to remove it. Alt+drag a curve handle to bend one side only. "
                    "Shift+drag to move its texture. Press Delete to remove the shape.";
         }
         return "Drag to move. Shift+drag to move the texture. Press , or . to turn. Press - or = to scale. Press Ctrl+D to copy. Press Delete to remove.";

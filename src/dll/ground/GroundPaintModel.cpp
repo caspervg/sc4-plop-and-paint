@@ -27,7 +27,7 @@ namespace Ground {
     }
 
     std::vector<Vec2> ShapePath(const ShapeSpec& shape, const bool closed) {
-        return UsesPenPath(shape) ? PenPath(shape.points, shape.handles, shape.pointRadii, shape.cornerRadius, closed)
+        return UsesPenPath(shape) ? PenPath(shape.points, shape.handles, shape.inHandles, shape.pointRadii, shape.cornerRadius, closed)
                                   : PathThrough(shape.points, shape.pathStyle, closed);
     }
 
@@ -44,10 +44,34 @@ namespace Ground {
         return {(after.x - before.x) * share, (after.z - before.z) * share};
     }
 
+    Vec2 InHandleOf(const ShapeSpec& shape, const size_t index) {
+        if (index < shape.inHandles.size()) {
+            return shape.inHandles[index];
+        }
+        return index < shape.handles.size() ? Vec2{-shape.handles[index].x, -shape.handles[index].z} : Vec2{};
+    }
+
+    void SetPointHandles(ShapeSpec& shape, const size_t index, const Vec2 handle, const Vec2 inHandle) {
+        shape.handles.resize(shape.points.size());
+        if (shape.inHandles.empty() && !(inHandle == Vec2{-handle.x, -handle.z})) {
+            // From here on each point keeps both of its handles.
+            for (const Vec2& existing : shape.handles) {
+                shape.inHandles.push_back({-existing.x, -existing.z});
+            }
+        }
+        shape.handles[index] = handle;
+        if (!shape.inHandles.empty()) {
+            shape.inHandles[index] = inHandle;
+        }
+    }
+
     void InsertShapePoint(ShapeSpec& shape, const size_t index, const Vec2 point) {
         if (!shape.handles.empty()) {
             shape.handles.resize(shape.points.size());
             shape.handles.insert(shape.handles.begin() + static_cast<std::ptrdiff_t>(index), Vec2{});
+        }
+        if (!shape.inHandles.empty()) {
+            shape.inHandles.insert(shape.inHandles.begin() + static_cast<std::ptrdiff_t>(index), Vec2{});
         }
         if (!shape.pointRadii.empty()) {
             shape.pointRadii.resize(shape.points.size(), -1.0f);
@@ -59,6 +83,9 @@ namespace Ground {
     void EraseShapePoint(ShapeSpec& shape, const size_t index) {
         if (index < shape.handles.size()) {
             shape.handles.erase(shape.handles.begin() + static_cast<std::ptrdiff_t>(index));
+        }
+        if (index < shape.inHandles.size()) {
+            shape.inHandles.erase(shape.inHandles.begin() + static_cast<std::ptrdiff_t>(index));
         }
         if (index < shape.pointRadii.size()) {
             shape.pointRadii.erase(shape.pointRadii.begin() + static_cast<std::ptrdiff_t>(index));
@@ -169,6 +196,9 @@ namespace Ground {
             // Offsets: they turn and scale, but do not move.
             shape.handles = Transformed(Area{shape.handles}, {}, placement.rotationRadians, placement.scale, {}).front();
         }
+        if (!shape.inHandles.empty()) {
+            shape.inHandles = Transformed(Area{shape.inHandles}, {}, placement.rotationRadians, placement.scale, {}).front();
+        }
         for (float& radius : shape.pointRadii) {
             radius = radius >= 0.0f ? radius * placement.scale : radius;
         }
@@ -195,8 +225,10 @@ namespace Ground {
         for (Vec2& p : shape.points) {
             p = MirroredPoint(p, pivot, axisRadians);
         }
-        for (Vec2& handle : shape.handles) {
-            handle = MirroredPoint(handle, {}, axisRadians);
+        for (std::vector<Vec2>* const list : {&shape.handles, &shape.inHandles}) {
+            for (Vec2& handle : *list) {
+                handle = MirroredPoint(handle, {}, axisRadians);
+            }
         }
         shape.outline = Mirrored(shape.outline, pivot, axisRadians);
         object.erased = Mirrored(object.erased, pivot, axisRadians);

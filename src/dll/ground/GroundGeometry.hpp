@@ -35,13 +35,14 @@ namespace Ground {
     [[nodiscard]] std::vector<Vec2> PathThrough(std::span<const Vec2> anchors, PathStyle style, bool closed,
                                                 float spacing = 0.5f);
 
-    // The path a pen draws. Each anchor has a handle, an offset from it: the curve leaves along the
-    // handle and arrives along its mirror, and a zero handle makes a corner. A missing handle or a
-    // negative radius counts as a zero handle or defaultRadius. A corner between two straight
-    // sides is rounded with its radius, at most as far as half the shorter side.
+    // The path a pen draws. Each anchor has two handles, offsets from it: the curve leaves along
+    // handles and arrives along inHandles. Zero handles make a corner. A missing handle counts as
+    // zero, a missing in-handle as the mirror of its handle, and a negative radius as
+    // defaultRadius. A corner between two straight sides is rounded with its radius, at most as
+    // far as half the shorter side.
     [[nodiscard]] std::vector<Vec2> PenPath(std::span<const Vec2> anchors, std::span<const Vec2> handles,
-                                            std::span<const float> radii, float defaultRadius, bool closed,
-                                            float spacing = 0.25f);
+                                            std::span<const Vec2> inHandles, std::span<const float> radii,
+                                            float defaultRadius, bool closed, float spacing = 0.25f);
 
     // Drops points of a hand-drawn path that stray less than tolerance from the line, so a
     // freehand stroke becomes a few anchors a curve can go through.

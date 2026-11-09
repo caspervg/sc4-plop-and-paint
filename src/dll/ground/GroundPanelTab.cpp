@@ -1472,14 +1472,25 @@ void GroundPanelTab::RenderSelection_(Document& document) {
             ImGui::TextDisabled("Click a point in the city to change only that point.");
             return;
         }
-        const bool curve = *picked < shape.handles.size() && shape.handles[*picked] != Vec2{};
+        const Vec2 handle = *picked < shape.handles.size() ? shape.handles[*picked] : Vec2{};
+        const Vec2 inHandle = InHandleOf(shape, *picked);
+        const bool curve = handle != Vec2{} || inHandle != Vec2{};
         if (ImGui::SmallButton(curve ? "Make corner" : "Make curve")) {
-            shape.handles.resize(shape.points.size());
-            shape.handles[*picked] = curve ? Vec2{} : SmoothHandle(shape.points, *picked, shape.kind == ShapeKind::Area);
+            const Vec2 smooth = curve ? Vec2{} : SmoothHandle(shape.points, *picked, shape.kind == ShapeKind::Area);
+            SetPointHandles(shape, *picked, smooth, {-smooth.x, -smooth.z});
             committed = true;
         }
         Tooltip(curve ? "Change the point that you clicked last to a sharp corner."
                       : "Change the point that you clicked last to a smooth curve. Then drag its handles in the city.");
+        if (curve && !(inHandle == Vec2{-handle.x, -handle.z})) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Join handles")) {
+                const Vec2 outgoing = handle != Vec2{} ? handle : Vec2{-inHandle.x, -inHandle.z};
+                SetPointHandles(shape, *picked, outgoing, {-outgoing.x, -outgoing.z});
+                committed = true;
+            }
+            Tooltip("Make the two handles of this point a straight line again, so that the curve is smooth.");
+        }
         if (curve) {
             return;
         }

@@ -277,14 +277,19 @@ namespace Ground {
     }
 
     std::vector<Vec2> PenPath(const std::span<const Vec2> anchors, const std::span<const Vec2> handles,
-                              const std::span<const float> radii, const float defaultRadius, const bool closed,
-                              const float spacing) {
+                              const std::span<const Vec2> inHandles, const std::span<const float> radii,
+                              const float defaultRadius, const bool closed, const float spacing) {
         const size_t n = anchors.size();
         if (n < 2) {
             return {anchors.begin(), anchors.end()};
         }
         const auto handleOf = [&](const size_t i) { return i < handles.size() ? handles[i] : Vec2{}; };
-        const auto isCorner = [&](const size_t i) { return handleOf(i) == Vec2{}; };
+        const auto inHandleOf = [&](const size_t i) {
+            return i < inHandles.size() ? inHandles[i] : Vec2{-handleOf(i).x, -handleOf(i).z};
+        };
+        const auto straight = [&](const size_t from, const size_t to) {
+            return handleOf(from) == Vec2{} && inHandleOf(to) == Vec2{};
+        };
         const float step = std::max(0.05f, spacing);
         std::vector<Vec2> path;
 
@@ -293,7 +298,7 @@ namespace Ground {
             const size_t before = (i + n - 1) % n;
             const size_t after = (i + 1) % n;
             const float wanted = i < radii.size() && radii[i] >= 0.0f ? radii[i] : defaultRadius;
-            if (wanted <= 0.0f || (!closed && (i == 0 || i + 1 == n)) || !isCorner(before) || !isCorner(i) || !isCorner(after)) {
+            if (wanted <= 0.0f || (!closed && (i == 0 || i + 1 == n)) || !straight(before, i) || !straight(i, after)) {
                 path.push_back(b);
                 return;
             }
@@ -332,7 +337,7 @@ namespace Ground {
             const Vec2 p0 = anchors[i];
             const Vec2 p3 = anchors[j];
             const Vec2 p1{p0.x + handleOf(i).x, p0.z + handleOf(i).z};
-            const Vec2 p2{p3.x - handleOf(j).x, p3.z - handleOf(j).z};
+            const Vec2 p2{p3.x + inHandleOf(j).x, p3.z + inHandleOf(j).z};
             const float rough = std::hypot(p1.x - p0.x, p1.z - p0.z) + std::hypot(p2.x - p1.x, p2.z - p1.z) +
                                 std::hypot(p3.x - p2.x, p3.z - p2.z);
             const int steps = std::clamp(static_cast<int>(std::ceil(rough / step)), 2, 256);
@@ -350,7 +355,7 @@ namespace Ground {
         const size_t segments = closed ? n : n - 1;
         for (size_t i = 0; i < n; ++i) {
             addCorner(i);
-            if (i < segments && !(isCorner(i) && isCorner((i + 1) % n))) {
+            if (i < segments && !straight(i, (i + 1) % n)) {
                 addCurve(i, (i + 1) % n);
             }
         }
