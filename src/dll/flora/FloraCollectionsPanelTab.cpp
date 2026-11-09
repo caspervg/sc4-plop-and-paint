@@ -9,6 +9,13 @@
 #include "../common/Constants.hpp"
 #include "../common/Utils.hpp"
 
+using PanelUi::ButtonWidth;
+using PanelUi::CheckboxWidth;
+using PanelUi::Hint;
+using PanelUi::kGroupGap;
+using PanelUi::NextInRow;
+using PanelUi::Tooltip;
+
 namespace {
     constexpr ImU32 kMultiStageColor = IM_COL32(82, 92, 132, 255);
     constexpr ImU32 kMultiStageHoverColor = IM_COL32(98, 110, 156, 255);
@@ -48,7 +55,7 @@ namespace {
         case FloraRepository::CollectionType::Family:
             return "Family";
         case FloraRepository::CollectionType::MultiStage:
-            return "Chain";
+            return "Multi-stage";
         }
 
         return "?";
@@ -81,8 +88,9 @@ void FloraCollectionsPanelTab::OnRender() {
     const auto& collections = flora_->GetFloraCollections();
 
     if (collections.empty()) {
-        ImGui::TextDisabled("No flora collections available.");
-        ImGui::TextWrapped("Collections come from flora families and multi-stage chains. They show after the flora data loads.");
+        ImGui::TextUnformatted("No flora collections yet.");
+        Hint("Collections come from flora families and multi-stage flora. If the Flora tab is empty too, "
+             "run the cache builder to make flora.cbor in the Plugins folder, then restart the game.");
         return;
     }
 
@@ -99,25 +107,28 @@ void FloraCollectionsPanelTab::OnRender() {
         selectedCollectionKey_ = BuildCollectionKey_(first.type, first.id);
     }
 
-    ImGui::Text("Showing %zu of %zu collections", filteredIndices.size(), collections.size());
+    RenderResultLine_(filteredIndices.size(), collections.size());
     if (director_->IsFloraPainting()) {
-        ImGui::SameLine();
         if (ImGui::SmallButton("Stop painting")) {
             director_->StopFloraPainting();
         }
-    }
-    RenderFloraStripperControls_(1);
-
-    ImGui::Separator();
-    if (ImGui::BeginChild("FloraCollectionsTableRegion", ImVec2(0, UI::familyTableHeight()), false)) {
-        RenderCollectionsTable_(collections, filteredIndices);
-    }
-    ImGui::EndChild();
-
-    if (filteredIndices.empty()) {
-        ImGui::TextDisabled("No collections match the current filters.");
+        RenderFloraStripperControls_(1);
     }
     else {
+        RenderFloraStripperControls_();
+    }
+    ImGui::Separator();
+
+    if (filteredIndices.empty()) {
+        if (PanelUi::NoResults("No collections match these filters.")) {
+            ClearFilters_();
+        }
+    }
+    else {
+        // The list takes about a third of the panel and the flora the rest. Both stay usable in
+        // a short panel, which then scrolls.
+        const float row = ImGui::GetFrameHeightWithSpacing();
+        RenderCollectionsTable_(collections, filteredIndices, std::max(row * 6.5f, ImGui::GetContentRegionAvail().y * 0.35f));
         RenderSelectedCollectionPanel_(collections);
     }
 
@@ -125,6 +136,30 @@ void FloraCollectionsPanelTab::OnRender() {
         return LoadFloraTexture_(key);
     });
     RenderPaintModal_();
+}
+
+void FloraCollectionsPanelTab::RenderResultLine_(const size_t shown, const size_t total) {
+    ImGui::Text("Showing %zu of %zu collections", shown, total);
+    const int active = static_cast<int>(nameFilterBuf_[0] != '\0') + static_cast<int>(iidFilterBuf_[0] != '\0') +
+                       static_cast<int>(typeFilter_ != 0) + static_cast<int>(favoritesOnly_);
+    if (active > 0) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d filter%s on", active, active == 1 ? "" : "s");
+    }
+    ImGui::SameLine(0.0f, kGroupGap);
+    ImGui::BeginDisabled(active == 0);
+    if (ImGui::SmallButton("Clear filters")) {
+        ClearFilters_();
+    }
+    ImGui::EndDisabled();
+    Tooltip(active == 0 ? "No filters are on." : "Show all collections again.");
+}
+
+void FloraCollectionsPanelTab::ClearFilters_() {
+    nameFilterBuf_[0] = '\0';
+    iidFilterBuf_[0] = '\0';
+    typeFilter_ = 0;
+    favoritesOnly_ = false;
 }
 
 void FloraCollectionsPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
@@ -156,21 +191,15 @@ void FloraCollectionsPanelTab::RenderFilterUI_() {
 
     ImGui::SetNextItemWidth(UI::iidFilterWidth());
     ImGui::InputTextWithHint("##SearchFloraCollectionsByIid", "Filter IID (0x...)", iidFilterBuf_, sizeof(iidFilterBuf_));
-    ImGui::SameLine();
 
+    NextInRow(1, UI::dropdownWidth());
     static constexpr const char* kTypeOptions[] = {"All types", "Families", "Multi-stage"};
     ImGui::SetNextItemWidth(UI::dropdownWidth());
     ImGui::Combo("##FloraCollectionType", &typeFilter_, kTypeOptions, IM_ARRAYSIZE(kTypeOptions));
 
-    ImGui::SameLine();
+    NextInRow(2, CheckboxWidth("Favorites only"));
     ImGui::Checkbox("Favorites only", &favoritesOnly_);
-    ImGui::SameLine();
-    if (ImGui::Button("Clear filters")) {
-        nameFilterBuf_[0] = '\0';
-        iidFilterBuf_[0] = '\0';
-        typeFilter_ = 0;
-        favoritesOnly_ = false;
-    }
+    Tooltip("Show the collections that you starred, and those with flora that you starred.");
 }
 
 void FloraCollectionsPanelTab::BuildFilteredCollectionIndices_(const std::vector<FloraRepository::FloraCollection>& collections,
@@ -198,11 +227,13 @@ void FloraCollectionsPanelTab::BuildFilteredCollectionIndices_(const std::vector
             continue;
         }
         if (favoritesOnly_) {
+            const bool starred = favorites_->IsFamilyFavorite(
+                FavoritesRepository::FloraCollectionFavoriteKey(static_cast<uint32_t>(collection.type), collection.id));
             const bool hasFavoriteMember = std::ranges::any_of(collection.members, [&favoriteFloraIds](const Flora* flora) {
                 return flora &&
                     favoriteFloraIds.contains(MakeGIKey(flora->groupId.value(), flora->instanceId.value()));
             });
-            if (!hasFavoriteMember) {
+            if (!starred && !hasFavoriteMember) {
                 continue;
             }
         }
@@ -212,12 +243,12 @@ void FloraCollectionsPanelTab::BuildFilteredCollectionIndices_(const std::vector
 }
 
 void FloraCollectionsPanelTab::RenderCollectionsTable_(const std::vector<FloraRepository::FloraCollection>& collections,
-                                                       const std::vector<size_t>& filteredIndices) {
+                                                       const std::vector<size_t>& filteredIndices, const float height) {
     constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
         ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoBordersInBody |
         ImGuiTableFlags_ScrollY;
 
-    if (!ImGui::BeginTable("FloraCollectionsTable", 5, tableFlags, ImVec2(0, 0))) {
+    if (!ImGui::BeginTable("FloraCollectionsTable", 5, tableFlags, ImVec2(0, height))) {
         return;
     }
     ImGui::TableSetupScrollFreeze(0, 1);
@@ -228,80 +259,117 @@ void FloraCollectionsPanelTab::RenderCollectionsTable_(const std::vector<FloraRe
     ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, UI::familyActionColWidth());
     ImGui::TableHeadersRow();
 
-    for (const size_t collectionIndex : filteredIndices) {
-        const auto& collection = collections[collectionIndex];
-        const bool selected = BuildCollectionKey_(collection.type, collection.id) == selectedCollectionKey_;
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(filteredIndices.size()));
+    while (clipper.Step()) {
+        for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+            const size_t collectionIndex = filteredIndices[static_cast<size_t>(row)];
+            const auto& collection = collections[collectionIndex];
+            const bool selected = BuildCollectionKey_(collection.type, collection.id) == selectedCollectionKey_;
 
-        ImGui::PushID(static_cast<int>(collectionIndex));
-        ImGui::TableNextRow();
+            ImGui::PushID(static_cast<int>(collectionIndex));
+            ImGui::TableNextRow();
 
-        ImGui::TableNextColumn();
-        ImGui::Selectable("##collectionrow", selected,
-                          ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap |
-                              ImGuiSelectableFlags_AllowDoubleClick);
-        if (ImGui::IsItemClicked()) {
-            selectedCollectionKey_ = BuildCollectionKey_(collection.type, collection.id);
-            if (ImGui::IsMouseDoubleClicked(0)) {
+            ImGui::TableNextColumn();
+            ImGui::Selectable("##collectionrow", selected,
+                              ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap |
+                                  ImGuiSelectableFlags_AllowDoubleClick);
+            if (ImGui::IsItemClicked()) {
+                selectedCollectionKey_ = BuildCollectionKey_(collection.type, collection.id);
+                if (ImGui::IsMouseDoubleClicked(0)) {
+                    QueuePaintForCollection_(collection);
+                }
+            }
+            ImGui::SameLine();
+            ImGui::TextUnformatted(CollectionTypeLabel(collection.type));
+
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(collection.name.c_str());
+
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(FormatHexId(collection.id).c_str());
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%zu", collection.members.size());
+
+            ImGui::TableNextColumn();
+            ImGui::BeginDisabled(collection.members.empty());
+            if (ImGui::SmallButton("Paint")) {
+                selectedCollectionKey_ = BuildCollectionKey_(collection.type, collection.id);
                 QueuePaintForCollection_(collection);
             }
+            ImGui::EndDisabled();
+            if (collection.members.empty()) {
+                Tooltip("This collection has no flora.");
+            }
+            ImGui::SameLine();
+            const uint64_t favoriteKey =
+                FavoritesRepository::FloraCollectionFavoriteKey(static_cast<uint32_t>(collection.type), collection.id);
+            const bool favorite = favorites_->IsFamilyFavorite(favoriteKey);
+            if (ImGui::SmallButton(favorite ? "Unstar" : "Star")) {
+                favorites_->ToggleFamilyFavorite(favoriteKey);
+            }
+            Tooltip(favorite ? "Remove from favorites" : "Add to favorites");
+
+            ImGui::PopID();
         }
-        ImGui::SameLine();
-        ImGui::TextUnformatted(CollectionTypeLabel(collection.type));
-
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(collection.name.c_str());
-
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(FormatHexId(collection.id).c_str());
-
-        ImGui::TableNextColumn();
-        ImGui::Text("%zu", collection.members.size());
-
-        ImGui::TableNextColumn();
-        if (ImGui::SmallButton("Paint")) {
-            selectedCollectionKey_ = BuildCollectionKey_(collection.type, collection.id);
-            QueuePaintForCollection_(collection);
-        }
-
-        ImGui::PopID();
     }
 
     ImGui::EndTable();
 }
 
 void FloraCollectionsPanelTab::RenderSelectedCollectionPanel_(const std::vector<FloraRepository::FloraCollection>& collections) {
-    const FloraRepository::FloraCollection* selectedCollection = GetSelectedCollection_(collections);
-    if (!selectedCollection) {
+    const FloraRepository::FloraCollection* collection = GetSelectedCollection_(collections);
+    if (!collection) {
         return;
     }
 
-    ImGui::TextDisabled(selectedCollection->type == FloraRepository::CollectionType::Family
-                            ? "Read-only flora family"
-                            : "Read-only multi-stage collection");
-    ImGui::TextUnformatted(selectedCollection->name.c_str());
-    ImGui::Separator();
-    ImGui::Text("IID: %s", FormatHexId(selectedCollection->id).c_str());
-    ImGui::Text("%zu flora items in collection", selectedCollection->members.size());
-    ImGui::TextDisabled(selectedCollection->type == FloraRepository::CollectionType::Family
-                            ? "Painting picks randomly from the family members."
-                            : "Painting picks from the chain stages.");
+    ImGui::TextUnformatted(collection->name.c_str());
 
-    if (selectedCollection->members.empty()) {
-        ImGui::TextDisabled("No flora in this collection.");
+    // What can be done with it comes before its flora, so that it does not scroll out of view.
+    const bool empty = collection->members.empty();
+    const bool family = collection->type == FloraRepository::CollectionType::Family;
+    ImGui::BeginDisabled(empty);
+    if (ImGui::Button("Paint collection")) {
+        QueuePaintForCollection_(*collection);
     }
-    else if (ImGui::BeginTable("FloraCollectionEntries", 4,
-                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
-                               ImVec2(0, UI::familyEntriesHeight()))) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("##icon", ImGuiTableColumnFlags_WidthFixed, UI::iconColumnWidth());
-        ImGui::TableSetupColumn("Flora", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Instance ID", ImGuiTableColumnFlags_WidthFixed, UI::instanceIdColumnWidth());
-        ImGui::TableSetupColumn("Fav", ImGuiTableColumnFlags_WidthFixed, UI::favoriteColumnWidth());
-        ImGui::TableHeadersRow();
+    ImGui::EndDisabled();
+    Tooltip(empty ? "This collection has no flora."
+                  : family ? "Painting picks at random from the flora of this family."
+                           : "Painting picks at random from the stages of this flora.");
+    ImGui::SameLine(0.0f, kGroupGap);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%zu flora items", collection->members.size());
+    Tooltip("Collections are made from your plugins and cannot be changed.");
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", FormatHexId(collection->id).c_str());
 
-        for (size_t i = 0; i < selectedCollection->members.size(); ++i) {
-            const Flora* flora = selectedCollection->members[i];
-            ImGui::PushID(static_cast<int>(i));
+    if (empty) {
+        Hint("This collection has no flora.");
+        return;
+    }
+    RenderMemberTable_(*collection,
+                       std::max(UI::iconRowHeight() * 3.0f + ImGui::GetTextLineHeightWithSpacing(), ImGui::GetContentRegionAvail().y));
+}
+
+void FloraCollectionsPanelTab::RenderMemberTable_(const FloraRepository::FloraCollection& collection, const float height) {
+    if (!ImGui::BeginTable("FloraCollectionEntries", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
+                           ImVec2(0, height))) {
+        return;
+    }
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("##icon", ImGuiTableColumnFlags_WidthFixed, UI::iconColumnWidth());
+    ImGui::TableSetupColumn("Flora", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("Instance ID", ImGuiTableColumnFlags_WidthFixed, UI::instanceIdColumnWidth());
+    ImGui::TableSetupColumn("##star", ImGuiTableColumnFlags_WidthFixed, UI::favoriteColumnWidth());
+    ImGui::TableHeadersRow();
+
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(collection.members.size()), UI::iconRowHeight());
+    while (clipper.Step()) {
+        for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+            const Flora* flora = collection.members[static_cast<size_t>(row)];
+            ImGui::PushID(row);
             ImGui::TableNextRow(0, UI::iconRowHeight());
 
             ImGui::TableNextColumn();
@@ -310,8 +378,7 @@ void FloraCollectionsPanelTab::RenderSelectedCollectionPanel_(const std::vector<
                 if (flora_->GetFloraThumbnailStore().HasThumbnail(key)) {
                     thumbnailCache_.Request(key);
                 }
-                auto thumbId = thumbnailCache_.Get(key);
-                RenderThumbnailWithPreview_(thumbId, flora_->GetFloraThumbnailStore(), key);
+                RenderThumbnailWithPreview_(thumbnailCache_.Get(key), flora_->GetFloraThumbnailStore(), key);
             }
             else {
                 RenderThumbnail_(std::nullopt);
@@ -342,8 +409,7 @@ void FloraCollectionsPanelTab::RenderSelectedCollectionPanel_(const std::vector<
 
             ImGui::TableNextColumn();
             if (flora) {
-                const std::string idSuffix = std::to_string(i);
-                RenderFavoriteButton_(*flora, idSuffix.c_str());
+                RenderFavoriteButton_(*flora);
             }
             else {
                 ImGui::TextDisabled("-");
@@ -351,20 +417,9 @@ void FloraCollectionsPanelTab::RenderSelectedCollectionPanel_(const std::vector<
 
             ImGui::PopID();
         }
-
-        ImGui::EndTable();
     }
 
-    ImGui::Separator();
-    if (selectedCollection->members.empty()) {
-        ImGui::BeginDisabled();
-    }
-    if (ImGui::Button("Paint collection")) {
-        QueuePaintForCollection_(*selectedCollection);
-    }
-    if (selectedCollection->members.empty()) {
-        ImGui::EndDisabled();
-    }
+    ImGui::EndTable();
 }
 
 void FloraCollectionsPanelTab::RenderPaintModal_() {
@@ -387,7 +442,8 @@ void FloraCollectionsPanelTab::RenderPaintModal_() {
     ImGui::Checkbox("Place on roads and lots", &pendingPaint_.settings.placeFloraOverObjects);
     PanelUi::Tooltip("Flora can stand on roads, buildings, props and other flora. Flora does not go into water that it cannot grow in.");
 
-    if (ImGui::Button("Start")) {
+    ImGui::Separator();
+    if (RenderStartCancel_()) {
         ReleaseImGuiInputCapture_();
         director_->SaveGridChoice(&PaintGridChoices::flora, pendingPaint_.settings);
         const RecentPaintSource source{
@@ -395,11 +451,6 @@ void FloraCollectionsPanelTab::RenderPaintModal_() {
             .sourceId = pendingPaint_.sourceId
         };
         director_->StartFloraPainting(pendingPaint_.typeId, pendingPaint_.settings, pendingPaint_.name, source);
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel")) {
-        ImGui::CloseCurrentPopup();
     }
 
     ImGui::EndPopup();
@@ -413,21 +464,27 @@ void FloraCollectionsPanelTab::QueuePaintForCollection_(const FloraRepository::F
     pendingPaint_.sourceId = collection.id;
     pendingPaint_.name = collection.name;
     pendingPaint_.detail = collection.type == FloraRepository::CollectionType::Family
-        ? "Randomly picks from the flora family members."
-        : "Randomly picks from the multi-stage chain.";
+        ? "Picks at random from the flora of this family."
+        : "Picks at random from the stages of this flora.";
     pendingPaint_.settings.activePalette = collection.palette;
+
+    // Already painting: keeps the current mode and rotation, without the dialog.
+    if (director_->IsFloraPainting() && pendingPaint_.typeId != 0) {
+        ReleaseImGuiInputCapture_();
+        const RecentPaintSource source{.sourceKind = pendingPaint_.sourceKind, .sourceId = pendingPaint_.sourceId};
+        if (director_->SwitchFloraPaintingTarget(pendingPaint_.typeId, collection.name, collection.palette, source)) {
+            return;
+        }
+    }
     pendingPaint_.open = true;
 }
 
-void FloraCollectionsPanelTab::RenderFavoriteButton_(const Flora& flora, const char* idSuffix) const {
+void FloraCollectionsPanelTab::RenderFavoriteButton_(const Flora& flora) const {
     const bool isFavorite = favorites_->IsFloraFavorite(flora.groupId.value(), flora.instanceId.value());
-    const std::string label = std::string(isFavorite ? "Unstar##" : "Star##") + idSuffix;
-    if (ImGui::Button(label.c_str())) {
+    if (ImGui::SmallButton(isFavorite ? "Unstar" : "Star")) {
         favorites_->ToggleFloraFavorite(flora.groupId.value(), flora.instanceId.value());
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(isFavorite ? "Remove from favorites" : "Add to favorites");
-    }
+    Tooltip(isFavorite ? "Remove this flora from favorites" : "Add this flora to favorites");
 }
 
 bool FloraCollectionsPanelTab::RenderFloraPills_(const Flora& flora, const bool startOnNewLine) const {
@@ -447,9 +504,11 @@ bool FloraCollectionsPanelTab::RenderFloraPills_(const Flora& flora, const bool 
 
     if (!flora.familyIds.empty()) {
         renderPill("Family", Badges::kFamilyColor, Badges::kFamilyHoverColor);
+        Tooltip("This flora is in a flora family.");
     }
     if (flora.clusterNextType.has_value()) {
         renderPill("Multi-stage", kMultiStageColor, kMultiStageHoverColor);
+        Tooltip("This flora grows into other stages.");
     }
 
     return renderedAny;

@@ -28,6 +28,10 @@ public:
     [[nodiscard]] static uint64_t FamilyFavoriteKey(const bool builtIn, const uint64_t id) {
         return (builtIn ? uint64_t{1} << 63 : uint64_t{0}) | id;
     }
+    // Flora collections are starred the same way, in a range of keys of their own.
+    [[nodiscard]] static uint64_t FloraCollectionFavoriteKey(const uint32_t type, const uint32_t id) {
+        return uint64_t{1} << 62 | static_cast<uint64_t>(type) << 32 | id;
+    }
     [[nodiscard]] bool IsFamilyFavorite(uint64_t key) const { return favoriteFamilyKeys_.contains(key); }
     void ToggleFamilyFavorite(uint64_t key);
 

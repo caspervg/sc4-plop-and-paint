@@ -196,12 +196,13 @@ Filters:
 - `Filter IID (0x...)`
 - Type: `All types`, `Families`, `Multi-stage`
 - `Favorites only`
-- `Clear filters`
+- `Clear filters`, next to the number of collections shown
 
 Important behavior:
 
-- `Favorites only` shows only collections that contain at least one favorited flora item
-- Double-clicking a collection row or pressing `Paint` opens the flora paint options for that collection
+- `Star` / `Unstar` on a collection row manages collection favorites
+- `Favorites only` shows the collections that you starred, and those with at least one favorited flora item
+- Double-clicking a collection row or pressing `Paint` opens the flora paint options for that collection. While you are already painting flora, it switches to that collection and keeps your settings
 - Selecting a collection shows its members below, including thumbnails, IDs, and favorite buttons for the individual flora entries
 
 ## Terrain Paint
