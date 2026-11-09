@@ -403,6 +403,38 @@ int main() {
         CHECK(std::hypot(along.points.back().x - 50, along.points.back().z - 50) < 0.01f);
     }
 
+    // Pen shapes: handles and corner radii stay with their points, move with the shape and are saved.
+    {
+        PaintObject pen = Square(0, 0, 10);
+        pen.shape.points = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        pen.shape.handles = {{0, 2}, {}, {}, {}};
+        CHECK(std::abs(AreaOf(BuildArea(pen)) - 100.0) > 0.5);
+
+        InsertShapePoint(pen.shape, 1, {5, 0});
+        CHECK(pen.shape.points.size() == 5 && pen.shape.handles.size() == 5 && pen.shape.handles[1] == Vec2{});
+        EraseShapePoint(pen.shape, 1);
+        CHECK(pen.shape.points.size() == 4 && pen.shape.handles.size() == 4 && (pen.shape.handles[0] == Vec2{0, 2}));
+
+        PaintObject moved = pen;
+        moved.shape.pointRadii = {-1.0f, 1.0f, -1.0f, -1.0f};
+        TransformObject(moved, {.scale = 2.0f, .offset = {3.0f, 0.0f}});
+        CHECK((moved.shape.handles[0] == Vec2{0, 4}));
+        CHECK(moved.shape.pointRadii[0] < 0.0f && moved.shape.pointRadii[1] == 2.0f);
+
+        const std::vector<Vec2> row{{0, 0}, {10, 0}, {20, 0}};
+        CHECK(std::abs(SmoothHandle(row, 1, false).x - 20.0f / 6.0f) < 0.001f);
+        CHECK(std::abs(SmoothHandle(row, 0, false).x - 10.0f / 3.0f) < 0.001f);
+        CHECK(std::abs(SmoothHandle(row, 0, true).x - (10.0f - 20.0f) / 6.0f) < 0.001f);
+
+        GroundPaintDocument penDoc(kWhite);
+        const uint32_t id = penDoc.Add(moved);
+        CHECK(id != 0);
+        GroundPaintDocument penLoaded(kWhite);
+        CHECK(penLoaded.Load(penDoc.Save()));
+        CHECK(penLoaded.Find(id)->shape.handles == moved.shape.handles);
+        CHECK(penLoaded.Find(id)->shape.pointRadii == moved.shape.pointRadii);
+    }
+
     std::puts("ok");
     return 0;
 }

@@ -761,9 +761,9 @@ void GroundPanelTab::RenderShapeSettings_() {
         }
         else {
             int style = static_cast<int>(settings_.drawStyle);
-            changed |= ImGui::Combo("##draw", &style, "Straight lines\0Curves\0Freehand\0");
+            changed |= ImGui::Combo("##draw", &style, "Straight lines\0Curves\0Freehand\0Pen (drag for curves)\0");
             settings_.drawStyle = static_cast<DrawStyle>(style);
-            Tooltip("Draw straight lines between your clicks, a curve through your clicks, or a freehand line.");
+            Tooltip("Draw straight lines between your clicks, a curve through your clicks, a freehand line, or use the pen.\nWith the pen, a click makes a corner. Hold the button and drag to make a curve.");
         }
         if (tool == Tool::Area) {
             ImGui::SameLine();
@@ -1432,7 +1432,8 @@ void GroundPanelTab::RenderSelection_(Document& document) {
         editingId_ = 0;
         return;
     }
-    if (editingId_ != first || (!ImGui::IsAnyItemActive() && object->drawOrder != editing_.drawOrder)) {
+    if (editingId_ != first ||
+        (!ImGui::IsAnyItemActive() && (object->drawOrder != editing_.drawOrder || !(object->shape == editing_.shape)))) {
         editingId_ = first;
         editing_ = *object;
         selectionLook_ = {};
@@ -1460,10 +1461,42 @@ void GroundPanelTab::RenderSelection_(Document& document) {
     if (shape.kind != ShapeKind::Merged) {
         ImGui::SeparatorText(shape.kind == ShapeKind::Marking ? "Marking" : "Shape");
     }
+    // What only the point that was clicked last can have: a curve, or its own corner radius.
+    const auto renderPointRadius = [&] {
+        if (shape.pathStyle != PathStyle::Straight) {
+            return;
+        }
+        const GroundPainterInputControl* const painter = director_->GetGroundPainter();
+        const std::optional<size_t> picked = painter ? painter->PickedPoint() : std::nullopt;
+        if (!picked || *picked >= shape.points.size()) {
+            ImGui::TextDisabled("Click a point in the city to change only that point.");
+            return;
+        }
+        const bool curve = *picked < shape.handles.size() && shape.handles[*picked] != Vec2{};
+        if (ImGui::SmallButton(curve ? "Make corner" : "Make curve")) {
+            shape.handles.resize(shape.points.size());
+            shape.handles[*picked] = curve ? Vec2{} : SmoothHandle(shape.points, *picked, shape.kind == ShapeKind::Area);
+            committed = true;
+        }
+        Tooltip(curve ? "Change the point that you clicked last to a sharp corner."
+                      : "Change the point that you clicked last to a smooth curve. Then drag its handles in the city.");
+        if (curve) {
+            return;
+        }
+        const bool own = *picked < shape.pointRadii.size() && shape.pointRadii[*picked] >= 0.0f;
+        float radius = own ? shape.pointRadii[*picked] : shape.cornerRadius;
+        if (ImGui::DragFloat("This corner", &radius, 0.05f, 0.0f, 50.0f, radius > 0.0f ? "%.2f m" : "sharp")) {
+            shape.pointRadii.resize(shape.points.size(), -1.0f);
+            shape.pointRadii[*picked] = radius;
+        }
+        Track(changed, committed);
+        Tooltip("Round only the corner that you clicked last in the city.");
+    };
     switch (shape.kind) {
     case ShapeKind::Area:
         ImGui::DragFloat("Round corners", &shape.cornerRadius, 0.05f, 0.0f, 50.0f, shape.cornerRadius > 0.0f ? "%.2f m" : "no");
         Track(changed, committed);
+        renderPointRadius();
         break;
     case ShapeKind::Line: {
         const float width = ShareOfLine(shape.dashLength > 0.0f ? 3 : 2);
@@ -1480,6 +1513,7 @@ void GroundPanelTab::RenderSelection_(Document& document) {
             ImGui::DragFloat("##gaps", &shape.gapLength, 0.05f, 0.0f, 50.0f, "Gaps %.2f m");
             Track(changed, committed);
         }
+        renderPointRadius();
         break;
     }
     case ShapeKind::Brush:

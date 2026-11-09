@@ -276,6 +276,87 @@ namespace Ground {
         return ToArea(Union(stroke, FillRule::NonZero, kPrecision));
     }
 
+    std::vector<Vec2> PenPath(const std::span<const Vec2> anchors, const std::span<const Vec2> handles,
+                              const std::span<const float> radii, const float defaultRadius, const bool closed,
+                              const float spacing) {
+        const size_t n = anchors.size();
+        if (n < 2) {
+            return {anchors.begin(), anchors.end()};
+        }
+        const auto handleOf = [&](const size_t i) { return i < handles.size() ? handles[i] : Vec2{}; };
+        const auto isCorner = [&](const size_t i) { return handleOf(i) == Vec2{}; };
+        const float step = std::max(0.05f, spacing);
+        std::vector<Vec2> path;
+
+        const auto addCorner = [&](const size_t i) {
+            const Vec2 b = anchors[i];
+            const size_t before = (i + n - 1) % n;
+            const size_t after = (i + 1) % n;
+            const float wanted = i < radii.size() && radii[i] >= 0.0f ? radii[i] : defaultRadius;
+            if (wanted <= 0.0f || (!closed && (i == 0 || i + 1 == n)) || !isCorner(before) || !isCorner(i) || !isCorner(after)) {
+                path.push_back(b);
+                return;
+            }
+            const float beforeLength = std::hypot(anchors[before].x - b.x, anchors[before].z - b.z);
+            const float afterLength = std::hypot(anchors[after].x - b.x, anchors[after].z - b.z);
+            if (beforeLength < 1.0e-4f || afterLength < 1.0e-4f) {
+                path.push_back(b);
+                return;
+            }
+            const Vec2 u{(anchors[before].x - b.x) / beforeLength, (anchors[before].z - b.z) / beforeLength};
+            const Vec2 v{(anchors[after].x - b.x) / afterLength, (anchors[after].z - b.z) / afterLength};
+            constexpr float kHalfPi = 1.5707963f;
+            const float halfAngle = 0.5f * std::acos(std::clamp(u.x * v.x + u.z * v.z, -1.0f, 1.0f));
+            if (halfAngle < 0.01f || halfAngle > kHalfPi - 0.01f) {
+                path.push_back(b);  // folded back on itself, or no corner at all
+                return;
+            }
+            const float tangent = std::min(wanted / std::tan(halfAngle), 0.5f * std::min(beforeLength, afterLength));
+            const float radius = tangent * std::tan(halfAngle);
+            const float bisectorLength = std::hypot(u.x + v.x, u.z + v.z);
+            const float toCentre = radius / std::sin(halfAngle);
+            const Vec2 centre{b.x + (u.x + v.x) / bisectorLength * toCentre, b.z + (u.z + v.z) / bisectorLength * toCentre};
+            const float start = std::atan2(b.z + u.z * tangent - centre.z, b.x + u.x * tangent - centre.x);
+            const float end = std::atan2(b.z + v.z * tangent - centre.z, b.x + v.x * tangent - centre.x);
+            float sweep = end - start;
+            while (sweep > 2.0f * kHalfPi) sweep -= 4.0f * kHalfPi;
+            while (sweep < -2.0f * kHalfPi) sweep += 4.0f * kHalfPi;
+            const int steps = std::clamp(static_cast<int>(std::ceil(std::abs(sweep) * radius / step)), 2, 32);
+            for (int s = 0; s <= steps; ++s) {
+                const float angle = start + sweep * static_cast<float>(s) / static_cast<float>(steps);
+                path.push_back({centre.x + radius * std::cos(angle), centre.z + radius * std::sin(angle)});
+            }
+        };
+
+        const auto addCurve = [&](const size_t i, const size_t j) {
+            const Vec2 p0 = anchors[i];
+            const Vec2 p3 = anchors[j];
+            const Vec2 p1{p0.x + handleOf(i).x, p0.z + handleOf(i).z};
+            const Vec2 p2{p3.x - handleOf(j).x, p3.z - handleOf(j).z};
+            const float rough = std::hypot(p1.x - p0.x, p1.z - p0.z) + std::hypot(p2.x - p1.x, p2.z - p1.z) +
+                                std::hypot(p3.x - p2.x, p3.z - p2.z);
+            const int steps = std::clamp(static_cast<int>(std::ceil(rough / step)), 2, 256);
+            for (int s = 1; s < steps; ++s) {
+                const float t = static_cast<float>(s) / static_cast<float>(steps);
+                const float m = 1.0f - t;
+                const float a = m * m * m;
+                const float b = 3.0f * m * m * t;
+                const float c = 3.0f * m * t * t;
+                const float d = t * t * t;
+                path.push_back({a * p0.x + b * p1.x + c * p2.x + d * p3.x, a * p0.z + b * p1.z + c * p2.z + d * p3.z});
+            }
+        };
+
+        const size_t segments = closed ? n : n - 1;
+        for (size_t i = 0; i < n; ++i) {
+            addCorner(i);
+            if (i < segments && !(isCorner(i) && isCorner((i + 1) % n))) {
+                addCurve(i, (i + 1) % n);
+            }
+        }
+        return SimplifyPath(path, 0.01f, closed);
+    }
+
     Area BrushStroke(const std::span<const Vec2> samples, const float radius) {
         if (samples.empty() || !(radius > 0.0f)) {
             return {};

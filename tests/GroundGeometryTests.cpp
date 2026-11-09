@@ -180,6 +180,32 @@ int main() {
         CHECK(Near(AreaOf(mirrored), AreaOf(l), 0.01));
         CHECK(Near(AreaOf(Unite(mirrored, mirrored)), AreaOf(l), 0.01));
     }
+    // The pen: corners stay, handles curve between the anchors, corners round by their radius.
+    {
+        const std::vector<Vec2> square{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+        CHECK(PenPath(square, {}, {}, 0.0f, true) == square);
+
+        const std::vector<Vec2> ends{{0, 0}, {10, 0}};
+        const std::vector<Vec2> pulled{{0, 5}, {0, -5}};
+        const std::vector<Vec2> curve = PenPath(ends, pulled, {}, 0.0f, false);
+        CHECK(curve.front() == ends.front() && curve.back() == ends.back() && curve.size() > 3);
+        float highest = 0.0f;
+        for (const Vec2& p : curve) {
+            highest = std::max(highest, p.z);
+        }
+        CHECK(std::abs(highest - 3.75f) < 0.05f);
+
+        CHECK(std::abs(AreaOf(AreaFromOutline(PenPath(square, {}, {}, 2.0f, true))) - 96.566) < 0.3);
+        const std::vector<float> oneCorner{2.0f, -1.0f, -1.0f, -1.0f};
+        CHECK(std::abs(AreaOf(AreaFromOutline(PenPath(square, {}, oneCorner, 0.0f, true))) - 99.142) < 0.2);
+        CHECK(std::abs(AreaOf(AreaFromOutline(PenPath(square, {}, {}, 100.0f, true))) - 78.54) < 1.0);
+
+        const std::vector<Vec2> bend{{0, 0}, {10, 0}, {10, 10}};
+        const std::vector<Vec2> rounded = PenPath(bend, {}, {}, 3.0f, false);
+        CHECK(rounded.front() == bend.front() && rounded.back() == bend.back());
+        CHECK(std::ranges::find(rounded, bend[1]) == rounded.end());
+    }
+
     std::puts("ok");
     return 0;
 }
