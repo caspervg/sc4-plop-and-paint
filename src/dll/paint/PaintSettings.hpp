@@ -42,4 +42,5 @@ struct PropPaintSettings {
     uint32_t randomSeed = 0;
     std::vector<FamilyEntry> activePalette{};
     float densityVariation = 0.0f;
+    bool placeFloraOverObjects = false;  // flora may stand on roads, lots and props
 };

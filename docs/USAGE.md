@@ -170,6 +170,7 @@ Important behavior:
 
 - Search also matches flora group and instance IDs in `0x...` form
 - Flora painting uses the same paint popup and the same direct, line, and polygon modes as prop painting
+- `Place on roads and lots` lets flora stand on roads, buildings, props and other flora
 - Flora thumbnails reflect the current in-game season when seasonal variants are available
 - While flora painting is active, the tab shows `Stop painting`
 - Scene picking: while in flora paint mode, you can click an existing flora item in the city to switch to painting that type

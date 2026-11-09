@@ -387,6 +387,12 @@ void FloraCollectionsPanelTab::RenderPaintModal_() {
     ImGui::RadioButton("Paint inside polygon", &mode, static_cast<int>(PaintMode::Polygon));
     pendingPaint_.settings.mode = static_cast<PaintMode>(mode);
 
+    ImGui::Checkbox("Place on roads and lots", &pendingPaint_.settings.placeFloraOverObjects);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Flora can stand on roads, buildings, props and other flora.\n"
+                          "Flora does not go into water that it cannot grow in.");
+    }
+
     ImGui::Separator();
     ImGui::TextUnformatted("Rotation");
     int rotation = pendingPaint_.settings.rotation & 3;

@@ -7,6 +7,7 @@
 #include "cISC4City.h"
 #include "cISC4FloraOccupant.h"
 #include "cISC4Occupant.h"
+#include "cISTETerrain.h"
 
 namespace {
     constexpr auto kFloraPlacerControlID = 0x8A3F9D2Cu;
@@ -62,7 +63,15 @@ bool FloraPainterInputControl::IsFloraPlacementValid_(const uint32_t typeID, con
         return false;
     }
 
-    return floraSimulator_->LocationIsOKForNewFlora(typeID, position.fX, position.fZ, nullptr);
+    if (floraSimulator_->LocationIsOKForNewFlora(typeID, position.fX, position.fZ, nullptr)) {
+        return true;
+    }
+    if (!settings_.placeFloraOverObjects) {
+        return false;
+    }
+    // The same check also keeps land flora out of the water, so that is left to do here.
+    cISTETerrain* const terrain = GetTerrain_();
+    return terrain && terrain->GetAltitude(position.fX, position.fZ) >= terrain->GetSeaLevel();
 }
 
 void FloraPainterInputControl::RefreshStaticFloraData_() {
@@ -111,10 +120,11 @@ bool FloraPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos, const int32
 
     float posArr[3] = {pos.fX, pos.fY, pos.fZ};
 
+    // The last argument skips the game's own placement checks (0x006B1EF4).
     // On the x86 game binary this overload returns the occupant-facing interface
     // pointer directly, despite the SDK header currently declaring a flora interface.
     cISC4Occupant* occupant =
-        reinterpret_cast<cISC4Occupant*>(floraSimulator_->AddNewFloraOccupant(floraType, posArr, false));
+        reinterpret_cast<cISC4Occupant*>(floraSimulator_->AddNewFloraOccupant(floraType, posArr, settings_.placeFloraOverObjects));
     if (!occupant) {
         LOG_WARN("Failed to add flora occupant 0x{:08X}", floraType);
         return false;

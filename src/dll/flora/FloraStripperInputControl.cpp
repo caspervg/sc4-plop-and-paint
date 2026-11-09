@@ -189,7 +189,7 @@ void FloraStripperInputControl::UndoLastDeletion() {
 
     float posArr[3] = {info.position.fX, info.position.fY, info.position.fZ};
     cISC4Occupant* occupant =
-        reinterpret_cast<cISC4Occupant*>(floraSimulator_->AddNewFloraOccupant(info.floraType, posArr, false));
+        reinterpret_cast<cISC4Occupant*>(floraSimulator_->AddNewFloraOccupant(info.floraType, posArr, true));
     if (!occupant) {
         LOG_WARN("FloraStripperInputControl: Failed to re-create flora 0x{:08X} for undo", info.floraType);
         return;
