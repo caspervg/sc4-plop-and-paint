@@ -406,7 +406,8 @@ void FloraCollectionsPanelTab::RenderMemberTable_(const FloraRepository::FloraCo
     ImGui::TableHeadersRow();
 
     ImGuiListClipper clipper;
-    clipper.Begin(static_cast<int>(collection.members.size()), UI::iconRowHeight());
+    // No height: it measures the row, as a table adds cell padding to what a row asks for.
+    clipper.Begin(static_cast<int>(collection.members.size()));
     while (clipper.Step()) {
         for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
             const Flora* flora = collection.members[static_cast<size_t>(row)];

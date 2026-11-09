@@ -377,7 +377,9 @@ void PropPanelTab::RenderTableInternal_(const std::vector<PropView>& filteredPro
 
         const float rowHeight = UI::iconRowHeight();
         ImGuiListClipper clipper;
-        clipper.Begin(static_cast<int>(filteredProps.size()), rowHeight);
+        // A row that its content fills also gets the cell padding. A set height means no row is
+        // drawn each frame only to measure it, which would also pre-load the top thumbnails.
+        clipper.Begin(static_cast<int>(filteredProps.size()), rowHeight + ImGui::GetStyle().CellPadding.y * 2.0f);
 
         while (clipper.Step()) {
             // Request texture loads for visible and margin items

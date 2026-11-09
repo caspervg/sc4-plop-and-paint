@@ -434,7 +434,8 @@ void FamiliesPanelTab::RenderMemberTable_(const PropFamily& family, const bool i
 
     int removeIndex = -1;
     ImGuiListClipper clipper;
-    clipper.Begin(static_cast<int>(family.entries.size()), UI::iconRowHeight());
+    // No height: it measures the row, as a table adds cell padding to what a row asks for.
+    clipper.Begin(static_cast<int>(family.entries.size()));
     while (clipper.Step()) {
         for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
             const size_t i = static_cast<size_t>(row);

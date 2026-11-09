@@ -348,7 +348,9 @@ void FloraPanelTab::RenderIndividualFloraTable_() {
     const auto& items = flora_->GetFloraItems();
     const float rowHeight = UI::iconRowHeight();
     ImGuiListClipper clipper;
-    clipper.Begin(static_cast<int>(shown_.size()), rowHeight);
+    // A row that its content fills also gets the cell padding. A set height means no row is
+    // drawn each frame only to measure it, which would also pre-load the top thumbnails.
+    clipper.Begin(static_cast<int>(shown_.size()), rowHeight + ImGui::GetStyle().CellPadding.y * 2.0f);
     while (clipper.Step()) {
         const int prefetchStart = std::max(0, clipper.DisplayStart - Cache::kPrefetchMargin);
         const int prefetchEnd = std::min(static_cast<int>(shown_.size()), clipper.DisplayEnd + Cache::kPrefetchMargin);
