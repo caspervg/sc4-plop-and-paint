@@ -8,6 +8,7 @@
 
 #include "../common/PanelTab.hpp"
 #include "../decals/DecalPanelTab.hpp"
+#include "../packs/PackFilter.hpp"
 #include "../decals/DecalRepository.hpp"
 #include "../decals/TextureKindFilter.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
@@ -128,15 +129,13 @@ private:
     size_t shownFavouriteCount_ = 0;
     int32_t shownPack_ = 0;
     bool shownValid_ = false;
-    // kAllPacks, kNoPack (not in the catalog), or an index into the catalog's packs.
-    static constexpr int32_t kAllPacks = -2;
-    static constexpr int32_t kNoPack = -1;
-    int32_t packFilter_ = kAllPacks;
-    char packSearch_[64]{};
+    PackFilter packFilter_{};
     struct LibraryEntry {
         uint32_t id = 0;
         // Every pack that ships it; none when the catalog does not know it.
         std::vector<int32_t> packs{};
+        // The catalog's rows for it.
+        std::span<const PackCatalogRepository::TextureRow> rows{};
         // The first pack's name and file, to sort by.
         const std::string* sortPack = nullptr;
         const std::string* sortFile = nullptr;
@@ -145,8 +144,6 @@ private:
     std::vector<LibraryEntry> library_{};
     size_t indexedLibrarySize_ = SIZE_MAX;
     // Installed textures per pack, by pack index; the last entry counts those not in the catalog.
-    std::vector<uint32_t> packCounts_{};
-    std::vector<int32_t> packsByName_{};
 
     // Newest first, this session.
     std::vector<uint32_t> recentTextures_{};

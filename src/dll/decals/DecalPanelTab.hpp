@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "../common/PanelTab.hpp"
+#include "../packs/PackFilter.hpp"
 #include "../paint/DecalPaintSettings.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
 #include "DecalRepository.hpp"
@@ -26,6 +27,7 @@ public:
     void OnShutdown() override;
 
 private:
+    void IndexPacks_();
     void RenderFilterBar_();
     void RenderResultLine_();
     // Stop painting, pick and strip.
@@ -74,6 +76,8 @@ private:
     int     wealthFilter_{0};
     int     dilapidationFilter_{0};
     TextureKindFilter kindFilter_{};
+    PackFilter packFilter_{};
+    size_t     indexedPackCount_{SIZE_MAX};
 
     // The textures shown, and what they were filtered with.
     std::vector<size_t> shown_{};
@@ -86,6 +90,7 @@ private:
     bool        appliedBase_{true};
     bool        appliedOverlay_{true};
     size_t      appliedTotal_{0};
+    int32_t     appliedPack_{PackFilter::kAllPacks};
 
     uint32_t selectedInstanceId_{0};
     uint32_t scrollToInstanceId_{0};

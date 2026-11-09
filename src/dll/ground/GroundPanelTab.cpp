@@ -14,7 +14,6 @@
 
 #include "../decals/DecalTextureLoader.hpp"
 #include "../packs/PackCatalogRepository.hpp"
-#include "../packs/PackComboList.hpp"
 #include "../SC4PlopAndPaintDirector.hpp"
 #include "public/cIGZTerrainPaintService.h"
 #include "GroundPainterInputControl.hpp"
@@ -432,7 +431,7 @@ void GroundPanelTab::FinishTexturePick_() {
         // As the Stamp picker does: the library shows its family, the base or overlay ID without
         // the wealth, state and zoom variants.
         std::snprintf(textureFilter_, sizeof(textureFilter_), "%04X", *picked >> 16);
-        packFilter_ = kAllPacks;
+        packFilter_.Clear();
         favouriteTexturesOnly_ = false;
         kindFilter_ = {};
     };
@@ -1322,13 +1321,14 @@ void GroundPanelTab::IndexLibrary_() {
     static const std::string kNone;
     library_.clear();
     library_.reserve(ids.size());
-    packCounts_.assign(packs.size() + 1, 0);
+    packFilter_.Begin(catalog);
     for (const uint32_t id : ids) {
-        LibraryEntry entry{.id = id};
+        LibraryEntry entry{.id = id, .rows = decals_->PackCandidates(id)};
+        packFilter_.Count(entry.rows);
         char hex[9];
         std::snprintf(hex, sizeof(hex), "%08X", id);
         entry.searchText = hex;
-        for (const PackCatalogRepository::TextureRow& row : decals_->PackCandidates(id)) {
+        for (const PackCatalogRepository::TextureRow& row : entry.rows) {
             const auto pack = static_cast<int32_t>(row[2]);
             const std::string* file = catalog ? catalog->File(row[1]) : nullptr;
             if (entry.packs.empty()) {
@@ -1338,14 +1338,10 @@ void GroundPanelTab::IndexLibrary_() {
             if (std::ranges::find(entry.packs, pack) == entry.packs.end()) {
                 entry.packs.push_back(pack);
                 entry.searchText += ' ' + Upper(packs[static_cast<size_t>(pack)].name);
-                ++packCounts_[static_cast<size_t>(pack)];
             }
             if (file) {
                 entry.searchText += ' ' + Upper(*file);
             }
-        }
-        if (entry.packs.empty()) {
-            ++packCounts_.back();
         }
         library_.push_back(std::move(entry));
     }
@@ -1355,14 +1351,6 @@ void GroundPanelTab::IndexLibrary_() {
         return std::tuple(entry.packs.empty(), entry.sortPack ? std::string_view(*entry.sortPack) : std::string_view{},
                           entry.sortFile ? std::string_view(*entry.sortFile) : std::string_view{}, entry.id);
     });
-
-    packsByName_.clear();
-    for (int32_t i = 0; i < static_cast<int32_t>(packs.size()); ++i) {
-        if (packCounts_[static_cast<size_t>(i)] > 0) {
-            packsByName_.push_back(i);
-        }
-    }
-    std::ranges::sort(packsByName_, {}, [&](const int32_t i) { return packs[static_cast<size_t>(i)].name; });
 }
 
 const std::vector<uint32_t>& GroundPanelTab::ShownTextures_() {
@@ -1371,20 +1359,18 @@ const std::vector<uint32_t>& GroundPanelTab::ShownTextures_() {
     const size_t favouriteCount = favourites ? favourites->size() : 0;
     const std::string filter = Upper(textureFilter_);
     if (shownValid_ && filter == shownFilter_ && favouriteTexturesOnly_ == shownFavouritesOnly_ &&
-        favouriteCount == shownFavouriteCount_ && packFilter_ == shownPack_) {
+        favouriteCount == shownFavouriteCount_ && packFilter_.Selected() == shownPack_) {
         return shownTextures_;
     }
     shownValid_ = true;
     shownFilter_ = filter;
     shownFavouritesOnly_ = favouriteTexturesOnly_;
     shownFavouriteCount_ = favouriteCount;
-    shownPack_ = packFilter_;
+    shownPack_ = packFilter_.Selected();
 
     shownTextures_.clear();
     for (const LibraryEntry& entry : library_) {
-        const bool inPack = packFilter_ == kAllPacks ||
-                            (packFilter_ == kNoPack ? entry.packs.empty()
-                                                    : std::ranges::find(entry.packs, packFilter_) != entry.packs.end());
+        const bool inPack = packFilter_.Passes(entry.rows);
         if (!inPack ||
             (favouriteTexturesOnly_ && (!favourites || !favourites->contains(entry.id))) ||
             !kindFilter_.Allows(*decals_, entry.id) ||
@@ -1398,29 +1384,7 @@ const std::vector<uint32_t>& GroundPanelTab::ShownTextures_() {
 
 void GroundPanelTab::RenderPackFilter_() {
     IndexLibrary_();
-    const std::vector<TexturePack>& packs = decals_->Packs();
-    const uint32_t unknown = packCounts_.empty() ? 0 : packCounts_.back();
-    const auto label = [&](const int32_t pack) {
-        char text[160];
-        if (pack == kAllPacks) {
-            std::snprintf(text, sizeof(text), "All packs (%zu)", library_.size());
-        }
-        else if (pack == kNoPack) {
-            std::snprintf(text, sizeof(text), "Not in the catalog (%u)", unknown);
-        }
-        else {
-            std::snprintf(text, sizeof(text), "%s (%u)", packs[static_cast<size_t>(pack)].name.c_str(),
-                          packCounts_[static_cast<size_t>(pack)]);
-        }
-        return std::string(text);
-    };
-
-    ImGui::SetNextItemWidth(-1.0f);
-    if (!ImGui::BeginCombo("##pack", label(packFilter_).c_str(), ImGuiComboFlags_HeightLarge)) {
-        return;
-    }
-    PackComboList(packSearch_, packs, packsByName_, unknown > 0, kAllPacks, kNoPack, packFilter_, label);
-    ImGui::EndCombo();
+    packFilter_.Render("##pack", "textures");
 }
 
 void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) const {
@@ -1496,7 +1460,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
         Hint("No textures match this search and these filters.");
         if (ImGui::SmallButton("Clear search and filters")) {
             textureFilter_[0] = 0;
-            packFilter_ = kAllPacks;
+            packFilter_.Clear();
             favouriteTexturesOnly_ = false;
             kindFilter_ = {};
             shownValid_ = false;

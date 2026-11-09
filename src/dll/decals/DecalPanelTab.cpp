@@ -333,7 +333,7 @@ void DecalPanelTab::RenderResultLine_() {
     ImGui::Text("Showing %zu of %zu textures", shown_.size(), decals_->Count());
     const int active = static_cast<int>(iidFilterBuf_[0] != '\0') + static_cast<int>(wealthFilter_ != 0) +
                        static_cast<int>(dilapidationFilter_ != 0) + static_cast<int>(favoritesOnly_) +
-                       static_cast<int>(kindFilter_.Active());
+                       static_cast<int>(kindFilter_.Active()) + static_cast<int>(packFilter_.IsActive());
     if (active > 0) {
         ImGui::SameLine();
         ImGui::TextDisabled("%d filter%s on", active, active == 1 ? "" : "s");
@@ -353,6 +353,7 @@ void DecalPanelTab::ClearFilters_() {
     dilapidationFilter_ = 0;
     favoritesOnly_ = false;
     kindFilter_ = {};
+    packFilter_.Clear();
 }
 
 void DecalPanelTab::RenderTools_() {
@@ -385,6 +386,7 @@ void DecalPanelTab::RenderTools_() {
                 dilapidationFilter_ = 0;
                 favoritesOnly_ = false;
                 kindFilter_ = {};
+                packFilter_.Clear();
             });
         }
         Tooltip("Click a decal, or the base or overlay texture of a lot,\nto select it in the list.\n"
@@ -464,7 +466,22 @@ void DecalPanelTab::OnShutdown() {
     ClearUvPickerTexture_();
 }
 
+void DecalPanelTab::IndexPacks_() {
+    const auto& ids = decals_->GetInstanceIds();
+    if (ids.size() == indexedPackCount_) {
+        return;
+    }
+    indexedPackCount_ = ids.size();
+    packFilter_.Begin(director_->GetPackCatalog());
+    for (const uint32_t instanceId : ids) {
+        packFilter_.Count(decals_->PackCandidates(instanceId));
+    }
+}
+
 void DecalPanelTab::RenderFilterBar_() {
+    IndexPacks_();
+    packFilter_.Render("##DecalPack", "textures");
+
     ImGui::SetNextItemWidth(UI::iidFilterWidth());
     ImGui::InputTextWithHint("##DecalIID", "IID prefix...", iidFilterBuf_, sizeof(iidFilterBuf_));
     Tooltip("Type the start of a hex instance ID, for example 25A7.");
@@ -499,7 +516,8 @@ void DecalPanelTab::RefreshShown_() {
     if (!shownDirty_ && appliedIid_ == iidFilterBuf_ && appliedFavoritesOnly_ == favoritesOnly_ &&
         appliedFavoriteCount_ == favoriteCount && appliedWealth_ == wealthFilter_ &&
         appliedDilapidation_ == dilapidationFilter_ && appliedBase_ == kindFilter_.base &&
-        appliedOverlay_ == kindFilter_.overlay && appliedTotal_ == decals_->Count()) {
+        appliedOverlay_ == kindFilter_.overlay && appliedTotal_ == decals_->Count() &&
+        appliedPack_ == packFilter_.Selected()) {
         return;
     }
     shownDirty_ = false;
@@ -511,6 +529,7 @@ void DecalPanelTab::RefreshShown_() {
     appliedBase_ = kindFilter_.base;
     appliedOverlay_ = kindFilter_.overlay;
     appliedTotal_ = decals_->Count();
+    appliedPack_ = packFilter_.Selected();
     BuildFilteredIndices_(shown_);
 }
 
@@ -537,6 +556,9 @@ void DecalPanelTab::BuildFilteredIndices_(std::vector<size_t>& out) const {
             continue;
         }
         if (!kindFilter_.Allows(*decals_, instanceId)) {
+            continue;
+        }
+        if (packFilter_.IsActive() && !packFilter_.Passes(decals_->PackCandidates(instanceId))) {
             continue;
         }
         out.push_back(i);

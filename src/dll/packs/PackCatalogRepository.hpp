@@ -25,6 +25,7 @@ public:
     // nullptr for an index outside Packs(), such as -1.
     [[nodiscard]] const TexturePack* Pack(int32_t index) const;
     [[nodiscard]] const std::string* File(uint32_t index) const;
+    [[nodiscard]] size_t FileCount() const { return catalog_.files.size(); }
 
 private:
     PackCatalog catalog_{};

@@ -161,7 +161,7 @@ This tab is for individual flora items.
 Filters:
 
 - `Search flora...`: also matches the pack a flora item comes from
-- In every pack list you can type to find a pack. Enter takes the first match
+- In every pack list you can type to find a pack, or a file in a pack, and pick it. Words can be in any order. Enter takes the first match
 - The pack list: shows only the flora of one pack, as the [SC4 Prop Texture Catalog](https://github.com/noah-severyn/SC4PropTextureCatalog) knows them (from `packs.cbor`). An item in several packs shows under each of them
 - `Favorites only`
 - `Clear filters`
@@ -279,6 +279,7 @@ Stamp paints single texture decals on terrain and lot surfaces.
 
 Filters:
 
+- Pack list: textures from one pack or file. Type to find a pack or a file in it
 - `IID prefix...`: the start of a hex instance ID
 - Wealth and state
 - `Favorites only`
