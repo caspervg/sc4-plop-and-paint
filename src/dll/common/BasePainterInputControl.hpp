@@ -68,6 +68,8 @@ public:
     // Waiting for a click on painted ground.
     [[nodiscard]] bool IsPickingGround() const { return settings_.pickFromGround && collectedPoints_.empty(); }
     [[nodiscard]] bool HasPendingCancel() const { return cancelPending_; }
+    // Direct mode with a family or collection: Tab and Shift+Tab step through its entries.
+    [[nodiscard]] bool CanSkipEntry() const;
     [[nodiscard]] bool HasPendingPlacements() const;
     [[nodiscard]] bool SupportsVerticalAdjustment() const;
     [[nodiscard]] float GetSketchCaptureOffsetMeters() const;
@@ -253,7 +255,7 @@ private:
 
     void UndoLastPlacementInGroup_();
     // The next quarter turn (R, middle mouse button).
-    void Turn_();
+    void Turn_(bool backwards = false);
     void TrimUndoStack_();
     [[nodiscard]] bool ShouldShowOutlinePreview_() const;
     void ClearOverlay_();

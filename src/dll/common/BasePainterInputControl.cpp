@@ -140,8 +140,8 @@ void BasePainterInputControl::CycleMode_() {
     TransitionTo_(ActiveStateForMode_(stop->mode), "M key");
 }
 
-void BasePainterInputControl::Turn_() {
-    settings_.rotation = (settings_.rotation + 1) & 3;
+void BasePainterInputControl::Turn_(const bool backwards) {
+    settings_.rotation = (settings_.rotation + (backwards ? 3 : 1)) & 3;
     if (state_ == ControlState::ActivePolygon) {
         polygonPreviewDirty_ = true;
     }
@@ -589,13 +589,20 @@ bool BasePainterInputControl::HandleActiveKeyDown_(const int32_t vkCode, const u
         return true;
     }
 
-    if (vkCode == 'R') {
-        Turn_();
+    if (vkCode == 'R' || vkCode == VK_HOME || vkCode == VK_END) {
+        Turn_(vkCode == VK_END);
         return true;
     }
 
     if (vkCode == 'M' && (modifiers & (MOD_CONTROL | MOD_SHIFT)) == 0) {
         CycleMode_();
+        return true;
+    }
+
+    if (vkCode == VK_TAB && (modifiers & MOD_CONTROL) == 0 && CanSkipEntry()) {
+        const bool backwards = (modifiers & MOD_SHIFT) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        directPaintTypeID_ = directPaintPicker_->Cycle(CurrentDirectTypeID_(), backwards);
+        SyncPreviewForState_();
         return true;
     }
 
@@ -939,6 +946,10 @@ void BasePainterInputControl::ResetDirectPaintPicker_() {
     if (directPaintTypeID_ == 0) {
         directPaintTypeID_ = typeToPaint_;
     }
+}
+
+bool BasePainterInputControl::CanSkipEntry() const {
+    return state_ == ControlState::ActiveDirect && directPaintPicker_ && directPaintPicker_->Size() > 1;
 }
 
 uint32_t BasePainterInputControl::CurrentDirectTypeID_() const {

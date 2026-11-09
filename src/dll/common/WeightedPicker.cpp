@@ -34,3 +34,21 @@ uint32_t WeightedPicker::Pick() {
 
     return entries_.back().propID.value();
 }
+
+uint32_t WeightedPicker::Cycle(const uint32_t current, const bool backwards) const {
+    const size_t count = entries_.size();
+    const auto found = std::ranges::find_if(entries_, [current](const FamilyEntry& entry) {
+        return entry.propID.value() == current;
+    });
+    // Not in the list: the first step lands on the first entry, or backwards on the last.
+    const size_t start = found != entries_.end() ? static_cast<size_t>(found - entries_.begin())
+                         : backwards             ? 0
+                                                 : count - 1;
+    for (size_t step = 1; step <= count; ++step) {
+        const uint32_t id = entries_[(backwards ? start + count - step : start + step) % count].propID.value();
+        if (id != current) {
+            return id;
+        }
+    }
+    return current;
+}

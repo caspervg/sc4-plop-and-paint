@@ -191,6 +191,14 @@ target_include_directories(PolygonPlacerTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(PolygonPlacerTests PRIVATE reflectcpp::reflectcpp gzcom2)
 add_test(NAME PolygonPlacerTests COMMAND PolygonPlacerTests)
 
+add_executable(WeightedPickerTests
+    ${CMAKE_SOURCE_DIR}/tests/WeightedPickerTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/WeightedPicker.cpp
+)
+target_include_directories(WeightedPickerTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(WeightedPickerTests PRIVATE reflectcpp::reflectcpp gzcom2)
+add_test(NAME WeightedPickerTests COMMAND WeightedPickerTests)
+
 add_executable(GroundPaintDocumentTests
     ${CMAKE_SOURCE_DIR}/tests/GroundPaintDocumentTests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundGeometry.cpp

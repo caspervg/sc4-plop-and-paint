@@ -400,7 +400,8 @@ Polygon paint mode in action, with the live overlay preview and the status windo
 
 While paint mode is active:
 
-- `R` or a middle click: rotate the fixed rotation (cycles 0 / 90 / 180 / 270)
+- `R`, `Home` or a middle click: rotate the fixed rotation (cycles 0 / 90 / 180 / 270). `End` rotates the other way
+- `Tab` / `Shift+Tab`: in Direct mode, go to the next or previous item of the family or flora collection, if this item does not suit the place
 - `M`: next paint mode for props and flora: Direct, Line, Polygon, then filling painted ground if the city has any. While you sketch, it changes between Line and Polygon and keeps your points. On decals, `M` mirrors
 - `G`: toggle the grid overlay
 - `Shift+S`: toggle point snapping (turning it off also disables placement snapping)

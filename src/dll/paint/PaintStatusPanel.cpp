@@ -146,17 +146,22 @@ void PaintStatusPanel::OnRender() {
         }
 
         if (decal) {
-            KeyRow("R / Shift+R", "Turn 45 / 5 degrees");
+            KeyRow("R / Home", "Turn 45 degrees, Shift 5 degrees");
+            KeyRow("End", "Turn the other way");
             KeyRow("F / Shift+F", "Next / previous FA angle");
             KeyRow("M", "Mirror");
             KeyRow("Ctrl+PgUp / PgDn", "Depth offset");
         }
         else {
-            KeyRow("R / middle mouse", "Turn 90 degrees");
+            KeyRow("R / Home / middle mouse", "Turn 90 degrees");
+            KeyRow("End", "Turn the other way");
             if (const auto stop = activeControl_->NextStop()) {
                 std::snprintf(value, sizeof(value), "Next mode: %s", PaintStopName(*stop));
                 KeyRow("M", value);
             }
+        }
+        if (activeControl_->CanSkipEntry()) {
+            KeyRow("Tab / Shift+Tab", "Next / previous item");
         }
 
         KeyRow("G / Shift+S", "Grid / snap on or off");
