@@ -40,10 +40,10 @@ bool DecalPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t mo
         return true;
     }
 
-    if (vkCode == 'R' && IsOnTop()) {
+    if ((vkCode == 'R' || vkCode == VK_HOME || vkCode == VK_END) && IsOnTop()) {
         const bool shiftHeld = (modifiers & MOD_SHIFT) != 0 || (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         const float deltaDegrees = shiftHeld ? 5.0f : 45.0f;
-        AdjustRotationDegrees_(deltaDegrees);
+        AdjustRotationDegrees_(vkCode == VK_END ? -deltaDegrees : deltaDegrees);
         return true;
     }
 

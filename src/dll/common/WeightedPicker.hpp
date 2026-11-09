@@ -14,6 +14,9 @@ public:
     [[nodiscard]] size_t Size() const { return entries_.size(); }
 
     uint32_t Pick();
+    // The first different entry after (or before) current in list order, wrapping around.
+    // current if there is none.
+    [[nodiscard]] uint32_t Cycle(uint32_t current, bool backwards = false) const;
 
 private:
     std::vector<FamilyEntry> entries_{};
