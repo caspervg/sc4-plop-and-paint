@@ -18,12 +18,6 @@
 namespace {
     constexpr float kCellSizeMeters = 16.0f;
 
-    // The decal list and paint pipeline use the zoom-4 FSH variant; lot
-    // exemplars may reference any zoom nibble of the same texture.
-    uint32_t NormalizeToZoom4(const uint32_t instanceId) {
-        return (instanceId & ~0xFu) | 0x4u;
-    }
-
     // The lot's world-space footprint and facing; the frame for converting
     // between world space and lot-config space.
     struct LotFrame {
@@ -327,7 +321,7 @@ void DecalPickStrategy::AppendLotTextureCandidates_(const ScenePickContext& cont
 }
 
 uint32_t DecalPickStrategy::ResolveTextureInstance_(const uint32_t rawInstanceId) const {
-    const uint32_t normalized = NormalizeToZoom4(rawInstanceId);
+    const uint32_t normalized = decals::ClosestZoomTexture(rawInstanceId);
     if (decalRepository_ == nullptr || decalRepository_->Contains(normalized)) {
         return normalized;
     }

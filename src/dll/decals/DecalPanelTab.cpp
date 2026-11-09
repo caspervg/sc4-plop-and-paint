@@ -437,6 +437,7 @@ void DecalPanelTab::RenderSelectionLine_() {
 void DecalPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
     if (deviceGeneration != lastDeviceGeneration_) {
         thumbnailCache_.Clear();
+        hoverPreview_.Clear();
         ClearUvPickerTexture_();
         lastDeviceGeneration_ = deviceGeneration;
     }
@@ -449,6 +450,7 @@ void DecalPanelTab::SetSearch(const char* const text, const int32_t pack) {
 
 void DecalPanelTab::OnShutdown() {
     thumbnailCache_.Clear();
+    hoverPreview_.Clear();
     ClearUvPickerTexture_();
 }
 
@@ -596,10 +598,17 @@ void DecalPanelTab::RenderDecalGrid_() {
         const bool dblClicked = clicked && ImGui::GetMouseClickedCount(ImGuiMouseButton_Left) >= 2;
 
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("0x%08X%s\n%s\nDouble-click for the paint settings.\nRight-click for more.",
-                              instanceId,
-                              !isFavorite ? "" : hasSavedPresets ? ", favorite with saved presets" : ", favorite",
-                              director_->IsDecalPainting() ? "Click to switch to this decal." : "Click to select.");
+            // After a short wait, so that moving over the grid does not load every texture on the way.
+            const bool showPreview = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
+            ImGui::BeginTooltip();
+            if (showPreview) {
+                hoverPreview_.Render(pRM_, imguiService_, instanceId);
+            }
+            ImGui::Text("0x%08X%s\n%s\nDouble-click for the paint settings.\nRight-click for more.",
+                        instanceId,
+                        !isFavorite ? "" : hasSavedPresets ? ", favorite with saved presets" : ", favorite",
+                        director_->IsDecalPainting() ? "Click to switch to this decal." : "Click to select.");
+            ImGui::EndTooltip();
         }
 
         if (dblClicked) {

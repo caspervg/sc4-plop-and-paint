@@ -8,6 +8,7 @@
 #include "../paint/DecalPaintSettings.hpp"
 #include "../thumbnail/ThumbnailCache.hpp"
 #include "DecalRepository.hpp"
+#include "TextureHoverPreview.hpp"
 #include "TextureKindFilter.hpp"
 #include "public/ImGuiTexture.h"
 
@@ -65,6 +66,7 @@ private:
     DecalRepository*             decals_;
     cIGZPersistResourceManager*  pRM_{nullptr};
     ThumbnailCache<uint32_t>     thumbnailCache_{};
+    TextureHoverPreview          hoverPreview_{};
     uint32_t                   lastDeviceGeneration_{0};
 
     ImGuiTexture uvPickerTexture_{};

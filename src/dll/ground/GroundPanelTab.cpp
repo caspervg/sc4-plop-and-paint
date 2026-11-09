@@ -359,6 +359,7 @@ GroundPanelTab::GroundPanelTab(SC4PlopAndPaintDirector* director,
 }
 
 void GroundPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
+    hoverPreview_.Clear();
     thumbnails_.OnDeviceReset();
     if (stampTab_) {
         stampTab_->OnDeviceReset(deviceGeneration);
@@ -367,6 +368,7 @@ void GroundPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
 
 void GroundPanelTab::OnShutdown() {
     thumbnails_.Clear();
+    hoverPreview_.Clear();
     if (stampTab_) {
         stampTab_->OnShutdown();
     }
@@ -1399,10 +1401,15 @@ void GroundPanelTab::RenderPackFilter_() {
     packFilter_.Render("##pack", "textures");
 }
 
-void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) const {
+void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) {
+    // After a short wait, so that moving over the grid does not load every texture on the way.
+    const bool showPreview = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
     const std::string* file = decals_->OriginalFile(instanceId);
     const TexturePack* pack = decals_->PackOf(instanceId);
     ImGui::BeginTooltip();
+    if (showPreview) {
+        hoverPreview_.Render(pRM_, imguiService_, instanceId);
+    }
     if (file && pack) {
         ImGui::TextUnformatted(file->c_str());
         ImGui::TextDisabled("%s, by %s", pack->name.c_str(), pack->author.c_str());

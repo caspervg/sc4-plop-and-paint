@@ -8,6 +8,7 @@
 
 #include "../common/PanelTab.hpp"
 #include "../decals/DecalPanelTab.hpp"
+#include "../decals/TextureHoverPreview.hpp"
 #include "../packs/PackFilter.hpp"
 #include "../decals/DecalRepository.hpp"
 #include "../decals/TextureKindFilter.hpp"
@@ -64,7 +65,7 @@ private:
     // has: made once per library.
     void IndexLibrary_();
     void RenderPackFilter_();
-    void TextureTooltip_(uint32_t instanceId) const;
+    void TextureTooltip_(uint32_t instanceId);
     void RenderShapeSettings_();
     void RenderSelection_(Ground::GroundPaintDocument& document);
     // The name, shape and look of the one selected object.
@@ -99,6 +100,7 @@ private:
     std::chrono::steady_clock::time_point lastLivePreview_{};
     bool stamping_ = false;
     bool shownStamping_ = false;
+    TextureHoverPreview hoverPreview_{};
 
     // The selected object being edited, applied when a control is let go.
     uint32_t editingId_ = 0;

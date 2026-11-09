@@ -59,6 +59,15 @@ int main() {
     CHECK(MeasureDecalHit(turned, 12.7f, -12.7f).has_value());
     CHECK(!MeasureDecalHit(turned, 12.7f, 12.7f).has_value());
 
+    // A lot texture stays in its own set of zoom levels.
+    CHECK(decals::ClosestZoomTexture(0x12345670u) == 0x12345674u);
+    CHECK(decals::ClosestZoomTexture(0x12345674u) == 0x12345674u);
+    CHECK(decals::ClosestZoomTexture(0x12345675u) == 0x12345679u);
+    CHECK(decals::ClosestZoomTexture(0x12345679u) == 0x12345679u);
+    CHECK(decals::ClosestZoomTexture(0x1234567Au) == 0x1234567Eu);
+    CHECK(decals::ClosestZoomTexture(0x1234567Eu) == 0x1234567Eu);
+    CHECK(decals::ClosestZoomTexture(0x1234567Fu) == 0x1234567Fu);
+
     // The angle shown is the real one, in every quarter of the circle.
     CHECK(fa_angles::Label(0.0f) == "0\xC2\xB0 (Orthogonal)");
     CHECK(fa_angles::Label(90.0f) == "90\xC2\xB0 (Orthogonal)");
