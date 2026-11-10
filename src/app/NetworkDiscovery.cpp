@@ -53,7 +53,7 @@ namespace {
     // ponytail: single-tile base networks only. Avenue and the highways are two tiles wide themselves.
     const std::unordered_map<uint32_t, RUL0::NetworkType> kBaseTiles = {
         {0x00004B00, RUL0::NetworkType::ROAD},
-        {0x03031500, RUL0::NetworkType::RAIL},
+        {0x5D540000, RUL0::NetworkType::RAIL},  // as a rail drag solves it, before RUL2
         {0x05004B00, RUL0::NetworkType::STREET},
         {0x08031500, RUL0::NetworkType::LIGHT_RAIL},
         {0x09004B00, RUL0::NetworkType::ONE_WAY_ROAD},
@@ -78,12 +78,19 @@ namespace {
         "subway", "lightrail", "monorail", "onewayroad", "dirtroad", "groundhighway"};
 
     using SpreadingTiles = std::unordered_map<uint32_t, RUL0::NetworkType>;
+    // Tiles that do not spread themselves but turn into one that does: RUL2 rules "T,r,f,B,r,f=X,r,f,X,r,f"
+    // where B is a base tile and X spreads over it. A drag then turns into X. The STR starter does this.
+    using DragTiles = std::unordered_map<uint32_t, uint32_t>;
     // Tiles that change the plain diagonal of a base network next to them, with a bit per base network
     // (1 << NetworkType).
     using DiagonalLeads = std::unordered_map<uint32_t, uint32_t>;
     struct Rul2Facts {
         SpreadingTiles spreading;
         DiagonalLeads diagonalLeads;
+        DragTiles dragTiles;
+        // Spreading tiles that do not repeat themselves but lead into a tile that does, such as a transition
+        // in front of a network. Which tile they lead into.
+        std::unordered_map<uint32_t, uint32_t> leadsInto;
     };
     using Rul1Sections = std::unordered_map<std::string, const RUL1::Section*>;
 
@@ -93,12 +100,15 @@ namespace {
         return result;
     }
 
-    // Tiles that spread over a base network, with that network: RUL2 rules "S,r,f,B,r,f=S,r,f,S,r,f"
-    // where B is a base tile. And tiles that change a base diagonal tile D next to them: "S,r,f,D,r,f=S,r,f,X,r,f"
+    // Tiles that spread over a base network, with that network: RUL2 rules "S,r,f,B,r,f=S,r,f,N,r,f"
+    // where B is a base tile, and following N the same way comes back round. Mostly N is S itself, but
+    // fractional angles go through a cycle of tiles (#1.5: A, B, A, ...), some after a first tile (#3: A, B, B). And tiles that change a base diagonal tile D next to them: "S,r,f,D,r,f=S,r,f,X,r,f"
     // or the other way round. That is how the NAM DLL starts a direct drag on a diagonal.
     // The file has millions of rules, so this reads the four IDs of a line and nothing else.
     Rul2Facts ReadRul2(const std::vector<uint8_t>& rul2) {
         Rul2Facts result;
+        std::unordered_map<uint32_t, std::pair<uint32_t, RUL0::NetworkType>> turnsInto;
+        std::unordered_map<uint32_t, std::pair<uint32_t, RUL0::NetworkType>> next;  // the N of S, above
         const char* line = reinterpret_cast<const char*>(rul2.data());
         const char* const end = line + rul2.size();
         while (line < end) {
@@ -119,9 +129,19 @@ namespace {
                         ++p;
                     }
                 }
-                if (count == ids.size() && ids[0] == ids[2] && ids[0] == ids[3] && ids[0] != ids[1]) {
+                if (count == ids.size() && ids[2] == ids[3] && ids[0] != ids[1]) {
                     if (const auto base = kBaseTiles.find(ids[1]); base != kBaseTiles.end()) {
-                        result.spreading.try_emplace(ids[0], base->second);
+                        if (ids[0] == ids[2]) {
+                            result.spreading.try_emplace(ids[0], base->second);
+                        }
+                        else {
+                            turnsInto.try_emplace(ids[0], ids[2], base->second);
+                        }
+                    }
+                }
+                if (count == ids.size() && ids[0] == ids[2] && ids[0] != ids[3] && ids[1] != ids[3]) {
+                    if (const auto base = kBaseTiles.find(ids[1]); base != kBaseTiles.end()) {
+                        next.try_emplace(ids[0], ids[3], base->second);
                     }
                 }
                 if (count == ids.size()) {
@@ -136,6 +156,35 @@ namespace {
                 }
             }
             line = lineEnd == end ? end : lineEnd + 1;
+        }
+        // A cycle: from S, the tiles that follow come back to one of them. Cycles are short, a few tiles.
+        for (const auto& [start, first] : next) {
+            uint32_t tile = start;
+            std::vector<uint32_t> seen;
+            for (int step = 0; step < 8 && !result.spreading.contains(start); ++step) {
+                seen.push_back(tile);
+                const auto following = next.find(tile);
+                if (following == next.end() || following->second.second != first.second) {
+                    break;
+                }
+                tile = following->second.first;
+                if (std::ranges::find(seen, tile) != seen.end()) {
+                    result.spreading.emplace(start, first.second);
+                }
+                else if (result.spreading.contains(tile)) {
+                    result.spreading.emplace(start, first.second);
+                    result.leadsInto.emplace(start, tile);
+                }
+            }
+        }
+        for (const auto& [tile, into] : turnsInto) {
+            if (const auto spreads = result.spreading.find(into.first);
+                !result.spreading.contains(tile) && spreads != result.spreading.end() && spreads->second == into.second) {
+                result.dragTiles.emplace(tile, into.first);
+            }
+        }
+        for (const auto& [tile, into] : result.dragTiles) {
+            result.spreading.emplace(tile, result.spreading.at(into));
         }
         return result;
     }
@@ -196,7 +245,7 @@ namespace {
     // network that shows where to drag. Other pieces that happen to hold a network's tile (ramps,
     // transitions) have more cells and are not starters.
     std::optional<Starter> StarterRows(const RUL0::PuzzlePiece& piece, const Rul1Sections& sections,
-                                       const SpreadingTiles& spreading) {
+                                       const SpreadingTiles& spreading, const DragTiles& dragTiles) {
         struct Cell {
             int32_t x, z;
             const RUL1::Rule* rule;
@@ -241,7 +290,9 @@ namespace {
                 return std::nullopt;  // not side by side
             }
             const uint32_t rotFlip = (cell.rule->rotation & 3u) | (cell.rule->flip ? 0x80u : 0u);
-            starter.rows.push_back({cell.rule->textureId, x, Turn(rotFlip, turns)});
+            // The rule that turns a starter tile into its drag tile keeps the orientation.
+            const auto drag = dragTiles.find(cell.rule->textureId);
+            starter.rows.push_back({drag != dragTiles.end() ? drag->second : cell.rule->textureId, x, Turn(rotFlip, turns)});
         }
         std::ranges::sort(starter.rows, {}, &OverrideNetworkRow::offset);
         for (size_t i = 1; i < starter.rows.size(); ++i) {
@@ -278,6 +329,13 @@ namespace {
             if (const auto at = name.find(word); at != std::string::npos) {
                 name.erase(at, word.size());
             }
+        }
+        // "STR - Starter Piece - Orth" leaves a dash with nothing after it.
+        for (size_t at; (at = name.find(" - -")) != std::string::npos;) {
+            name.erase(at, 2);
+        }
+        if (name.ends_with(" -")) {
+            name.erase(name.size() - 2);
         }
         return name.empty() ? fmt::format("Piece 0x{:X}", piece.id) : name;
     }
@@ -326,10 +384,16 @@ namespace {
         return models;
     }
 
-    // The cells of a piece as NetworkPiece::layout has them, cut to the cells that are in use.
+    // The cells of a piece as NetworkPiece::layout has them, cut to the cells that are in use. Two kinds of
+    // cell in the CellLayout get no tile of the piece, so they are not cells of the piece either:
+    // - a stub, whose CheckType says "check": it connects the piece to a drag next to it.
+    // - the placeholder of a FLEX piece: the one cell that is not optional, which the NAM DLL removes before
+    //   the piece is placed (FlexPieces.cpp). The optional cells around it make the piece.
     std::vector<std::vector<uint32_t>> PieceLayout(const RUL0::PuzzlePiece& piece) {
+        constexpr uint32_t kFlexAutoTileBase = 0x55387000;
         std::vector<std::vector<uint32_t>> cells;
-        size_t left = SIZE_MAX, right = 0, top = SIZE_MAX, bottom = 0;
+        std::vector<std::pair<size_t, size_t>> staticCells;  // row, column of the cells that are not optional
+        size_t cellCount = 0;
         for (const auto& line : piece.cellLayout) {
             auto& row = cells.emplace_back();
             for (const char symbol : line) {
@@ -339,22 +403,42 @@ namespace {
                 }
                 else if (symbol != '.') {
                     cell = NetworkPiece::kOtherCell;
+                    bool isStatic = symbol == '+';
                     if (const auto check = std::ranges::find(piece.checkTypes, symbol, &RUL0::CheckType::symbol);
                         check != piece.checkTypes.end()) {
+                        // "check" and "optional" are for the whole line: every network of it has the same.
+                        if (std::ranges::any_of(check->networks, &RUL0::NetworkCheck::check)) {
+                            row.push_back(0);
+                            continue;
+                        }
+                        isStatic = isStatic || std::ranges::none_of(check->networks, &RUL0::NetworkCheck::optional);
                         for (const auto& network : check->networks) {
                             if (const auto type = static_cast<uint32_t>(network.networkType); type < kRul1Names.size()) {
                                 cell = (cell & ~NetworkPiece::kOtherCell) | (1u << type);
                             }
                         }
                     }
-                }
-                if (cell != 0) {
-                    left = std::min(left, row.size());
-                    right = std::max(right, row.size());
-                    top = std::min(top, cells.size() - 1);
-                    bottom = cells.size() - 1;
+                    if (isStatic) {
+                        staticCells.emplace_back(cells.size() - 1, row.size());
+                    }
+                    ++cellCount;
                 }
                 row.push_back(cell);
+            }
+        }
+        if (piece.autoTileBase == kFlexAutoTileBase && staticCells.size() == 1 && cellCount > 1) {
+            cells[staticCells.front().first][staticCells.front().second] = 0;
+        }
+
+        size_t left = SIZE_MAX, right = 0, top = SIZE_MAX, bottom = 0;
+        for (size_t z = 0; z < cells.size(); ++z) {
+            for (size_t x = 0; x < cells[z].size(); ++x) {
+                if (cells[z][x] != 0) {
+                    left = std::min(left, x);
+                    right = std::max(right, x);
+                    top = std::min(top, z);
+                    bottom = z;
+                }
             }
         }
         if (left == SIZE_MAX) {
@@ -515,8 +599,17 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
                                      PieceLayout(*piece), piece->costs != 0xFFFFFFFF ? piece->costs : 0});
 
             // A starter piece is also an override network that can be dragged directly.
-            auto starter = StarterRows(*piece, sections, spreading);
+            auto starter = StarterRows(*piece, sections, spreading, rul2Facts.dragTiles);
             if (!starter) {
+                return;
+            }
+            // A tile that only leads into a network is mostly a transition, such as a FLEX turn lane, which
+            // is placed, not dragged. Only those that NAM calls a starter are networks (Fractional Angle #3).
+            const bool leadIn = std::ranges::any_of(starter->rows, [&](const OverrideNetworkRow& row) {
+                return rul2Facts.leadsInto.contains(row.tile);
+            });
+            if (leadIn && LoadText(index, DBPF::Tgi{kLTextType, kPlaceQueryGroup, piece->placeQueryId}).find("Starter") ==
+                              std::string::npos) {
                 return;
             }
             std::vector<std::pair<uint32_t, uint32_t>> key;
@@ -579,6 +672,21 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
     for (OverrideNetwork& network : cache.networks) {
         preferPreview(network.previewModel, network.fallbackModel);
     }
+
+    // A starter that only leads into the drag tile of another network, such as an on-slope transition in
+    // front of a viaduct, drags that network. It is not a network of its own.
+    std::unordered_set<uint32_t> dragTiles;
+    for (const auto& network : cache.networks) {
+        for (const auto& row : network.rows) {
+            dragTiles.insert(row.tile);
+        }
+    }
+    std::erase_if(cache.networks, [&](const OverrideNetwork& network) {
+        return std::ranges::any_of(network.rows, [&](const OverrideNetworkRow& row) {
+            const auto into = rul2Facts.leadsInto.find(row.tile);
+            return into != rul2Facts.leadsInto.end() && dragTiles.contains(into->second);
+        });
+    });
 
     std::ranges::stable_sort(buttons, {}, [](const auto& entry) { return entry.first; });
     size_t pieces = 0;
