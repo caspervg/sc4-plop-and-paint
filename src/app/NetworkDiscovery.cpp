@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include <spdlog/spdlog.h>
@@ -340,6 +341,14 @@ namespace {
         return layout;
     }
 
+    // The models of a network tile come in five, one for each zoom, with the zoom in the last digit of the
+    // ID (0 for the farthest, 4 for the closest). The Piece line often names the farthest. The closest has
+    // the largest textures, so that is the one for a picture.
+    uint32_t ClosestZoomModel(const DbpfIndexService& index, const uint32_t model) {
+        const uint32_t closest = (model & ~0xFu) | 4;
+        return (model & 0xF) < 4 && index.containsTgi(DBPF::Tgi{kModelType, kPieceModelGroup, closest}) ? closest : model;
+    }
+
     // A button of the game's menus: a network item or a submenu.
     struct MenuItem {
         std::string name;
@@ -469,6 +478,7 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
                     fallback = 0;
                 }
             }
+            model = ClosestZoomModel(index, model);
             std::string name = LoadText(index, DBPF::Tgi{kLTextType, kPlaceQueryGroup, piece->placeQueryId});
             button.pieces.push_back({name.empty() ? fmt::format("Piece 0x{:X}", row.front()) : std::move(name),
                                      row.front(), model, fallback, static_cast<uint32_t>(row.size()),
@@ -499,6 +509,36 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
             button.path = std::move(path);
             buttons.emplace_back(std::move(order), std::move(button));
         }
+    }
+
+    // The Piece line must name a model, but any model will do, so some pieces name a stand-in: the
+    // underground road starters all name the same eraser. A model that pieces with different preview
+    // effects share is such a stand-in, and the preview model is the one to show.
+    std::unordered_map<uint32_t, uint32_t> previewOfModel;
+    std::unordered_set<uint32_t> standIns;
+    for (const auto& [order, button] : buttons) {
+        for (const NetworkPiece& piece : button.pieces) {
+            if (piece.fallbackModel == 0) {
+                continue;
+            }
+            if (const auto [seen, isNew] = previewOfModel.try_emplace(piece.previewModel, piece.fallbackModel);
+                !isNew && seen->second != piece.fallbackModel) {
+                standIns.insert(piece.previewModel);
+            }
+        }
+    }
+    const auto preferPreview = [&standIns](uint32_t& model, uint32_t& fallback) {
+        if (fallback != 0 && standIns.contains(model)) {
+            std::swap(model, fallback);
+        }
+    };
+    for (auto& [order, button] : buttons) {
+        for (NetworkPiece& piece : button.pieces) {
+            preferPreview(piece.previewModel, piece.fallbackModel);
+        }
+    }
+    for (OverrideNetwork& network : cache.networks) {
+        preferPreview(network.previewModel, network.fallbackModel);
     }
 
     std::ranges::stable_sort(buttons, {}, [](const auto& entry) { return entry.first; });
