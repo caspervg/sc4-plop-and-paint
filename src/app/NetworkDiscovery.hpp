@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <vector>
 
 #include "../shared/networks.hpp"
@@ -13,4 +14,8 @@ namespace NetworkDiscovery {
     // Also lists every menu button with a TAB loop and the pieces in it, under the menus and submenus
     // the button is in.
     [[nodiscard]] NetworksCache Discover(const DbpfIndexService& index);
+
+    // A square RGBA picture of a piece's layout, a coloured cell for each network. It stands in for
+    // the picture of a piece whose models do not render. Empty when the piece has no cells.
+    [[nodiscard]] std::vector<std::byte> LayoutPicture(const NetworkPiece& piece, uint32_t size);
 }

@@ -171,6 +171,8 @@ public:
     // Renders a model that belongs to no exemplar, such as the preview model of a network piece.
     // Empty without --render-thumbnails, or when the model does not render.
     [[nodiscard]] std::optional<Thumbnail> renderModelThumbnail(const DBPF::Tgi& modelTgi) const;
+    // Whether thumbnails are rendered at all (--render-thumbnails).
+    [[nodiscard]] bool rendersThumbnails() const { return thumbnailRenderer_ != nullptr; }
 
     // Cohort-aware property lookup - searches exemplar and parent cohorts recursively
     [[nodiscard]] const Exemplar::Property* findProperty(

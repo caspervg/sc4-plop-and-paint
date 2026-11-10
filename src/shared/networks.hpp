@@ -33,6 +33,11 @@ struct NetworkPiece {
     uint32_t previewModel = 0;  // instance of the model for its picture
     uint32_t fallbackModel = 0; // another model to try when that one does not render, 0 for none
     uint32_t rotations = 0;     // how many rotations Home and End go through
+    // The piece's cells, row by row from the north: a bit for each network in the cell (bit n is
+    // cISC4NetworkOccupant::eNetworkType n), kOtherCell for a cell without a network of its own, 0 for
+    // no cell. The cache builder draws this when no model renders.
+    std::vector<std::vector<uint32_t>> layout;
+    static constexpr uint32_t kOtherCell = 0x8000;
     uint32_t cost = 0;
 };
 

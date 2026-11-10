@@ -296,6 +296,50 @@ namespace {
         return models;
     }
 
+    // The cells of a piece as NetworkPiece::layout has them, cut to the cells that are in use.
+    std::vector<std::vector<uint32_t>> PieceLayout(const RUL0::PuzzlePiece& piece) {
+        std::vector<std::vector<uint32_t>> cells;
+        size_t left = SIZE_MAX, right = 0, top = SIZE_MAX, bottom = 0;
+        for (const auto& line : piece.cellLayout) {
+            auto& row = cells.emplace_back();
+            for (const char symbol : line) {
+                uint32_t cell = 0;
+                if (symbol == '<' || symbol == '^' || symbol == ' ' || symbol == '\t') {
+                    // '<' and '^' mark the row and column of the cursor, they are not cells
+                }
+                else if (symbol != '.') {
+                    cell = NetworkPiece::kOtherCell;
+                    if (const auto check = std::ranges::find(piece.checkTypes, symbol, &RUL0::CheckType::symbol);
+                        check != piece.checkTypes.end()) {
+                        for (const auto& network : check->networks) {
+                            if (const auto type = static_cast<uint32_t>(network.networkType); type < kRul1Names.size()) {
+                                cell = (cell & ~NetworkPiece::kOtherCell) | (1u << type);
+                            }
+                        }
+                    }
+                }
+                if (cell != 0) {
+                    left = std::min(left, row.size());
+                    right = std::max(right, row.size());
+                    top = std::min(top, cells.size() - 1);
+                    bottom = cells.size() - 1;
+                }
+                row.push_back(cell);
+            }
+        }
+        if (left == SIZE_MAX) {
+            return {};
+        }
+        std::vector<std::vector<uint32_t>> layout;
+        for (size_t z = top; z <= bottom; ++z) {
+            auto& row = layout.emplace_back(right - left + 1, 0u);
+            for (size_t x = left; x <= right && x < cells[z].size(); ++x) {
+                row[x - left] = cells[z][x];
+            }
+        }
+        return layout;
+    }
+
     // A button of the game's menus: a network item or a submenu.
     struct MenuItem {
         std::string name;
@@ -428,7 +472,7 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
             std::string name = LoadText(index, DBPF::Tgi{kLTextType, kPlaceQueryGroup, piece->placeQueryId});
             button.pieces.push_back({name.empty() ? fmt::format("Piece 0x{:X}", row.front()) : std::move(name),
                                      row.front(), model, fallback, static_cast<uint32_t>(row.size()),
-                                     piece->costs != 0xFFFFFFFF ? piece->costs : 0});
+                                     PieceLayout(*piece), piece->costs != 0xFFFFFFFF ? piece->costs : 0});
 
             // A starter piece is also an override network that can be dragged directly.
             auto starter = StarterRows(*piece, sections, spreading);
@@ -466,4 +510,58 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
     spdlog::info("Found {} override networks and {} pieces under {} menu buttons", cache.networks.size(), pieces,
                  cache.buttons.size());
     return cache;
+}
+
+std::vector<std::byte> NetworkDiscovery::LayoutPicture(const NetworkPiece& piece, const uint32_t size) {
+    // A colour for each network, by cISC4NetworkOccupant::eNetworkType, then one for other cells.
+    constexpr std::array<std::array<uint8_t, 3>, 14> kColors = {{
+        {120, 120, 120}, {135, 100, 65},  {70, 72, 90},    {170, 170, 165}, {60, 120, 200},
+        {220, 200, 60},  {95, 95, 95},    {150, 90, 170},  {90, 140, 175},  {60, 160, 150},
+        {150, 145, 115}, {48, 48, 54},    {85, 88, 110},   {110, 135, 110},
+    }};
+    size_t columns = 0;
+    for (const auto& row : piece.layout) {
+        columns = std::max(columns, row.size());
+    }
+    if (columns == 0 || size < 16) {
+        return {};
+    }
+    const uint32_t margin = size / 12;
+    const uint32_t cellSize = std::max<uint32_t>(2, (size - 2 * margin) / static_cast<uint32_t>(std::max(columns, piece.layout.size())));
+    const uint32_t left = (size - cellSize * static_cast<uint32_t>(columns)) / 2;
+    const uint32_t top = (size - cellSize * static_cast<uint32_t>(piece.layout.size())) / 2;
+    const uint32_t gap = cellSize >= 8 ? 1 : 0;
+
+    std::vector<std::byte> pixels(static_cast<size_t>(size) * size * 4, std::byte{0});
+    for (size_t z = 0; z < piece.layout.size(); ++z) {
+        for (size_t x = 0; x < piece.layout[z].size(); ++x) {
+            const uint32_t cell = piece.layout[z][x];
+            if (cell == 0) {
+                continue;
+            }
+            // The networks in the cell, at most two: the first takes the upper half, the second the lower.
+            std::array<size_t, 2> networks = {13, 13};
+            size_t count = 0;
+            for (size_t type = 0; type < 13 && count < networks.size(); ++type) {
+                if (cell & (1u << type)) {
+                    networks[count++] = type;
+                }
+            }
+            if (count < 2) {
+                networks[1] = networks[0];
+            }
+            for (uint32_t dz = gap; dz + gap < cellSize; ++dz) {
+                const auto& color = kColors[networks[dz * 2 < cellSize ? 0 : 1]];
+                for (uint32_t dx = gap; dx + gap < cellSize; ++dx) {
+                    const size_t at = (static_cast<size_t>(top + static_cast<uint32_t>(z) * cellSize + dz) * size +
+                                       left + static_cast<uint32_t>(x) * cellSize + dx) * 4;
+                    pixels[at] = std::byte{color[0]};
+                    pixels[at + 1] = std::byte{color[1]};
+                    pixels[at + 2] = std::byte{color[2]};
+                    pixels[at + 3] = std::byte{255};
+                }
+            }
+        }
+    }
+    return pixels;
 }
