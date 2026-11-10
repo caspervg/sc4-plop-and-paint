@@ -94,7 +94,8 @@ NetworksPanelTab::NetworksPanelTab(SC4PlopAndPaintDirector* director, FavoritesR
         }
         group->networks.push_back(i);
         networkSearch_.push_back(TextSearch::Normalize(network.name + ' ' + network.group + ' ' +
-                                                       BaseNetworkName(network.baseNetwork)) +
+                                                       BaseNetworkName(network.baseNetwork) +
+                                                       (network.diagonal ? " diagonal" : "")) +
                                  TextSearch::HexId(network.starterPiece));
         suggester_.Add(networkSearch_.back());
     }
@@ -189,12 +190,25 @@ void NetworksPanelTab::RenderNetworkTile_(const OverrideNetwork& network, const 
         std::snprintf(wide, sizeof(wide), "x%zu", network.rows.size());
     }
     RenderTileFace_(NetworkKey(network), network.name, wide[0] ? wide : nullptr, active, NetworkFavorite(network));
+    if (network.diagonal) {
+        // A diagonal stroke in the corner where wide networks have their badge. Wide ones never drag on diagonals.
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const float size = ImGui::GetFontSize() * 1.1f;
+        const ImVec2 max(ImGui::GetItemRectMax().x - 3.0f, ImGui::GetItemRectMin().y + 3.0f + size);
+        const ImVec2 min(max.x - size, max.y - size);
+        drawList->AddRectFilled(min, max, IM_COL32(32, 32, 32, 220), 3.0f);
+        drawList->AddLine(ImVec2(min.x + 4.0f, max.y - 4.0f), ImVec2(max.x - 4.0f, min.y + 4.0f),
+                          IM_COL32(220, 220, 220, 255), 2.0f);
+    }
 
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
         ImGui::TextUnformatted(network.name.c_str());
         if (network.baseNetwork < kBaseNetworkNames.size()) {
             ImGui::TextDisabled("Drags with the %s tool", kBaseNetworkNames[network.baseNetwork]);
+        }
+        if (network.diagonal) {
+            ImGui::TextDisabled("Drags on diagonals too");
         }
         if (network.rows.size() > 1) {
             ImGui::TextDisabled("%zu tiles wide. The other rows follow straight drags only.", network.rows.size());
@@ -220,10 +234,6 @@ void NetworksPanelTab::RenderPieceTile_(const PieceRef ref, const bool active) {
         if (piece.cost > 0) {
             ImGui::TextDisabled("Cost: %u", piece.cost);
         }
-        if (piece.rotations > 1) {
-            ImGui::TextDisabled("Home and End turn the piece (%u positions).", piece.rotations);
-        }
-        ImGui::TextDisabled("Tab shows the next piece of this button.");
         RenderLargePreview_(thumbnails_, PieceKey(piece));
         ImGui::EndTooltip();
     }

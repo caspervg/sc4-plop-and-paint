@@ -61,12 +61,30 @@ namespace {
         {0x57000000, RUL0::NetworkType::DIRT_ROAD},
     };
 
+    // The plain diagonal tile of the same base networks, as in the NAM DLL's diagonal surrogate tiles.
+    const std::unordered_map<uint32_t, RUL0::NetworkType> kBaseDiagonalTiles = {
+        {0x00000A00, RUL0::NetworkType::ROAD},
+        {0x5D540100, RUL0::NetworkType::RAIL},
+        {0x5F500200, RUL0::NetworkType::STREET},
+        {0x08001A00, RUL0::NetworkType::LIGHT_RAIL},
+        {0x09000A00, RUL0::NetworkType::ONE_WAY_ROAD},
+        {0x0D001A00, RUL0::NetworkType::MONORAIL},
+        {0x57000200, RUL0::NetworkType::DIRT_ROAD},
+    };
+
     // RUL1 names its sections after the two networks, in this spelling.
     constexpr std::array<std::string_view, 13> kRul1Names = {
         "road", "rail", "highway", "street", "pipe", "powerline", "avenue",
         "subway", "lightrail", "monorail", "onewayroad", "dirtroad", "groundhighway"};
 
     using SpreadingTiles = std::unordered_map<uint32_t, RUL0::NetworkType>;
+    // Tiles that change the plain diagonal of a base network next to them, with a bit per base network
+    // (1 << NetworkType).
+    using DiagonalLeads = std::unordered_map<uint32_t, uint32_t>;
+    struct Rul2Facts {
+        SpreadingTiles spreading;
+        DiagonalLeads diagonalLeads;
+    };
     using Rul1Sections = std::unordered_map<std::string, const RUL1::Section*>;
 
     std::string Lower(std::string_view text) {
@@ -76,10 +94,11 @@ namespace {
     }
 
     // Tiles that spread over a base network, with that network: RUL2 rules "S,r,f,B,r,f=S,r,f,S,r,f"
-    // where B is a base tile. The file has millions of rules, so this reads the four IDs of a line and
-    // nothing else.
-    SpreadingTiles FindSpreadingTiles(const std::vector<uint8_t>& rul2) {
-        SpreadingTiles result;
+    // where B is a base tile. And tiles that change a base diagonal tile D next to them: "S,r,f,D,r,f=S,r,f,X,r,f"
+    // or the other way round. That is how the NAM DLL starts a direct drag on a diagonal.
+    // The file has millions of rules, so this reads the four IDs of a line and nothing else.
+    Rul2Facts ReadRul2(const std::vector<uint8_t>& rul2) {
+        Rul2Facts result;
         const char* line = reinterpret_cast<const char*>(rul2.data());
         const char* const end = line + rul2.size();
         while (line < end) {
@@ -102,7 +121,17 @@ namespace {
                 }
                 if (count == ids.size() && ids[0] == ids[2] && ids[0] == ids[3] && ids[0] != ids[1]) {
                     if (const auto base = kBaseTiles.find(ids[1]); base != kBaseTiles.end()) {
-                        result.try_emplace(ids[0], base->second);
+                        result.spreading.try_emplace(ids[0], base->second);
+                    }
+                }
+                if (count == ids.size()) {
+                    if (const auto diagonal = kBaseDiagonalTiles.find(ids[1]);
+                        diagonal != kBaseDiagonalTiles.end() && ids[0] != ids[1] && ids[3] != ids[1]) {
+                        result.diagonalLeads[ids[0]] |= 1u << static_cast<uint32_t>(diagonal->second);
+                    }
+                    if (const auto diagonal = kBaseDiagonalTiles.find(ids[0]);
+                        diagonal != kBaseDiagonalTiles.end() && ids[1] != ids[0] && ids[2] != ids[0]) {
+                        result.diagonalLeads[ids[1]] |= 1u << static_cast<uint32_t>(diagonal->second);
                     }
                 }
             }
@@ -440,7 +469,8 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
         return {};
     }
 
-    const auto spreading = FindSpreadingTiles(*rul2Data);
+    const auto rul2Facts = ReadRul2(*rul2Data);
+    const auto& spreading = rul2Facts.spreading;
     Rul1Sections sections;
     for (const auto& section : rul1->sections) {
         sections.try_emplace(Lower(section.pairName), &section);
@@ -494,8 +524,17 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
                 key.emplace_back(r.tile, r.rotFlip);
             }
             if (seen.try_emplace(std::move(key), cache.networks.size()).second) {
+                // ponytail: one lead-in rule counts as diagonal support. A rule that only makes an end piece
+                // of the diagonal also counts. Simulate the drag (rul2-sim) if that gives wrong marks.
+                // The NAM DLL drags the other rows of a wide network straight only.
+                bool diagonal = false;
+                if (starter->rows.size() == 1) {
+                    const auto leads = rul2Facts.diagonalLeads.find(starter->rows.front().tile);
+                    diagonal = leads != rul2Facts.diagonalLeads.end() &&
+                               (leads->second >> static_cast<uint32_t>(starter->base) & 1) != 0;
+                }
                 cache.networks.push_back({PieceName(index, *piece), group, static_cast<uint32_t>(starter->base),
-                                          piece->id, model, fallback, std::move(starter->rows)});
+                                          piece->id, model, fallback, std::move(starter->rows), diagonal});
             }
         };
         consider(ordering.rotationRing);
@@ -547,7 +586,8 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
         pieces += button.pieces.size();
         cache.buttons.push_back(std::move(button));
     }
-    spdlog::info("Found {} override networks and {} pieces under {} menu buttons", cache.networks.size(), pieces,
+    spdlog::info("Found {} override networks ({} drag on diagonals) and {} pieces under {} menu buttons",
+                 cache.networks.size(), std::ranges::count(cache.networks, true, &OverrideNetwork::diagonal), pieces,
                  cache.buttons.size());
     return cache;
 }

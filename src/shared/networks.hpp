@@ -23,6 +23,7 @@ struct OverrideNetwork {
     uint32_t previewModel = 0;  // instance of the model for the starter piece's picture
     uint32_t fallbackModel = 0; // another model to try when that one does not render, 0 for none
     std::vector<OverrideNetworkRow> rows;
+    bool diagonal = false;      // a drag can start or go on a diagonal
 };
 
 // A puzzle piece: one row of a TAB loop in RUL0. Its picture is in network_thumbnails.bin under
