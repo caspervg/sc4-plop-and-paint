@@ -280,8 +280,10 @@ NetworksPanelTab::NetworksPanelTab(SC4PlopAndPaintDirector* director, FavoritesR
             where += ' ' + menu;
         }
         auto& texts = pieceSearch_.emplace_back();
+        auto& nameTexts = pieceNameSearch_.emplace_back();
         for (const NetworkPiece& piece : button.pieces) {
             texts.push_back(TextSearch::Normalize(piece.name + ' ' + where) + TextSearch::HexId(piece.id));
+            nameTexts.push_back(TextSearch::Normalize(piece.name) + TextSearch::HexId(piece.id));
             suggester_.Add(texts.back());
         }
         pieceCount_ += button.pieces.size();
@@ -453,9 +455,13 @@ void NetworksPanelTab::RenderPieceTile_(const PieceRef ref, const bool active, c
     }
 }
 
+bool NetworksPanelTab::PieceFiltered_(const PieceRef ref) const {
+    return (pieceNetworks_[ref.first][ref.second] & networkFilter_) == networkFilter_ &&
+           (!favoritesOnly_ || IsFavorite_(PieceFavorite(cache_.buttons[ref.first].pieces[ref.second])));
+}
+
 bool NetworksPanelTab::PieceShown_(const PieceRef ref, const TextSearch::Query& query) const {
-    return (pieceNetworks_[ref.first][ref.second] & networkFilter_) == networkFilter_ && (!favoritesOnly_ || IsFavorite_(PieceFavorite(cache_.buttons[ref.first].pieces[ref.second]))) &&
-           query.Matches(pieceSearch_[ref.first][ref.second]);
+    return PieceFiltered_(ref) && query.Matches(pieceSearch_[ref.first][ref.second]);
 }
 
 int NetworksPanelTab::ActiveFilterCount_() const {
@@ -712,7 +718,9 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
         return;
     }
 
-    // The buttons that are in the chosen menu and have a piece that the filters let through.
+    // The buttons that are in the chosen menu and have a piece that the filters let through. When some
+    // pieces of a button match by their own name, only those count: the others only match through the
+    // name of their button or menu.
     std::vector<size_t> buttons;
     std::vector<std::vector<size_t>> pieces;
     size_t count = 0;
@@ -722,10 +730,17 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
             continue;
         }
         std::vector<size_t> matches;
+        std::vector<size_t> named;
         for (size_t p = 0; p < button.pieces.size(); ++p) {
             if (PieceShown_({b, p}, query)) {
                 matches.push_back(p);
+                if (!query.Empty() && query.Matches(pieceNameSearch_[b][p])) {
+                    named.push_back(p);
+                }
             }
+        }
+        if (!named.empty()) {
+            matches = std::move(named);
         }
         if (!matches.empty()) {
             count += matches.size();
@@ -786,14 +801,33 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
         }
         else if (!query.Empty() || networkFilter_ != 0) {
             // A search or a network filter: the matches of all buttons, each under its button. A click
-            // on a button in the list goes to its pieces.
+            // on a button in the list goes to its pieces. The pieces whose own name matches come first, and
+            // the rest of their TAB loop follows greyed out. When only the button's name matches, its pieces
+            // all show as they are.
             for (size_t i = 0; i < buttons.size(); ++i) {
                 if (buttons[i] == scrollToButton_) {
                     ImGui::SetScrollHereY(0.0f);
                 }
                 ImGui::SeparatorText(cache_.buttons[buttons[i]].name.c_str());
                 ImGui::PushID(static_cast<int>(buttons[i]));
-                RenderPieceGrid_(refsOf(i), activePiece, true);
+                std::vector<PieceRef> named;
+                std::vector<PieceRef> rest;
+                if (!query.Empty()) {
+                    for (size_t p = 0; p < cache_.buttons[buttons[i]].pieces.size(); ++p) {
+                        const PieceRef ref{buttons[i], p};
+                        if (PieceFiltered_(ref)) {
+                            (query.Matches(pieceNameSearch_[ref.first][ref.second]) ? named : rest).push_back(ref);
+                        }
+                    }
+                }
+                if (named.empty()) {
+                    RenderPieceGrid_(refsOf(i), activePiece, true);
+                }
+                else {
+                    const size_t bright = named.size();
+                    named.insert(named.end(), rest.begin(), rest.end());
+                    RenderPieceGrid_(named, activePiece, true, bright);
+                }
                 ImGui::PopID();
             }
         }
@@ -807,7 +841,7 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
 }
 
 void NetworksPanelTab::RenderPieceGrid_(const std::vector<PieceRef>& refs, const uint32_t activePiece,
-                                        const bool shortNames) {
+                                        const bool shortNames, const size_t brightCount) {
     const float tileSize = TileSize_();
     if (reveal_) {
         // Scroll only when the tile is not in sight already.
@@ -825,6 +859,11 @@ void NetworksPanelTab::RenderPieceGrid_(const std::vector<PieceRef>& refs, const
         [&](const size_t i) {
             const NetworkPiece& piece = cache_.buttons[refs[i].first].pieces[refs[i].second];
             RenderPieceTile_(refs[i], piece.id == activePiece, shortNames);
+            if (i >= brightCount) {
+                ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                                                          ImGui::GetColorU32(ImGuiCol_WindowBg, 0.65f),
+                                                          ThumbnailUi::kCornerRounding);
+            }
         });
 }
 

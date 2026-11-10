@@ -55,7 +55,9 @@ private:
                            size_t recentCount);
     void RenderNetworkTile_(const OverrideNetwork& network, bool active);
     // The tiles of these pieces. shortNames: all are of one button, which the view shows above them.
-    void RenderPieceGrid_(const std::vector<PieceRef>& refs, uint32_t activePiece, bool shortNames);
+    // The tiles from brightCount on are greyed out: the rest of a TAB loop around the pieces that match.
+    void RenderPieceGrid_(const std::vector<PieceRef>& refs, uint32_t activePiece, bool shortNames,
+                          size_t brightCount = static_cast<size_t>(-1));
     void RenderPieceTile_(PieceRef ref, bool active, bool shortName);
     // The picture, the name on a band, an optional badge and the star, on the tile drawn last.
     void RenderTileFace_(uint64_t key, const std::string& name, const char* badge, bool active, uint64_t favoriteKey);
@@ -64,6 +66,8 @@ private:
     [[nodiscard]] int ActiveFilterCount_() const;
     [[nodiscard]] bool IsFavorite_(uint64_t favoriteKey) const;
     [[nodiscard]] bool PieceShown_(PieceRef ref, const TextSearch::Query& query) const;
+    // Favorites only and the network filter, which hide a piece whatever the search.
+    [[nodiscard]] bool PieceFiltered_(PieceRef ref) const;
     [[nodiscard]] std::string ActiveTool_() const;
     [[nodiscard]] std::string NetworkFilterLabel_() const;
     [[nodiscard]] float TileSize_() const { return ShownThumbnailSize_(); }
@@ -77,6 +81,7 @@ private:
     std::vector<std::string> baseSearch_;                // by kBaseNetworks
     std::vector<std::string> networkSearch_;             // by cache_.networks
     std::vector<std::vector<std::string>> pieceSearch_;  // by cache_.buttons, then piece
+    std::vector<std::vector<std::string>> pieceNameSearch_;  // the same, with the piece's own name only
     // Also by cache_.buttons, then piece: the name without the words that all pieces of the button
     // share, the networks in its cells (bit n is eNetworkType n) and its size in tiles, empty for one tile.
     std::vector<std::vector<std::string>> pieceShortName_;
