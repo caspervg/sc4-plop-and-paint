@@ -1,4 +1,4 @@
-# Tools for SC4 Advanced Lot Plop
+# Tools for SC4 Plop and Paint
 
 # Property XML to JSON converter
 add_executable(convert_properties convert_properties.cpp)
@@ -11,7 +11,7 @@ target_include_directories(convert_properties PRIVATE
 )
 
 target_link_libraries(convert_properties PRIVATE
-    SC4AdvancedLotPlopCore
+    SC4PlopAndPaintCore
     pugixml::pugixml
     reflectcpp::reflectcpp
 )
