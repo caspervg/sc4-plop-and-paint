@@ -30,6 +30,9 @@ namespace {
     constexpr uint32_t kItemOrder = 0x8A2602B9;
     constexpr uint32_t kItemButtonId = 0x8A2602BB;
     constexpr uint32_t kItemSubmenuParentId = 0x8A2602CA;  // from the Submenus DLL
+    constexpr uint32_t kEffDirType = 0xEA5118B0;
+    constexpr uint32_t kModelType = 0x5AD0E817;
+    constexpr uint32_t kPieceModelGroup = 0xBADB57F1;
 
     // The game's network menus: the ID of the menu's own button, which a submenu names as its parent, and
     // the property a button has when it is in that menu directly.
@@ -249,6 +252,50 @@ namespace {
         return name.empty() ? fmt::format("Piece 0x{:X}", piece.id) : name;
     }
 
+    // The model of every preview effect, by the effect's name in lower case. The game shows this model
+    // on the cursor. For one piece in six it is not the model of the Piece line: it can have marks that
+    // the real piece does not have, such as arrows for the direction of travel, and for some pieces the
+    // Piece line names no model at all.
+    //
+    // ponytail: this reads the NAM's own EFFDIR entries only. They all have one layout: two particles,
+    // the first for the effect and the second for its red twin, with the model key of the first at 0xC8.
+    // The game's big EFFDIR has another layout and needs a full reader (the format is in
+    // sc4-effects-extensions, docs/reference/binary/effdir.md). The few Maxis pieces fall back to the
+    // Piece line.
+    std::unordered_map<std::string, uint32_t> LoadPreviewModels(const DbpfIndexService& index) {
+        constexpr std::array<uint8_t, 8> kLayout = {0x04, 0x00, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00};
+        constexpr size_t kModelKeyOffset = 0xC8;
+        constexpr std::string_view kPrefix = "preview";
+        std::unordered_map<std::string, uint32_t> models;
+        for (const DBPF::Tgi& tgi : index.typeIndex(kEffDirType)) {
+            const auto data = index.loadEntryData(tgi);
+            if (!data || data->size() < kModelKeyOffset + 4 || !std::equal(kLayout.begin(), kLayout.end(), data->begin())) {
+                continue;
+            }
+            const auto u32At = [&data](const size_t at) {
+                return static_cast<uint32_t>((*data)[at]) | (*data)[at + 1] << 8 | (*data)[at + 2] << 16 |
+                       static_cast<uint32_t>((*data)[at + 3]) << 24;
+            };
+            const uint32_t model = u32At(kModelKeyOffset);
+            // The effect names are strings with their length in front.
+            const std::string_view text(reinterpret_cast<const char*>(data->data()), data->size());
+            for (size_t at = text.find(kPrefix); at != std::string_view::npos; at = text.find(kPrefix, at + 1)) {
+                if (at < 4) {
+                    continue;
+                }
+                const size_t length = u32At(at - 4);
+                if (length < kPrefix.size() || length > 200 || at + length > text.size()) {
+                    continue;
+                }
+                std::string name = Lower(text.substr(at, length));
+                if (!name.ends_with("_red")) {
+                    models.insert_or_assign(std::move(name), model);
+                }
+            }
+        }
+        return models;
+    }
+
     // A button of the game's menus: a network item or a submenu.
     struct MenuItem {
         std::string name;
@@ -346,6 +393,7 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
         sections.try_emplace(Lower(section.pairName), &section);
     }
     const auto menuItems = LoadMenuItems(index);
+    const auto previewModels = LoadPreviewModels(index);
 
     NetworksCache cache;
     std::map<std::vector<std::pair<uint32_t, uint32_t>>, size_t> seen;  // rows -> index in networks
@@ -365,10 +413,21 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
             if (!piece) {
                 return;
             }
-            const uint32_t model = piece->effect.initialized ? piece->effect.instanceId : 0;
+            // The picture shows the real model, the one of the Piece line, when there is one. The model
+            // of the preview effect is second choice.
+            uint32_t model = piece->effect.initialized ? piece->effect.instanceId : 0;
+            uint32_t fallback = 0;
+            if (const auto preview = previewModels.find(Lower(piece->effect.name));
+                preview != previewModels.end() && preview->second != model) {
+                fallback = preview->second;
+                if (!index.containsTgi(DBPF::Tgi{kModelType, kPieceModelGroup, model})) {
+                    std::swap(model, fallback);
+                    fallback = 0;
+                }
+            }
             std::string name = LoadText(index, DBPF::Tgi{kLTextType, kPlaceQueryGroup, piece->placeQueryId});
             button.pieces.push_back({name.empty() ? fmt::format("Piece 0x{:X}", row.front()) : std::move(name),
-                                     row.front(), model, static_cast<uint32_t>(row.size()),
+                                     row.front(), model, fallback, static_cast<uint32_t>(row.size()),
                                      piece->costs != 0xFFFFFFFF ? piece->costs : 0});
 
             // A starter piece is also an override network that can be dragged directly.
@@ -382,7 +441,7 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
             }
             if (seen.try_emplace(std::move(key), cache.networks.size()).second) {
                 cache.networks.push_back({PieceName(index, *piece), group, static_cast<uint32_t>(starter->base),
-                                          piece->id, model, std::move(starter->rows)});
+                                          piece->id, model, fallback, std::move(starter->rows)});
             }
         };
         consider(ordering.rotationRing);

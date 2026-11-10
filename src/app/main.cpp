@@ -836,17 +836,22 @@ namespace {
                 // Pictures of the preview models: key group 0 for a network's starter piece, 1 for a piece.
                 constexpr uint32_t kS3DType = 0x5AD0E817;
                 constexpr uint32_t kPreviewModelGroup = 0xBADB57F1;
-                const auto render = [&](const uint32_t keyGroup, const uint32_t id, const uint32_t model) {
-                    if (auto thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, model})) {
+                const auto render = [&](const uint32_t keyGroup, const uint32_t id, const uint32_t model,
+                                        const uint32_t fallbackModel) {
+                    auto thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, model});
+                    if (!thumbnail && fallbackModel != 0) {
+                        thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, fallbackModel});
+                    }
+                    if (thumbnail) {
                         thumbnailEncoder.submit(networkThumbnails, MakeGIKey(keyGroup, id), std::move(*thumbnail));
                     }
                 };
                 for (const auto& network : networksCache.networks) {
-                    render(0, network.starterPiece, network.previewModel);
+                    render(0, network.starterPiece, network.previewModel, network.fallbackModel);
                 }
                 for (const auto& button : networksCache.buttons) {
                     for (const auto& piece : button.pieces) {
-                        render(1, piece.id, piece.previewModel);
+                        render(1, piece.id, piece.previewModel, piece.fallbackModel);
                     }
                 }
             }

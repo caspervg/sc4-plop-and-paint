@@ -20,7 +20,8 @@ struct OverrideNetwork {
     std::string group;          // name of the menu button the starter piece is under
     uint32_t baseNetwork = 0;   // cISC4NetworkOccupant::eNetworkType of the network to drag
     uint32_t starterPiece = 0;  // RUL0 ID of the starter piece
-    uint32_t previewModel = 0;  // instance of the starter piece's preview model
+    uint32_t previewModel = 0;  // instance of the model for the starter piece's picture
+    uint32_t fallbackModel = 0; // another model to try when that one does not render, 0 for none
     std::vector<OverrideNetworkRow> rows;
 };
 
@@ -29,7 +30,8 @@ struct OverrideNetwork {
 struct NetworkPiece {
     std::string name;
     uint32_t id = 0;            // RUL0 ID of the piece, the first of its rotations
-    uint32_t previewModel = 0;  // instance of its preview model
+    uint32_t previewModel = 0;  // instance of the model for its picture
+    uint32_t fallbackModel = 0; // another model to try when that one does not render, 0 for none
     uint32_t rotations = 0;     // how many rotations Home and End go through
     uint32_t cost = 0;
 };
