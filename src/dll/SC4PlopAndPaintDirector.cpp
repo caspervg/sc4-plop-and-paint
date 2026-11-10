@@ -2,7 +2,9 @@
 // ReSharper disable CppDFAUnreachableCode
 #include "SC4PlopAndPaintDirector.hpp"
 
+#include <cIGZCOM.h>
 #include <cIGZFrameWork.h>
+#include <cstddef>
 #include <utility>
 #include <cstdio>
 #include <wil/resource.h>
@@ -10,6 +12,8 @@
 
 #include "cGZMessage.h"
 #include "../shared/networks.hpp"
+#include "network/cIOverrideNetworkDrag.h"
+#include "cRZAutoRefCount.h"
 #include "cGZPersistResourceKey.h"
 #include "cIGZCommandParameterSet.h"
 #include "cIGZPersistResourceManager.h"
@@ -571,14 +575,23 @@ bool SC4PlopAndPaintDirector::IsLotPlopping() {
 }
 
 namespace {
-    // The NAM DLL exports this. The rows are those of an OverrideNetwork, and no rows turn direct
-    // dragging off.
-    using NamSetDirectDragRows = void(__cdecl*)(const OverrideNetworkRow* rows, uint32_t count);
-    static_assert(sizeof(OverrideNetworkRow) == 12, "the NAM DLL reads rows of three 32-bit fields");
-    NamSetDirectDragRows FindNamSetDirectDragRows() {
-        const HMODULE nam = GetModuleHandleW(L"NAM.dll");
-        return nam ? reinterpret_cast<NamSetDirectDragRows>(GetProcAddress(nam, "NamSetDirectDragRows")) : nullptr;
+    // The NAM DLL's class that turns drags of a base network into an override network. It is null
+    // without the NAM DLL or its RUL2 Engine patch.
+    cRZAutoRefCount<cIOverrideNetworkDrag> GetOverrideNetworkDrag() {
+        cRZAutoRefCount<cIOverrideNetworkDrag> drag;
+        if (cIGZFrameWork* const framework = RZGetFrameWork()) {
+            framework->GetCOMObject()->GetClassObject(GZCLSID_cIOverrideNetworkDrag, GZIID_cIOverrideNetworkDrag,
+                                                      drag.AsPPVoid());
+        }
+        return drag;
     }
+
+    // OverrideNetworkRow is shared with the cache builder, which does not know the NAM header.
+    using NamTileRow = cIOverrideNetworkDrag::TileRow;
+    static_assert(sizeof(OverrideNetworkRow) == sizeof(NamTileRow)
+                  && offsetof(OverrideNetworkRow, tile) == offsetof(NamTileRow, straightTileId)
+                  && offsetof(OverrideNetworkRow, offset) == offsetof(NamTileRow, offset)
+                  && offsetof(OverrideNetworkRow, rotFlip) == offsetof(NamTileRow, rotationFlip));
 
     // Catalog items of the game's network drag tools, by cISC4NetworkOccupant::eNetworkType.
     constexpr uint32_t kNetworkToolItems[] = {
@@ -586,7 +599,7 @@ namespace {
         0x299237BF, 0x2B79E398, 0x4BE099DE, 0x0BE099C1, 0x2BE099A9, 0x0BE0998F};
 }
 
-bool SC4PlopAndPaintDirector::CanDragOverrideNetworks() { return FindNamSetDirectDragRows() != nullptr; }
+bool SC4PlopAndPaintDirector::CanDragOverrideNetworks() { return GetOverrideNetworkDrag() != nullptr; }
 
 // Sends the message that a button of the game's own network menus sends to the view. The game then
 // makes its tool for that item the current one.
@@ -615,13 +628,14 @@ bool SC4PlopAndPaintDirector::StartBaseNetworkDrag(const uint32_t network) {
 }
 
 bool SC4PlopAndPaintDirector::StartOverrideNetworkDrag(const OverrideNetwork& network) {
-    const auto setRows = FindNamSetDirectDragRows();
-    if (!setRows || network.rows.empty() || network.baseNetwork >= std::size(kNetworkToolItems)
+    const auto drag = GetOverrideNetworkDrag();
+    if (!drag || network.rows.empty() || network.baseNetwork >= std::size(kNetworkToolItems)
         || !StartNetworkTool_(kNetworkToolItems[network.baseNetwork])) {
         LOG_WARN("Cannot drag {}: no city, or the NAM DLL has no direct drag", network.name);
         return false;
     }
-    setRows(network.rows.data(), static_cast<uint32_t>(network.rows.size()));
+    drag->SetOverrideNetwork(reinterpret_cast<const NamTileRow*>(network.rows.data()),
+                             static_cast<uint32_t>(network.rows.size()));
     overrideNetworkPiece_ = network.starterPiece;
     LOG_INFO("Dragging {} ({} rows) on base network {}", network.name, network.rows.size(), network.baseNetwork);
     return true;
@@ -660,8 +674,8 @@ void SC4PlopAndPaintDirector::StopNetworkTool() {
 
 void SC4PlopAndPaintDirector::ForgetNetworkTool_() {
     if (overrideNetworkPiece_ != 0) {
-        if (const auto setRows = FindNamSetDirectDragRows()) {
-            setRows(nullptr, 0);
+        if (const auto drag = GetOverrideNetworkDrag()) {
+            drag->ClearOverrideNetwork();
         }
     }
     overrideNetworkPiece_ = 0;
