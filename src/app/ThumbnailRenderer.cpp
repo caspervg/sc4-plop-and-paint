@@ -432,7 +432,7 @@ namespace thumb {
         }
 
         if (s3dParsed) {
-            return fail("S3D record parsed but renderable model could not be built (missing FSH textures?)");
+            return fail("S3D record parsed but none of its meshes could be built (no vertices or primitives?)");
         }
         return fail(std::format("failed to parse S3D record from {} candidate file(s)", filePaths.size()));
     }
