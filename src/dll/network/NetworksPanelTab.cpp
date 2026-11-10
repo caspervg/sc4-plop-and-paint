@@ -774,9 +774,10 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
         }
     }
 
-    const auto selected = std::ranges::find(buttons, selectedButton_);
+    auto selected = std::ranges::find(buttons, selectedButton_);
     if (selectedButton_ == kRecent ? recent.empty() : selected == buttons.end()) {
         selectedButton_ = buttons.front();
+        selected = buttons.begin();
     }
 
     // The list keeps at least half of a narrow panel for the pieces. Drag its edge to make it wider.
