@@ -1,5 +1,6 @@
 #include "DbpfIndexService.hpp"
 
+#include <fstream>
 #include <spdlog/spdlog.h>
 
 #include <ranges>
@@ -223,8 +224,17 @@ void DbpfIndexService::worker_() {
             try {
                 auto reader = std::make_unique<DBPF::Reader>();
                 if (!reader->LoadFile(filePath)) {
-                    spdlog::warn("Failed to load {}, not a DBPF file?", filePath.string());
-                    ++errorCount_;
+                    // The game skips a file that has no DBPF header, such as an installer's unins000.dat in the
+                    // game folder. Only a package that does have one and still fails to load is an error.
+                    char magic[4] = {};
+                    std::ifstream(filePath, std::ios::binary).read(magic, sizeof(magic));
+                    if (std::string_view(magic, sizeof(magic)) != "DBPF") {
+                        spdlog::debug("Skipped {}: not a DBPF file", filePath.string());
+                    }
+                    else {
+                        spdlog::warn("Failed to load {}, a broken DBPF file?", filePath.string());
+                        ++errorCount_;
+                    }
                     ++processedFiles_;
                     continue;
                 }
