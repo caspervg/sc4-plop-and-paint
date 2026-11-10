@@ -31,7 +31,7 @@ PlopAndPaintPanel::PlopAndPaintPanel(SC4PlopAndPaintDirector* director,
     if (decals) {
         tabs_.push_back(std::make_unique<GroundPanelTab>(director_, decals, favorites, pRM, imguiService_));
     }
-    tabs_.push_back(std::make_unique<NetworksPanelTab>(director_, imguiService_));
+    tabs_.push_back(std::make_unique<NetworksPanelTab>(director_, favorites, imguiService_));
 }
 
 void PlopAndPaintPanel::OnRender() {

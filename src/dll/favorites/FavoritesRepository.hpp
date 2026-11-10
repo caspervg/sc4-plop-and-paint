@@ -32,6 +32,10 @@ public:
     [[nodiscard]] static uint64_t FloraCollectionFavoriteKey(const uint32_t type, const uint32_t id) {
         return uint64_t{1} << 62 | static_cast<uint64_t>(type) << 32 | id;
     }
+    // Override networks by their starter piece, and puzzle pieces by their RUL0 ID.
+    [[nodiscard]] static uint64_t NetworkFavoriteKey(const bool piece, const uint32_t id) {
+        return uint64_t{1} << 61 | (piece ? uint64_t{1} << 32 : uint64_t{0}) | id;
+    }
     [[nodiscard]] bool IsFamilyFavorite(uint64_t key) const { return favoriteFamilyKeys_.contains(key); }
     void ToggleFamilyFavorite(uint64_t key);
 
