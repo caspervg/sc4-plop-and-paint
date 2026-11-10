@@ -102,8 +102,9 @@ public:
     void StopNetworkTool();
     // The starter piece of the override network that drags make now, or 0.
     [[nodiscard]] uint32_t ActiveOverrideNetwork() const { return overrideNetworkPiece_; }
-    // The puzzle piece that StartNetworkPiece started and that is still in use, or 0.
-    [[nodiscard]] uint32_t ActiveNetworkPiece() const { return networkPiece_; }
+    // The puzzle piece of the tool that StartNetworkPiece started, or 0 once that tool is gone. It
+    // follows TAB, Home and End in the game.
+    [[nodiscard]] uint32_t ActiveNetworkPiece() const;
     // The network that StartBaseNetworkDrag started and that is still in use, or -1.
     [[nodiscard]] int ActiveBaseNetwork() const { return baseNetwork_; }
     // Whether the installed NAM DLL can drag override networks without a starter piece.

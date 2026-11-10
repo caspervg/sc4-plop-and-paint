@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <filesystem>
+#include <sstream>
 #include <wil/resource.h>
 #include <wil/win32_helpers.h>
 
@@ -49,6 +51,94 @@ namespace {
         return FavoritesRepository::NetworkFavoriteKey(false, network.starterPiece);
     }
     uint64_t PieceFavorite(const NetworkPiece& piece) { return FavoritesRepository::NetworkFavoriteKey(true, piece.id); }
+
+    // The name of a network as the game's menus call it.
+    const char* NetworkTypeName(const uint32_t type) {
+        const auto menu = std::ranges::find(kBaseNetworks, type, &BaseNetwork::type);
+        return menu != std::end(kBaseNetworks) ? menu->name : BaseNetworkName(type);
+    }
+
+    std::vector<std::string> Words(const std::string& text) {
+        std::vector<std::string> words;
+        std::istringstream stream(text);
+        for (std::string word; stream >> word;) {
+            words.push_back(std::move(word));
+        }
+        return words;
+    }
+
+    // The names of the pieces of one button without the words that all of them start with, up to a
+    // separator: "Canal - straight boat" becomes "Straight boat" when every piece starts with "Canal -".
+    // The button tells those words already. Only a separator ends the cut, so that a name never loses
+    // the start of a phrase, as "Road x Street Roundabout" would.
+    std::vector<std::string> ShortNames(const std::vector<NetworkPiece>& pieces) {
+        std::vector<std::vector<std::string>> words;
+        for (const NetworkPiece& piece : pieces) {
+            words.push_back(Words(piece.name));
+        }
+        size_t prefix = 0;
+        if (pieces.size() >= 2) {
+            while (std::ranges::all_of(words, [&](const auto& name) {
+                return prefix < name.size() && name[prefix] == words.front()[prefix];
+            })) {
+                ++prefix;
+            }
+            const auto isSeparator = [](const std::string& word) {
+                return word == "-" || word == "|" || word.ends_with(':') || word.ends_with(',');
+            };
+            while (prefix > 0 && !isSeparator(words.front()[prefix - 1])) {
+                --prefix;
+            }
+            if (std::ranges::any_of(words, [prefix](const auto& name) { return name.size() <= prefix; })) {
+                prefix = 0;
+            }
+        }
+
+        std::vector<std::string> names;
+        for (size_t i = 0; i < pieces.size(); ++i) {
+            if (prefix == 0) {
+                names.push_back(pieces[i].name);
+                continue;
+            }
+            std::string name = words[i][prefix];
+            for (size_t w = prefix + 1; w < words[i].size(); ++w) {
+                name += ' ' + words[i][w];
+            }
+            name[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(name[0])));
+            names.push_back(std::move(name));
+        }
+        return names;
+    }
+
+    // "2×3" for the tiles a piece covers, empty for one tile.
+    std::string SizeText(const NetworkPiece& piece) {
+        size_t top = SIZE_MAX, bottom = 0, left = SIZE_MAX, right = 0;
+        for (size_t row = 0; row < piece.layout.size(); ++row) {
+            for (size_t column = 0; column < piece.layout[row].size(); ++column) {
+                if (piece.layout[row][column] != 0) {
+                    top = std::min(top, row);
+                    bottom = std::max(bottom, row);
+                    left = std::min(left, column);
+                    right = std::max(right, column);
+                }
+            }
+        }
+        if (top == SIZE_MAX || (top == bottom && left == right)) {
+            return {};
+        }
+        return std::to_string(right - left + 1) + "\xC3\x97" + std::to_string(bottom - top + 1);
+    }
+
+    // The networks in the cells of a piece: bit n is eNetworkType n.
+    uint32_t PieceNetworks(const NetworkPiece& piece) {
+        uint32_t networks = 0;
+        for (const auto& row : piece.layout) {
+            for (const uint32_t cell : row) {
+                networks |= cell & ((1u << kBaseNetworkNames.size()) - 1);
+            }
+        }
+        return networks;
+    }
 }
 
 NetworksPanelTab::NetworksPanelTab(SC4PlopAndPaintDirector* director, FavoritesRepository* favorites,
@@ -99,7 +189,18 @@ NetworksPanelTab::NetworksPanelTab(SC4PlopAndPaintDirector* director, FavoritesR
                                  TextSearch::HexId(network.starterPiece));
         suggester_.Add(networkSearch_.back());
     }
+    uint32_t allNetworks = 0;
     for (NetworkPieceButton& button : cache_.buttons) {
+        const size_t b = &button - cache_.buttons.data();
+        pieceShortName_.push_back(ShortNames(button.pieces));
+        auto& networks = pieceNetworks_.emplace_back();
+        auto& sizes = pieceSize_.emplace_back();
+        for (size_t p = 0; p < button.pieces.size(); ++p) {
+            networks.push_back(PieceNetworks(button.pieces[p]));
+            allNetworks |= networks.back();
+            sizes.push_back(SizeText(button.pieces[p]));
+            pieceById_.try_emplace(button.pieces[p].id, b, p);
+        }
         if (button.path.empty()) {
             button.path.emplace_back("Other");
         }
@@ -116,6 +217,17 @@ NetworksPanelTab::NetworksPanelTab(SC4PlopAndPaintDirector* director, FavoritesR
             suggester_.Add(texts.back());
         }
         pieceCount_ += button.pieces.size();
+    }
+    // The networks to filter by: those of the game's menus in their order, then the others.
+    for (const BaseNetwork& network : kBaseNetworks) {
+        if (allNetworks & (1u << network.type)) {
+            networkChoices_.push_back(network.type);
+        }
+    }
+    for (uint32_t type = 0; type < kBaseNetworkNames.size(); ++type) {
+        if ((allNetworks & (1u << type)) && std::ranges::find(networkChoices_, type) == networkChoices_.end()) {
+            networkChoices_.push_back(type);
+        }
     }
     LOG_INFO("NetworksPanelTab: {} override networks, {} menu buttons with pieces", cache_.networks.size(),
              cache_.buttons.size());
@@ -222,17 +334,22 @@ void NetworksPanelTab::RenderNetworkTile_(const OverrideNetwork& network, const 
     }
 }
 
-void NetworksPanelTab::RenderPieceTile_(const PieceRef ref, const bool active) {
+void NetworksPanelTab::RenderPieceTile_(const PieceRef ref, const bool active, const bool shortName) {
     const NetworkPieceButton& button = cache_.buttons[ref.first];
     const NetworkPiece& piece = button.pieces[ref.second];
-    RenderTileFace_(PieceKey(piece), piece.name, nullptr, active, PieceFavorite(piece));
+    const std::string& size = pieceSize_[ref.first][ref.second];
+    RenderTileFace_(PieceKey(piece), shortName ? pieceShortName_[ref.first][ref.second] : piece.name,
+                    size.empty() ? nullptr : size.c_str(), active, PieceFavorite(piece));
 
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
         ImGui::TextUnformatted(piece.name.c_str());
         ImGui::TextDisabled("%s, %s", button.path.front().c_str(), button.name.c_str());
+        if (!size.empty()) {
+            ImGui::TextDisabled("%s tiles", size.c_str());
+        }
         if (piece.cost > 0) {
-            ImGui::TextDisabled("Cost: %u", piece.cost);
+            ImGui::TextDisabled("Cost: \xC2\xA7%u", piece.cost);  // the simoleon sign, U+00A7
         }
         RenderLargePreview_(thumbnails_, PieceKey(piece));
         ImGui::EndTooltip();
@@ -250,19 +367,31 @@ void NetworksPanelTab::RenderPieceTile_(const PieceRef ref, const bool active) {
 }
 
 bool NetworksPanelTab::PieceShown_(const PieceRef ref, const TextSearch::Query& query) const {
-    return (!favoritesOnly_ || IsFavorite_(PieceFavorite(cache_.buttons[ref.first].pieces[ref.second]))) &&
+    return (pieceNetworks_[ref.first][ref.second] & networkFilter_) == networkFilter_ && (!favoritesOnly_ || IsFavorite_(PieceFavorite(cache_.buttons[ref.first].pieces[ref.second]))) &&
            query.Matches(pieceSearch_[ref.first][ref.second]);
 }
 
 int NetworksPanelTab::ActiveFilterCount_() const {
     return static_cast<int>(searchBuf_[0] != '\0') + static_cast<int>(favoritesOnly_) +
-           static_cast<int>(view_ == View::Pieces && menu_ >= 0);
+           static_cast<int>(view_ == View::Pieces && menu_ >= 0) +
+           static_cast<int>(view_ == View::Pieces && networkFilter_ != 0);
 }
 
 void NetworksPanelTab::ClearFilters_() {
     searchBuf_[0] = '\0';
     favoritesOnly_ = false;
     menu_ = -1;
+    networkFilter_ = 0;
+}
+
+std::string NetworksPanelTab::NetworkFilterLabel_() const {
+    std::string label;
+    for (const uint32_t type : networkChoices_) {
+        if (networkFilter_ & (1u << type)) {
+            label += (label.empty() ? "" : " + ") + std::string(NetworkTypeName(type));
+        }
+    }
+    return label.empty() ? "All networks" : label;
 }
 
 void NetworksPanelTab::RenderFilterUI_() {
@@ -288,6 +417,22 @@ void NetworksPanelTab::RenderFilterUI_() {
             ImGui::EndCombo();
         }
         Tooltip("Show the pieces of one network menu.");
+        ++index;
+    }
+    if (view_ == View::Pieces && !networkChoices_.empty()) {
+        NextInRow(index, UI::dropdownWidth());
+        ImGui::SetNextItemWidth(UI::dropdownWidth());
+        if (ImGui::BeginCombo("##Networks", NetworkFilterLabel_().c_str())) {
+            for (const uint32_t type : networkChoices_) {
+                bool on = (networkFilter_ & (1u << type)) != 0;
+                if (ImGui::Checkbox(NetworkTypeName(type), &on)) {
+                    networkFilter_ ^= 1u << type;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        Tooltip("Show only the pieces that have all the networks that you select. For example, select Avenue "
+                "and Rail to find the pieces where they cross.");
         ++index;
     }
     NextInRow(index, CheckboxWidth("Favorites only"));
@@ -329,13 +474,8 @@ std::string NetworksPanelTab::ActiveTool_() const {
             return "Dragging " + network->name;
         }
     }
-    if (const uint32_t id = director_->ActiveNetworkPiece(); id != 0) {
-        for (const NetworkPieceButton& button : cache_.buttons) {
-            if (const auto piece = std::ranges::find(button.pieces, id, &NetworkPiece::id);
-                piece != button.pieces.end()) {
-                return "Placing " + piece->name;
-            }
-        }
+    if (const auto piece = pieceById_.find(director_->ActiveNetworkPiece()); piece != pieceById_.end()) {
+        return "Placing " + cache_.buttons[piece->second.first].pieces[piece->second.second].name;
     }
     return {};
 }
@@ -475,6 +615,7 @@ void NetworksPanelTab::RenderButtonList_(const std::vector<size_t>& buttons,
         std::snprintf(label, sizeof(label), "%s (%zu)", button.name.c_str(), pieces[i].size());
         if (ImGui::Selectable(label, selectedButton_ == buttons[i])) {
             selectedButton_ = buttons[i];
+            scrollToButton_ = buttons[i];
         }
         if (ImGui::IsItemHovered() && ImGui::CalcTextSize(label).x > ImGui::GetContentRegionAvail().x) {
             ImGui::SetTooltip("%s", button.name.c_str());
@@ -524,6 +665,18 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
         return;
     }
 
+    // TAB, Home or End in the game changed the piece, or a click here did: go to its tile.
+    const uint32_t activePiece = director_->ActiveNetworkPiece();
+    if (activePiece != lastActivePiece_) {
+        lastActivePiece_ = activePiece;
+        if (const auto found = pieceById_.find(activePiece); found != pieceById_.end()) {
+            reveal_ = found->second;
+            if (selectedButton_ != kRecent && std::ranges::find(buttons, found->second.first) != buttons.end()) {
+                selectedButton_ = found->second.first;
+            }
+        }
+    }
+
     const auto selected = std::ranges::find(buttons, selectedButton_);
     if (selectedButton_ == kRecent ? recent.empty() : selected == buttons.end()) {
         selectedButton_ = buttons.front();
@@ -537,27 +690,60 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
     ImGui::EndChild();
     ImGui::SameLine();
 
-    std::vector<PieceRef> shown;
-    if (selectedButton_ == kRecent) {
-        shown = std::move(recent);
-    }
-    else {
-        const auto& matches = pieces[std::ranges::find(buttons, selectedButton_) - buttons.begin()];
-        for (const size_t p : matches) {
-            shown.emplace_back(selectedButton_, p);
-        }
-    }
-    const uint32_t activePiece = director_->ActiveNetworkPiece();
     if (ImGui::BeginChild("Pieces", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
                           ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
-        visibleTiles_ += ThumbnailGrid::Render(
-            shown.size(), TileSize_(),
-            [&](const size_t i) { return PieceKey(cache_.buttons[shown[i].first].pieces[shown[i].second]); },
-            [&](const size_t i) {
-                RenderPieceTile_(shown[i], cache_.buttons[shown[i].first].pieces[shown[i].second].id == activePiece);
-            });
+        const auto refsOf = [&](const size_t index) {
+            std::vector<PieceRef> refs;
+            for (const size_t p : pieces[index]) {
+                refs.emplace_back(buttons[index], p);
+            }
+            return refs;
+        };
+        if (selectedButton_ == kRecent) {
+            RenderPieceGrid_(recent, activePiece, false);
+        }
+        else if (!query.Empty() || networkFilter_ != 0) {
+            // A search or a network filter: the matches of all buttons, each under its button. A click
+            // on a button in the list goes to its pieces.
+            for (size_t i = 0; i < buttons.size(); ++i) {
+                if (buttons[i] == scrollToButton_) {
+                    ImGui::SetScrollHereY(0.0f);
+                }
+                ImGui::SeparatorText(cache_.buttons[buttons[i]].name.c_str());
+                ImGui::PushID(static_cast<int>(buttons[i]));
+                RenderPieceGrid_(refsOf(i), activePiece, true);
+                ImGui::PopID();
+            }
+        }
+        else {
+            RenderPieceGrid_(refsOf(selected - buttons.begin()), activePiece, true);
+        }
+        scrollToButton_ = kNone;
+        reveal_.reset();  // drawn now, or not shown with these filters
     }
     ImGui::EndChild();
+}
+
+void NetworksPanelTab::RenderPieceGrid_(const std::vector<PieceRef>& refs, const uint32_t activePiece,
+                                        const bool shortNames) {
+    const float tileSize = TileSize_();
+    if (reveal_) {
+        // Scroll only when the tile is not in sight already.
+        if (const auto at = std::ranges::find(refs, *reveal_); at != refs.end()) {
+            const float top = ImGui::GetCursorPosY() + ThumbnailGrid::ScrollYFor(at - refs.begin(), tileSize);
+            if (top < ImGui::GetScrollY() || top + tileSize > ImGui::GetScrollY() + ImGui::GetWindowHeight()) {
+                ImGui::SetScrollY(top);
+            }
+            reveal_.reset();
+        }
+    }
+    visibleTiles_ += ThumbnailGrid::Render(
+        refs.size(), tileSize,
+        [&](const size_t i) { return PieceKey(cache_.buttons[refs[i].first].pieces[refs[i].second]); },
+        [&](const size_t i) {
+            const NetworkPiece& piece = cache_.buttons[refs[i].first].pieces[refs[i].second];
+            RenderPieceTile_(refs[i], piece.id == activePiece, shortNames);
+        });
 }
 
 void NetworksPanelTab::OnRender() {

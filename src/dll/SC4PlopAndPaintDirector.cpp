@@ -13,6 +13,7 @@
 #include "cGZMessage.h"
 #include "../shared/networks.hpp"
 #include "network/cIOverrideNetworkDrag.h"
+#include "network/NetworkToolStubs.hpp"
 #include "cRZAutoRefCount.h"
 #include "cGZPersistResourceKey.h"
 #include "cIGZCommandParameterSet.h"
@@ -649,20 +650,26 @@ bool SC4PlopAndPaintDirector::StartNetworkPiece(const uint32_t buttonPiece, cons
         return false;
     }
     if (isLong) {
-        // Most pieces further down a TAB loop have longer IDs than the message can carry. The tool keeps
-        // its current piece at +0x4C, where TAB, Home and End put theirs too, so put it there
-        // (cSC4ViewInputControlNetworkIntxTool in Windows SimCity 4.exe 1.1.641).
-        constexpr uint32_t kPieceToolVtable = 0x00AAAF20;
-        constexpr size_t kCurrentPieceOffset = 0x4C;
-        auto* const tool = reinterpret_cast<uint8_t*>(const_cast<cISC4ViewInputControl*>(networkToolControl_));
-        if (*reinterpret_cast<const uint32_t*>(tool) != kPieceToolVtable) {
+        // Most pieces further down a TAB loop have longer IDs than the message can carry, so put the
+        // piece where the tool keeps its current one.
+        auto* const tool = cSC4ViewInputControlNetworkIntxTool::From(networkToolControl_);
+        if (!tool) {
             LOG_WARN("Cannot go to piece 0x{:X}: the game's piece tool is not as expected", piece);
             return true;  // the tool is on the first piece of the button, and TAB still gets there
         }
-        *reinterpret_cast<uint32_t*>(tool + kCurrentPieceOffset) = piece;
+        tool->currentPiece = piece;
     }
     networkPiece_ = piece;
     return true;
+}
+
+uint32_t SC4PlopAndPaintDirector::ActiveNetworkPiece() const {
+    // Only read the tool while it is the game's current one: once it is gone, it may be freed.
+    if (networkPiece_ == 0 || !pView3D_ || pView3D_->GetCurrentViewInputControl() != networkToolControl_) {
+        return networkPiece_;
+    }
+    const auto* const tool = cSC4ViewInputControlNetworkIntxTool::From(networkToolControl_);
+    return tool ? tool->currentPiece : networkPiece_;
 }
 
 void SC4PlopAndPaintDirector::StopNetworkTool() {
