@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <sstream>
 #include <wil/resource.h>
@@ -14,6 +15,7 @@
 #include "../common/ThumbnailGrid.hpp"
 #include "../common/Utils.hpp"
 #include "../utils/Logger.h"
+#include "imgui_internal.h"
 #include "rfl/cbor/load.hpp"
 
 using PanelUi::ButtonWidth;
@@ -127,6 +129,72 @@ namespace {
             return {};
         }
         return std::to_string(right - left + 1) + "\xC3\x97" + std::to_string(bottom - top + 1);
+    }
+
+    // Text wrapped at words in up to maxLines lines of this width, the last line cut with an ellipsis when
+    // the text is longer. Without a draw list it only measures. Returns the lines it takes and whether it cut.
+    std::pair<int, bool> ClampedText(ImDrawList* const drawList, const ImVec2 pos, const float width, const char* text,
+                                     const ImU32 color, const int maxLines) {
+        ImFont* const font = ImGui::GetFont();
+        const float fontSize = ImGui::GetFontSize();
+        const float lineHeight = ImGui::GetTextLineHeight();
+        const char* const end = text + std::strlen(text);
+        int lines = 0;
+        while (text < end && lines < maxLines) {
+            const char* lineEnd = font->CalcWordWrapPosition(fontSize, text, end, width);
+            if (lineEnd == text) {
+                lineEnd = text + 1;  // no room for even one character
+            }
+            const bool cut = lines + 1 == maxLines && lineEnd < end;
+            if (drawList) {
+                const ImVec2 at(pos.x, pos.y + lines * lineHeight);
+                if (cut) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, color);
+                    ImGui::RenderTextEllipsis(drawList, at, ImVec2(pos.x + width, at.y + lineHeight), pos.x + width,
+                                              text, end, nullptr);
+                    ImGui::PopStyleColor();
+                }
+                else {
+                    drawList->AddText(at, color, text, lineEnd);
+                }
+            }
+            ++lines;
+            if (cut) {
+                return {lines, true};
+            }
+            text = lineEnd;
+            while (text < end && *text == ' ') {
+                ++text;
+            }
+        }
+        return {lines, false};
+    }
+
+    // A row of the button list. Every row is two lines high, so the list looks even: the name on up to two
+    // lines, cut with an ellipsis when it is longer, and the count on the right. Hovering a name that is cut
+    // shows all of it.
+    bool ButtonRow(const char* name, const size_t count, const bool selected) {
+        char countText[24];
+        std::snprintf(countText, sizeof(countText), "%zu", count);
+        const float countWidth = ImGui::CalcTextSize(countText).x;
+        const float nameWidth =
+            std::max(1.0f, ImGui::GetContentRegionAvail().x - countWidth - ImGui::GetStyle().ItemSpacing.x);
+        const float lineHeight = ImGui::GetTextLineHeight();
+
+        const bool clicked = ImGui::Selectable("##button", selected, ImGuiSelectableFlags_None,
+                                               ImVec2(0.0f, lineHeight * 2.0f));
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        const auto [lines, cut] = ClampedText(nullptr, min, nameWidth, name, 0, 2);
+        const float top = min.y + (max.y - min.y - lines * lineHeight) * 0.5f;
+        ImDrawList* const drawList = ImGui::GetWindowDrawList();
+        ClampedText(drawList, ImVec2(min.x, top), nameWidth, name, ImGui::GetColorU32(ImGuiCol_Text), 2);
+        drawList->AddText(ImVec2(max.x - countWidth, min.y + (max.y - min.y - lineHeight) * 0.5f),
+                          ImGui::GetColorU32(ImGuiCol_TextDisabled), countText);
+        if (cut && ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", name);
+        }
+        return clicked;
     }
 
     // The networks in the cells of a piece: bit n is eNetworkType n.
@@ -271,16 +339,22 @@ void NetworksPanelTab::RenderTileFace_(const uint64_t key, const std::string& na
     if (!texture && thumbnails_.HasThumbnail(key)) {
         thumbnailCache_.Request(key);
     }
-    RenderGridTile_(texture);
-
-    // The name on a dark band at the foot of the tile. Pictures of network pieces look much alike.
-    // Small tiles have room for one line only.
+    // The name on a dark band at the foot of the tile, and the picture in the square above it, so that the
+    // name never covers the model. Pictures of network pieces look much alike. Small tiles have room for one
+    // line only.
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const ImVec2 min = ImGui::GetItemRectMin();
     const ImVec2 max = ImGui::GetItemRectMax();
     const float fontSize = ImGui::GetFontSize() * 0.8f;
     const float lines = max.y - min.y >= ImGui::GetFontSize() * 6.0f ? 2.0f : 1.0f;
     const float bandTop = max.y - (fontSize * lines + 6.0f);
+    RenderGridTile_(std::nullopt);  // the background and border of the whole tile
+    if (texture && *texture) {
+        const float side = std::min(bandTop - min.y, max.x - min.x);
+        const ImVec2 pictureMin(min.x + (max.x - min.x - side) * 0.5f, min.y);
+        drawList->AddImage(reinterpret_cast<ImTextureID>(*texture), pictureMin,
+                           ImVec2(pictureMin.x + side, pictureMin.y + side));
+    }
     drawList->AddRectFilled(ImVec2(min.x, bandTop), max, IM_COL32(0, 0, 0, 170), ThumbnailUi::kCornerRounding,
                             ImDrawFlags_RoundCornersBottom);
     const ImVec4 clip(min.x + 3.0f, bandTop + 2.0f, max.x - 3.0f, max.y - 2.0f);
@@ -297,11 +371,15 @@ void NetworksPanelTab::RenderTileFace_(const uint64_t key, const std::string& na
 }
 
 void NetworksPanelTab::RenderNetworkTile_(const OverrideNetwork& network, const bool active) {
+    // A network whose models do not render has the picture of its starter piece, which falls back to a
+    // drawing of its cells.
+    const uint64_t pictureKey = thumbnails_.HasThumbnail(NetworkKey(network)) ? NetworkKey(network)
+                                                                              : MakeGIKey(1, network.starterPiece);
     char wide[16] = {};
     if (network.rows.size() > 1) {
         std::snprintf(wide, sizeof(wide), "x%zu", network.rows.size());
     }
-    RenderTileFace_(NetworkKey(network), network.name, wide[0] ? wide : nullptr, active, NetworkFavorite(network));
+    RenderTileFace_(pictureKey, network.name, wide[0] ? wide : nullptr, active, NetworkFavorite(network));
     if (network.diagonal) {
         // A diagonal stroke in the corner where wide networks have their badge. Wide ones never drag on diagonals.
         ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -325,7 +403,7 @@ void NetworksPanelTab::RenderNetworkTile_(const OverrideNetwork& network, const 
         if (network.rows.size() > 1) {
             ImGui::TextDisabled("%zu tiles wide. The other rows follow straight drags only.", network.rows.size());
         }
-        RenderLargePreview_(thumbnails_, NetworkKey(network));
+        RenderLargePreview_(thumbnails_, pictureKey);
         ImGui::EndTooltip();
     }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
@@ -343,8 +421,17 @@ void NetworksPanelTab::RenderPieceTile_(const PieceRef ref, const bool active, c
 
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
+        // As wide as the picture: the name wraps, and where the piece is stops at two lines.
+        const float width = thumbnails_.StoredSize() > 0 ? static_cast<float>(thumbnails_.StoredSize())
+                                                         : ImGui::GetFontSize() * 18.0f;
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
         ImGui::TextUnformatted(piece.name.c_str());
-        ImGui::TextDisabled("%s, %s", button.path.front().c_str(), button.name.c_str());
+        ImGui::PopTextWrapPos();
+        const std::string where = button.path.front() + ", " + button.name;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const auto [lines, cut] = ClampedText(ImGui::GetWindowDrawList(), at, width, where.c_str(),
+                                              ImGui::GetColorU32(ImGuiCol_TextDisabled), 2);
+        ImGui::Dummy(ImVec2(width, lines * ImGui::GetTextLineHeight()));
         if (!size.empty()) {
             ImGui::TextDisabled("%s tiles", size.c_str());
         }
@@ -594,11 +681,11 @@ void NetworksPanelTab::RenderDragView_(const TextSearch::Query& query) {
 void NetworksPanelTab::RenderButtonList_(const std::vector<size_t>& buttons,
                                          const std::vector<std::vector<size_t>>& pieces, const size_t recentCount) {
     if (recentCount > 0) {
-        char label[48];
-        std::snprintf(label, sizeof(label), "Recent (%zu)", recentCount);
-        if (ImGui::Selectable(label, selectedButton_ == kRecent)) {
+        ImGui::PushID("Recent");
+        if (ButtonRow("Recent", recentCount, selectedButton_ == kRecent)) {
             selectedButton_ = kRecent;
         }
+        ImGui::PopID();
     }
     for (size_t i = 0; i < buttons.size(); ++i) {
         const NetworkPieceButton& button = cache_.buttons[buttons[i]];
@@ -611,14 +698,9 @@ void NetworksPanelTab::RenderButtonList_(const std::vector<size_t>& buttons,
             ImGui::SeparatorText(heading.c_str());
         }
         ImGui::PushID(static_cast<int>(buttons[i]));
-        char label[200];
-        std::snprintf(label, sizeof(label), "%s (%zu)", button.name.c_str(), pieces[i].size());
-        if (ImGui::Selectable(label, selectedButton_ == buttons[i])) {
+        if (ButtonRow(button.name.c_str(), pieces[i].size(), selectedButton_ == buttons[i])) {
             selectedButton_ = buttons[i];
             scrollToButton_ = buttons[i];
-        }
-        if (ImGui::IsItemHovered() && ImGui::CalcTextSize(label).x > ImGui::GetContentRegionAvail().x) {
-            ImGui::SetTooltip("%s", button.name.c_str());
         }
         ImGui::PopID();
     }
