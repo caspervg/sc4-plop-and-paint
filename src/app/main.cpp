@@ -176,10 +176,11 @@ namespace {
 
         ~ThumbnailEncoder() { finish(); }
 
-        void submit(EncodedThumbnails& out, const uint64_t key, Thumbnail thumbnail) {
+        // size: the square size to store it at, 0 for the encoder's own.
+        void submit(EncodedThumbnails& out, const uint64_t key, Thumbnail thumbnail, const uint32_t size = 0) {
             {
                 std::scoped_lock lock(mutex_);
-                jobs_.push_back(Job{&out, key, std::move(thumbnail)});
+                jobs_.push_back(Job{&out, key, std::move(thumbnail), size != 0 ? size : targetSize_});
             }
             wake_.notify_one();
         }
@@ -203,6 +204,7 @@ namespace {
             EncodedThumbnails* out;
             uint64_t key;
             Thumbnail thumbnail;
+            uint32_t size;
         };
 
         void run_() {
@@ -218,7 +220,7 @@ namespace {
                     jobs_.pop_front();
                 }
                 try {
-                    auto blob = ThumbnailBin::EncodeWebp(NormalizeThumbnailToSquare(job->thumbnail, targetSize_));
+                    auto blob = ThumbnailBin::EncodeWebp(NormalizeThumbnailToSquare(job->thumbnail, job->size));
                     std::scoped_lock lock(mutex_);
                     job->out->emplace_back(job->key, std::move(blob));
                 }
@@ -483,6 +485,7 @@ namespace {
             EncodedThumbnails propThumbnails;
             EncodedThumbnails floraThumbnails;
             EncodedThumbnails networkThumbnails;
+            const uint32_t networkThumbnailSize = thumbnailSize * 2;
             ThumbnailEncoder thumbnailEncoder(thumbnailSize);
             const auto encodeThumbnail = [&thumbnailEncoder](auto& item, EncodedThumbnails& out) {
                 if (item.thumbnail.has_value()) {
@@ -812,10 +815,11 @@ namespace {
 
             const auto writeThumbnailBin = [&logger, thumbnailSize](const fs::path& binPath,
                                                                     EncodedThumbnails entries,
-                                                                    const std::string_view label) {
+                                                                    const std::string_view label,
+                                                                    const uint32_t storedSize = 0) {
                 const auto count = entries.size();
                 try {
-                    const auto size = static_cast<uint16_t>(thumbnailSize);
+                    const auto size = static_cast<uint16_t>(storedSize != 0 ? storedSize : thumbnailSize);
                     if (ThumbnailBin::WriteEncoded(binPath, std::move(entries), size, size)) {
                         logger.info("Exported {} {} thumbnails to {}", count, label, binPath.string());
                     }
@@ -834,17 +838,21 @@ namespace {
 
             {
                 // Pictures of the preview models: key group 0 for a network's starter piece, 1 for a piece.
+                // They are twice the size of the other thumbnails, in a file of their own: network pieces
+                // are full of thin lines that a small picture blurs, and their tooltips show them large.
                 constexpr uint32_t kS3DType = 0x5AD0E817;
                 constexpr uint32_t kPreviewModelGroup = 0xBADB57F1;
                 // Returns false when neither model renders.
                 const auto render = [&](const uint32_t keyGroup, const uint32_t id, const uint32_t model,
                                         const uint32_t fallbackModel) {
-                    auto thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, model});
+                    auto thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, model}, networkThumbnailSize);
                     if (!thumbnail && fallbackModel != 0) {
-                        thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, fallbackModel});
+                        thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, fallbackModel},
+                                                                networkThumbnailSize);
                     }
                     if (thumbnail) {
-                        thumbnailEncoder.submit(networkThumbnails, MakeGIKey(keyGroup, id), std::move(*thumbnail));
+                        thumbnailEncoder.submit(networkThumbnails, MakeGIKey(keyGroup, id), std::move(*thumbnail),
+                                                networkThumbnailSize);
                     }
                     return thumbnail.has_value();
                 };
@@ -857,12 +865,13 @@ namespace {
                             continue;
                         }
                         // Last choice: a diagram of the piece's cells, which every piece has.
-                        if (auto pixels = NetworkDiscovery::LayoutPicture(piece, thumbnailSize); !pixels.empty()) {
+                        if (auto pixels = NetworkDiscovery::LayoutPicture(piece, networkThumbnailSize); !pixels.empty()) {
                             PreRendered diagram;
                             diagram.data = rfl::Bytestring(std::move(pixels));
-                            diagram.width = thumbnailSize;
-                            diagram.height = thumbnailSize;
-                            thumbnailEncoder.submit(networkThumbnails, MakeGIKey(1, piece.id), Thumbnail{std::move(diagram)});
+                            diagram.width = networkThumbnailSize;
+                            diagram.height = networkThumbnailSize;
+                            thumbnailEncoder.submit(networkThumbnails, MakeGIKey(1, piece.id), Thumbnail{std::move(diagram)},
+                                                    networkThumbnailSize);
                         }
                     }
                 }
@@ -967,7 +976,7 @@ namespace {
                 writeCborAtomic(cborPath, networksCache);
                 if (!networkThumbnails.empty()) {
                     writeThumbnailBin(config.userPluginsRoot / "network_thumbnails.bin",
-                                      std::move(networkThumbnails), "network");
+                                      std::move(networkThumbnails), "network", networkThumbnailSize);
                 }
             }
 

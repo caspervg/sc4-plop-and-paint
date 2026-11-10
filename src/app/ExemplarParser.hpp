@@ -172,7 +172,7 @@ public:
     // Empty without --render-thumbnails, or when the model does not render.
     // With a faint tile grid, so that the angle of a network shows. Only network pieces use these
     // models, so the renderer's cache never mixes pictures with and without the grid.
-    [[nodiscard]] std::optional<Thumbnail> renderModelThumbnail(const DBPF::Tgi& modelTgi) const;
+    [[nodiscard]] std::optional<Thumbnail> renderModelThumbnail(const DBPF::Tgi& modelTgi, uint32_t size) const;
     // Whether thumbnails are rendered at all (--render-thumbnails).
     [[nodiscard]] bool rendersThumbnails() const { return thumbnailRenderer_ != nullptr; }
 

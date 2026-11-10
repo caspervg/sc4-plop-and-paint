@@ -778,11 +778,11 @@ std::optional<ParsedFloraExemplar> ExemplarParser::parseFlora(const Exemplar::Re
     return parsed;
 }
 
-std::optional<Thumbnail> ExemplarParser::renderModelThumbnail(const DBPF::Tgi& modelTgi) const {
+std::optional<Thumbnail> ExemplarParser::renderModelThumbnail(const DBPF::Tgi& modelTgi, const uint32_t size) const {
     if (!thumbnailRenderer_) {
         return std::nullopt;
     }
-    auto rendered = thumbnailRenderer_->renderModel(modelTgi, thumbnailSize_, true);
+    auto rendered = thumbnailRenderer_->renderModel(modelTgi, size, true);
     if (!rendered.has_value() || rendered->pixels.empty()) {
         spdlog::debug("Thumbnail render failed for model {}: {}", modelTgi.ToString(),
                       rendered.has_value() ? "rendered image was empty" : rendered.error().message);
