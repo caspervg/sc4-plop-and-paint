@@ -58,6 +58,40 @@ namespace thumb {
         // Keeping every render would double the thumbnail memory of a large plugin set.
         constexpr size_t kRenderCacheCapacity = 1024;
 
+        // Tile edges under the model. A network model is centred on its piece, so the edges lie 16 m
+        // apart from the model's side: -8 and 8 for one tile, -16, 0 and 16 for two. Many models reach a
+        // little past their tiles (curbs, wide ramps), so their sides first move inward to the nearest
+        // 8 m step. The lines lie a little over the ground, on the road surface but under anything
+        // raised. lineWidth is in metres.
+        void DrawTileGrid(const BoundingBox& bounds, const float lineWidth) {
+            constexpr float kTile = 16.0f;
+            constexpr float kHalf = 8.0f;
+            constexpr float kLift = 0.5f;
+            constexpr Color kColor{235, 235, 235, 130};  // light, so it shows on asphalt and on dark backgrounds
+            const auto first = [](const float min) { return std::ceil(min / kHalf - 0.01f) * kHalf; };
+            const auto tiles = [](const float start, const float max) {
+                return std::max(1.0f, std::round((std::floor(max / kHalf + 0.01f) * kHalf - start) / kTile));
+            };
+            const float x0 = first(bounds.min.x);
+            const float z0 = first(bounds.min.z);
+            const float xTiles = tiles(x0, bounds.max.x);
+            const float zTiles = tiles(z0, bounds.max.z);
+            // Some models have a stray vertex far away. Their tiles are too small to see, and a float
+            // that counts up in steps of 16 never reaches a far end.
+            constexpr float kMaxTiles = 64.0f;
+            if (!std::isfinite(x0) || !std::isfinite(z0) || !(xTiles <= kMaxTiles && zTiles <= kMaxTiles)) {
+                return;
+            }
+            const float x1 = x0 + xTiles * kTile;
+            const float z1 = z0 + zTiles * kTile;
+            for (int i = 0; i <= static_cast<int>(xTiles); ++i) {
+                DrawCubeV({x0 + i * kTile, kLift, (z0 + z1) * 0.5f}, {lineWidth, 0.01f, z1 - z0}, kColor);
+            }
+            for (int i = 0; i <= static_cast<int>(zTiles); ++i) {
+                DrawCubeV({(x0 + x1) * 0.5f, kLift, z0 + i * kTile}, {x1 - x0, 0.01f, lineWidth}, kColor);
+            }
+        }
+
         // Gives the same pixels as raylib's ImageDraw with a white tint onto a blank RGBA image, without
         // its per-pixel format conversion. Like its blend, partly transparent pixels gain one alpha step.
         void BlitOntoBlank(const Image& source, Image& destination, const int destinationX, const int destinationY) {
@@ -132,7 +166,8 @@ namespace thumb {
         }
     }
 
-    ParseExpected<RenderedImage> ThumbnailRenderer::renderModel(const DBPF::Tgi& tgi, const uint32_t size) {
+    ParseExpected<RenderedImage> ThumbnailRenderer::renderModel(const DBPF::Tgi& tgi, const uint32_t size,
+                                                                const bool tileGrid) {
         if (size == 0) {
             return Fail("requested thumbnail size is 0");
         }
@@ -277,6 +312,9 @@ namespace thumb {
         DrawModelEx((*modelHandle)->model, Vector3Zero(), Vector3{0, 1, 0}, 0.0f,
                     Vector3One(), WHITE);
         rlEnableBackfaceCulling();
+        if (tileGrid) {
+            DrawTileGrid(bounds, 2.5f * camera.fovy / static_cast<float>(size));  // about 2.5 pixels
+        }
         EndMode3D();
         EndTextureMode();
 

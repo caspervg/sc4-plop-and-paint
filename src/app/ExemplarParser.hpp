@@ -170,6 +170,8 @@ public:
     [[nodiscard]] Flora floraFromParsed(const ParsedFloraExemplar& parsed) const;
     // Renders a model that belongs to no exemplar, such as the preview model of a network piece.
     // Empty without --render-thumbnails, or when the model does not render.
+    // With a faint tile grid, so that the angle of a network shows. Only network pieces use these
+    // models, so the renderer's cache never mixes pictures with and without the grid.
     [[nodiscard]] std::optional<Thumbnail> renderModelThumbnail(const DBPF::Tgi& modelTgi) const;
     // Whether thumbnails are rendered at all (--render-thumbnails).
     [[nodiscard]] bool rendersThumbnails() const { return thumbnailRenderer_ != nullptr; }

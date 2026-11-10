@@ -782,7 +782,7 @@ std::optional<Thumbnail> ExemplarParser::renderModelThumbnail(const DBPF::Tgi& m
     if (!thumbnailRenderer_) {
         return std::nullopt;
     }
-    auto rendered = thumbnailRenderer_->renderModel(modelTgi, thumbnailSize_);
+    auto rendered = thumbnailRenderer_->renderModel(modelTgi, thumbnailSize_, true);
     if (!rendered.has_value() || rendered->pixels.empty()) {
         spdlog::debug("Thumbnail render failed for model {}: {}", modelTgi.ToString(),
                       rendered.has_value() ? "rendered image was empty" : rendered.error().message);
