@@ -51,6 +51,7 @@ namespace {
     uint64_t NetworkKey(const OverrideNetwork& network) { return MakeGIKey(0, network.starterPiece); }
     uint64_t PieceKey(const NetworkPiece& piece) { return MakeGIKey(1, piece.id); }
     uint64_t VariantKey(const uint32_t id) { return MakeGIKey(1, id); }
+    uint64_t IconKey(const uint32_t icon) { return MakeGIKey(2, icon); }
     uint64_t NetworkFavorite(const OverrideNetwork& network) {
         return FavoritesRepository::NetworkFavoriteKey(false, network.starterPiece);
     }
@@ -182,25 +183,35 @@ namespace {
         return {lines, false};
     }
 
-    // A row of the button list. Every row is two lines high, so the list looks even: the name on up to two
-    // lines, cut with an ellipsis when it is longer, and the count on the right. Hovering a name that is cut
-    // shows all of it.
-    bool ButtonRow(const char* name, const size_t count, const bool selected) {
+    // A row of the button list. Every row is two lines high, so the list looks even: the button's icon when
+    // iconSide is not 0, the name on up to two lines, cut with an ellipsis when it is longer, and the count
+    // on the right. Hovering a name that is cut shows all of it. icon() gives the icon's texture; it is only
+    // asked for while the row is in sight.
+    template <typename IconFn>
+    bool ButtonRow(const char* name, const size_t count, const bool selected, const float iconSide, IconFn&& icon) {
         char countText[24];
         std::snprintf(countText, sizeof(countText), "%zu", count);
         const float countWidth = ImGui::CalcTextSize(countText).x;
-        const float nameWidth =
-            std::max(1.0f, ImGui::GetContentRegionAvail().x - countWidth - ImGui::GetStyle().ItemSpacing.x);
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        const float iconWidth = iconSide > 0.0f ? iconSide + spacing : 0.0f;
+        const float nameWidth = std::max(1.0f, ImGui::GetContentRegionAvail().x - iconWidth - countWidth - spacing);
         const float lineHeight = ImGui::GetTextLineHeight();
 
         const bool clicked = ImGui::Selectable("##button", selected, ImGuiSelectableFlags_None,
                                                ImVec2(0.0f, lineHeight * 2.0f));
         const ImVec2 min = ImGui::GetItemRectMin();
         const ImVec2 max = ImGui::GetItemRectMax();
+        ImDrawList* const drawList = ImGui::GetWindowDrawList();
+        if (iconSide > 0.0f && ImGui::IsItemVisible()) {
+            if (const std::optional<void*> texture = icon(); texture && *texture) {
+                const float iconTop = min.y + (max.y - min.y - iconSide) * 0.5f;
+                drawList->AddImage(reinterpret_cast<ImTextureID>(*texture), ImVec2(min.x, iconTop),
+                                   ImVec2(min.x + iconSide, iconTop + iconSide));
+            }
+        }
         const auto [lines, cut] = ClampedText(nullptr, min, nameWidth, name, 0, 2);
         const float top = min.y + (max.y - min.y - lines * lineHeight) * 0.5f;
-        ImDrawList* const drawList = ImGui::GetWindowDrawList();
-        ClampedText(drawList, ImVec2(min.x, top), nameWidth, name, ImGui::GetColorU32(ImGuiCol_Text), 2);
+        ClampedText(drawList, ImVec2(min.x + iconWidth, top), nameWidth, name, ImGui::GetColorU32(ImGuiCol_Text), 2);
         drawList->AddText(ImVec2(max.x - countWidth, min.y + (max.y - min.y - lineHeight) * 0.5f),
                           ImGui::GetColorU32(ImGuiCol_TextDisabled), countText);
         if (cut && ImGui::IsItemHovered()) {
@@ -362,6 +373,15 @@ NetworksPanelTab::NetworksPanelTab(SC4PlopAndPaintDirector* director, FavoritesR
             networkChoices_.push_back(type);
         }
     }
+    // Icons only count when the thumbnail file has them: a cache from an older builder has none.
+    for (const BaseNetworkTool& tool : cache_.baseTools) {
+        if (tool.network < baseIcons_.size() && thumbnails_.HasThumbnail(IconKey(tool.icon))) {
+            baseIcons_[tool.network] = tool.icon;
+        }
+    }
+    buttonIcons_ = std::ranges::any_of(buttonOrder_, [this](const size_t b) {
+        return cache_.buttons[b].icon != 0 && thumbnails_.HasThumbnail(IconKey(cache_.buttons[b].icon));
+    });
     LOG_INFO("NetworksPanelTab: {} override networks, {} menu buttons with pieces", cache_.networks.size(),
              cache_.buttons.size());
 }
@@ -369,6 +389,7 @@ NetworksPanelTab::NetworksPanelTab(SC4PlopAndPaintDirector* director, FavoritesR
 void NetworksPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
     if (deviceGeneration != lastDeviceGeneration_) {
         thumbnailCache_.OnDeviceReset();
+        iconCache_.OnDeviceReset();
         previewCache_.OnDeviceReset();
         lastDeviceGeneration_ = deviceGeneration;
     }
@@ -383,6 +404,58 @@ ImGuiTexture NetworksPanelTab::LoadTexture_(const uint64_t key, const float tile
         texture.Create(imguiService_, data->width, data->height, data->rgba.data());
     }
     return texture;
+}
+
+std::optional<void*> NetworksPanelTab::Icon_(const uint32_t icon) {
+    if (icon == 0) {
+        return std::nullopt;
+    }
+    const uint64_t key = IconKey(icon);
+    ++visibleIcons_;
+    const auto texture = iconCache_.Get(key);
+    if (!texture && thumbnails_.HasThumbnail(key)) {
+        iconCache_.Request(key);
+    }
+    return texture;
+}
+
+float NetworksPanelTab::BaseNetworkButtonWidth_(const char* name, const uint32_t icon) const {
+    if (icon == 0) {
+        return ButtonWidth(name);
+    }
+    return IconSide_() + ImGui::CalcTextSize(name).x + ImGui::GetStyle().FramePadding.x * 3.0f;
+}
+
+bool NetworksPanelTab::RenderBaseNetworkButton_(const char* name, const uint32_t icon, const bool active) {
+    if (active) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+    }
+    bool clicked = false;
+    if (icon == 0) {
+        clicked = ImGui::Button(name);
+    }
+    else {
+        // The icon on the left, inset a little so that the button's frame shows around it, and the name.
+        const float side = IconSide_();
+        const float inset = 3.0f;
+        ImGui::PushID(name);
+        clicked = ImGui::Button("##base", ImVec2(BaseNetworkButtonWidth_(name, icon), side + inset * 2.0f));
+        ImGui::PopID();
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        ImDrawList* const drawList = ImGui::GetWindowDrawList();
+        if (const auto texture = Icon_(icon); texture && *texture) {
+            drawList->AddImage(reinterpret_cast<ImTextureID>(*texture), ImVec2(min.x + inset, min.y + inset),
+                               ImVec2(min.x + inset + side, min.y + inset + side));
+        }
+        const float textLeft = min.x + inset + side + ImGui::GetStyle().FramePadding.x;
+        drawList->AddText(ImVec2(textLeft, min.y + (max.y - min.y - ImGui::GetTextLineHeight()) * 0.5f),
+                          ImGui::GetColorU32(ImGuiCol_Text), name);
+    }
+    if (active) {
+        ImGui::PopStyleColor();
+    }
+    return clicked;
 }
 
 bool NetworksPanelTab::IsFavorite_(const uint64_t favoriteKey) const {
@@ -853,22 +926,17 @@ void NetworksPanelTab::RenderDragView_(const TextSearch::Query& query) {
         ImGui::EndChild();
         return;
     }
-    // The plain networks first. They have no picture, so they are buttons that wrap.
+    // The plain networks first. They have no picture, so they are buttons that wrap, with the icon of
+    // their button in the game's menus.
     if (!bases.empty() && ImGui::CollapsingHeader("Base networks", ImGuiTreeNodeFlags_DefaultOpen)) {
         const int activeBase = director_->ActiveBaseNetwork();
         for (size_t i = 0; i < bases.size(); ++i) {
             const BaseNetwork& network = kBaseNetworks[bases[i]];
-            NextInRow(i, ButtonWidth(network.name));
-            const bool active = activeBase == static_cast<int>(network.type);
-            if (active) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            }
-            if (ImGui::Button(network.name)) {
+            const uint32_t icon = baseIcons_[network.type];
+            NextInRow(i, BaseNetworkButtonWidth_(network.name, icon));
+            if (RenderBaseNetworkButton_(network.name, icon, activeBase == static_cast<int>(network.type))) {
                 ReleaseImGuiInputCapture_();
                 director_->StartBaseNetworkDrag(network.type);
-            }
-            if (active) {
-                ImGui::PopStyleColor();
             }
         }
     }
@@ -909,9 +977,12 @@ void NetworksPanelTab::RenderDragView_(const TextSearch::Query& query) {
 void NetworksPanelTab::RenderButtonList_(const std::vector<size_t>& buttons,
                                          const std::vector<std::vector<size_t>>& pieces, const size_t recentCount,
                                          const bool collapsible) {
+    // The icon column is there for all rows, so that the names line up. Recent has no icon.
+    const float iconSide = buttonIcons_ ? IconSide_() : 0.0f;
     if (recentCount > 0) {
         ImGui::PushID("Recent");
-        if (ButtonRow("Recent", recentCount, selectedButton_ == kRecent)) {
+        if (ButtonRow("Recent", recentCount, selectedButton_ == kRecent, iconSide,
+                      [] { return std::optional<void*>(); })) {
             selectedButton_ = kRecent;
         }
         ImGui::PopID();
@@ -944,7 +1015,8 @@ void NetworksPanelTab::RenderButtonList_(const std::vector<size_t>& buttons,
             continue;
         }
         ImGui::PushID(static_cast<int>(buttons[i]));
-        if (ButtonRow(ButtonLabel(button).c_str(), pieces[i].size(), selectedButton_ == buttons[i])) {
+        if (ButtonRow(ButtonLabel(button).c_str(), pieces[i].size(), selectedButton_ == buttons[i], iconSide,
+                      [&] { return Icon_(button.icon); })) {
             selectedButton_ = buttons[i];
             scrollToButton_ = buttons[i];
         }
@@ -1140,6 +1212,7 @@ void NetworksPanelTab::OnRender() {
     ImGui::Separator();
 
     visibleTiles_ = 0;
+    visibleIcons_ = 0;
     const TextSearch::Query query(searchBuf_);
     if (view_ == View::Drag) {
         RenderDragView_(query);
@@ -1151,4 +1224,7 @@ void NetworksPanelTab::OnRender() {
     const float tileSize = TileSize_();
     thumbnailCache_.FitVisible(visibleTiles_ + Cache::kMaxLoadPerFrame);
     thumbnailCache_.ProcessLoadQueue([this, tileSize](const uint64_t key) { return LoadTexture_(key, tileSize); });
+    const float iconSide = IconSide_();
+    iconCache_.FitVisible(visibleIcons_ + Cache::kMaxLoadPerFrame);
+    iconCache_.ProcessLoadQueue([this, iconSide](const uint64_t key) { return LoadTexture_(key, iconSide); });
 }

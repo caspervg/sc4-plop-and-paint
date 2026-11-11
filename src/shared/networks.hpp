@@ -75,9 +75,20 @@ struct NetworkPieceButton {
     // The name for the button list: buttons that share a name get the words typical of their pieces, such as
     // "Underground Rail · Pedmall". Empty in a cache from an older builder.
     std::string label;
+    // Instance of the button's Item Icon, 0 for none. Its picture is in network_thumbnails.bin under
+    // MakeGIKey(2, icon).
+    uint32_t icon = 0;
+};
+
+// One of the game's own drag tools, such as Road or Monorail, with the Item Icon of its menu button. Its
+// picture is in network_thumbnails.bin under MakeGIKey(2, icon).
+struct BaseNetworkTool {
+    uint32_t network = 0;  // cISC4NetworkOccupant::eNetworkType
+    uint32_t icon = 0;
 };
 
 struct NetworksCache {
     std::vector<OverrideNetwork> networks;
     std::vector<NetworkPieceButton> buttons;
+    std::vector<BaseNetworkTool> baseTools;  // only those whose button has an icon
 };

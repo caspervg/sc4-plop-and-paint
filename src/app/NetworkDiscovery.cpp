@@ -32,6 +32,7 @@ namespace {
     constexpr uint32_t kMenuButtonInstance = 0x6A470000;  // plus the first piece ID of the button's TAB loop
     constexpr uint32_t kUserVisibleNameKey = 0x8A416A99;
     constexpr uint32_t kExemplarName = 0x00000020;
+    constexpr uint32_t kItemIcon = 0x8A2602B8;
     constexpr uint32_t kItemOrder = 0x8A2602B9;
     constexpr uint32_t kItemButtonId = 0x8A2602BB;
     constexpr uint32_t kItemSubmenuParentId = 0x8A2602CA;  // from the Submenus DLL
@@ -50,6 +51,14 @@ namespace {
         {0x6999BF56, 0x4000, "Roads"},    {0x00000031, 0x4005, "Highways"},
         {0x00000029, 0x4001, "Rail"},     {0x299237BF, 0x4002, "Miscellaneous Transit"},
         {0xE99234B3, 0x4007, "Airports"}, {0xA99234A6, 0x4006, "Water Transit"},
+    };
+
+    // The menu buttons of the game's own drag tools, by cISC4NetworkOccupant::eNetworkType. The NAM
+    // adds the one of the RHW (the dirt road). Pipes and power lines are not in the tab.
+    constexpr std::pair<uint32_t, uint32_t> kBaseToolButtons[] = {
+        {0, 0x8C329937},  {1, 0x00000029},  {2, 0x00000031},  {3, 0xEA6E379D},
+        {6, 0x2B730C5B},  {7, 0x299237BF},  {8, 0x2B79E398},  {9, 0x4BE099DE},
+        {10, 0x0BE099C1}, {11, 0x2BE099A9}, {12, 0x0BE0998F},
     };
 
     // The plain orthogonal straight tile of each base network. These are the game's own tiles (RHW-2
@@ -493,6 +502,7 @@ namespace {
         std::string name;
         uint32_t parent = 0;  // the button that opens the submenu this one is in, 0 when there is none
         uint32_t order = 0;
+        uint32_t icon = 0;    // instance of its Item Icon, 0 for none
         int topMenu = -1;     // index in kTopMenus when the button is in that menu directly
     };
 
@@ -524,6 +534,9 @@ namespace {
             }
             if (const auto* order = record.FindProperty(kItemOrder)) {
                 item.order = order->GetScalarAs<uint32_t>().value_or(0);
+            }
+            if (const auto* icon = record.FindProperty(kItemIcon)) {
+                item.icon = icon->GetScalarAs<uint32_t>().value_or(0);
             }
             for (int menu = 0; menu < static_cast<int>(std::size(kTopMenus)); ++menu) {
                 if (record.FindProperty(kTopMenus[menu].key)) {
@@ -821,6 +834,7 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
         if (menuItem != menuItems.end() && !button.pieces.empty()) {
             auto [path, order] = MenuPath(menuItems, menuItem->second);
             button.path = std::move(path);
+            button.icon = menuItem->second.icon;
             buttons.emplace_back(std::move(order), std::move(button));
         }
     }
@@ -899,6 +913,11 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
     const std::vector<std::string> buttonLabels = PieceLabels::ButtonLabels(buttonNames);
     for (size_t b = 0; b < cache.buttons.size(); ++b) {
         cache.buttons[b].label = buttonLabels[b];
+    }
+    for (const auto& [network, buttonId] : kBaseToolButtons) {
+        if (const auto item = menuItems.find(buttonId); item != menuItems.end() && item->second.icon != 0) {
+            cache.baseTools.push_back({network, item->second.icon});
+        }
     }
     spdlog::info("Found {} override networks ({} drag on diagonals) and {} pieces with {} variants under {} menu "
                  "buttons",
