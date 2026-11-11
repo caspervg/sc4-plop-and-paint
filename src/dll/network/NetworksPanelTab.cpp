@@ -1090,10 +1090,9 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
         }
     }
 
-    auto selected = std::ranges::find(buttons, selectedButton_);
-    if (selectedButton_ == kRecent ? recent.empty() : selected == buttons.end()) {
+    if (selectedButton_ == kRecent ? recent.empty()
+                                   : std::ranges::find(buttons, selectedButton_) == buttons.end()) {
         selectedButton_ = buttons.front();
-        selected = buttons.begin();
         openSelectedMenu_ = true;
     }
 
@@ -1149,8 +1148,10 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
                 ImGui::PopID();
             }
         }
-        else {
-            RenderPieceGrid_(tilesOf(selected - buttons.begin()), activeTile, true);
+        // A click in the list above may have changed the selected button in this frame, as from Recent to a
+        // button: look it up again rather than use the one found before the list.
+        else if (const auto shown = std::ranges::find(buttons, selectedButton_); shown != buttons.end()) {
+            RenderPieceGrid_(tilesOf(shown - buttons.begin()), activeTile, true);
         }
         scrollToButton_ = kNone;
         reveal_.reset();  // drawn now, or not shown with these filters
