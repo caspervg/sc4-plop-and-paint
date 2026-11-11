@@ -17,5 +17,5 @@ namespace NetworkDiscovery {
 
     // A square RGBA picture of a piece's layout, a coloured cell for each network. It stands in for
     // the picture of a piece whose models do not render. Empty when the piece has no cells.
-    [[nodiscard]] std::vector<std::byte> LayoutPicture(const NetworkPiece& piece, uint32_t size);
+    [[nodiscard]] std::vector<std::byte> LayoutPicture(const std::vector<std::vector<uint32_t>>& layout, uint32_t size);
 }

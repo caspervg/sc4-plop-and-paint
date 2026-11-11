@@ -96,8 +96,9 @@ public:
     // Starts the game's plain drag tool for a network (a cISC4NetworkOccupant::eNetworkType).
     bool StartBaseNetworkDrag(uint32_t network);
     // Starts the game's own tool on a puzzle piece. buttonPiece is the first piece of the menu button
-    // that the piece is under.
-    bool StartNetworkPiece(uint32_t buttonPiece, uint32_t piece);
+    // that the piece is under. variant: another ID of the piece's row to go to, as Home and End would,
+    // or 0 for the piece itself.
+    bool StartNetworkPiece(uint32_t buttonPiece, uint32_t piece, uint32_t variant = 0);
     // Leaves the network tool that one of the three functions above started.
     void StopNetworkTool();
     // The starter piece of the override network that drags make now, or 0.

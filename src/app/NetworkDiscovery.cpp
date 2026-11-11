@@ -4,7 +4,9 @@
 #include <array>
 #include <charconv>
 #include <map>
+#include <cmath>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -15,8 +17,10 @@
 
 #include "DbpfIndexService.hpp"
 #include "LTextReader.h"
+#include "PieceLabels.hpp"
 #include "RUL0.h"
 #include "RUL1.h"
+#include "S3DStructures.h"
 
 namespace {
     constexpr uint32_t kRulType = 0x0A5BCF4B;
@@ -457,6 +461,28 @@ namespace {
     // The models of a network tile come in five, one for each zoom, with the zoom in the last digit of the
     // ID (0 for the farthest, 4 for the closest). The Piece line often names the farthest. The closest has
     // the largest textures, so that is the one for a picture.
+    // How many tiles of 16 m a model covers on the ground, by its bounding box: at least one each way. Empty
+    // when the model cannot be read.
+    std::optional<size_t> ModelTiles(const DbpfIndexService& index, const uint32_t model) {
+        const DBPF::Tgi tgi{kModelType, kPieceModelGroup, model};
+        const auto files = index.lookupFiles(tgi);
+        for (const auto& file : std::ranges::reverse_view(files)) {  // the file loaded last wins
+            const DBPF::Reader* reader = index.getReader(file);
+            if (!reader) {
+                continue;
+            }
+            const auto record = reader->LoadS3D(tgi);
+            if (!record) {
+                continue;
+            }
+            const auto tiles = [](const float from, const float to) {
+                return std::max<size_t>(1, static_cast<size_t>(std::lround((to - from) / 16.0f)));
+            };
+            return tiles(record->bbMin.x, record->bbMax.x) * tiles(record->bbMin.z, record->bbMax.z);
+        }
+        return std::nullopt;
+    }
+
     uint32_t ClosestZoomModel(const DbpfIndexService& index, const uint32_t model) {
         const uint32_t closest = (model & ~0xFu) | 4;
         return (model & 0xF) < 4 && index.containsTgi(DBPF::Tgi{kModelType, kPieceModelGroup, closest}) ? closest : model;
@@ -536,6 +562,72 @@ namespace {
         std::ranges::reverse(orders);
         return {std::move(names), std::move(orders)};
     }
+
+    // Whether a piece runs straight or diagonally where the cursor holds it: the edges of the first network
+    // in the CheckType of that cell. An edge of 02 or 04 is straight, 01 or 03 diagonal. Pieces with the same
+    // name, such as the three "Road over Road" viaducts, differ by it.
+    PieceLabels::Orientation PieceOrientation(const RUL0::PuzzlePiece& piece) {
+        const auto& layout = piece.cellLayout;
+        std::optional<size_t> row;
+        std::optional<size_t> column;
+        for (size_t z = 0; z < layout.size(); ++z) {
+            if (!row && layout[z].find('<') != std::string::npos) {
+                row = z;
+            }
+            if (const size_t at = layout[z].find('^'); !column && at != std::string::npos) {
+                column = at;
+            }
+        }
+        const auto hasNetworks = [](const RUL0::CheckType& check) { return !check.networks.empty(); };
+        auto check = piece.checkTypes.end();
+        if (row && column && *column < layout[*row].size()) {
+            const char symbol = layout[*row][*column];
+            check = std::ranges::find_if(piece.checkTypes, [&](const RUL0::CheckType& candidate) {
+                return candidate.symbol == symbol && hasNetworks(candidate);
+            });
+        }
+        if (check == piece.checkTypes.end()) {
+            check = std::ranges::find_if(piece.checkTypes, hasNetworks);
+        }
+        if (check == piece.checkTypes.end() || check->networks.front().ruleFlagByte == 0xFFFFFFFF) {
+            return PieceLabels::Orientation::Unknown;
+        }
+        const uint32_t edges = check->networks.front().ruleFlagByte;
+        bool straight = false;
+        for (const uint32_t shift : {24u, 16u, 8u, 0u}) {
+            const uint32_t edge = (edges >> shift) & 0xFF;
+            if (edge == 1 || edge == 3) {
+                return PieceLabels::Orientation::Diagonal;
+            }
+            straight = straight || edge == 2 || edge == 4;
+        }
+        return straight ? PieceLabels::Orientation::Orthogonal : PieceLabels::Orientation::Unknown;
+    }
+
+    // The tile labels of a button's pieces and of the other pieces in their rows, made together so that all
+    // of them leave out the same words.
+    void SetPieceLabels(NetworkPieceButton& button,
+                        const std::unordered_map<uint32_t, PieceLabels::Orientation>& orientations) {
+        const auto orientationOf = [&](const uint32_t id) {
+            const auto found = orientations.find(id);
+            return found != orientations.end() ? found->second : PieceLabels::Orientation::Unknown;
+        };
+        std::vector<PieceLabels::Piece> pieces;
+        for (const NetworkPiece& piece : button.pieces) {
+            pieces.push_back({piece.name, orientationOf(piece.id)});
+            for (const NetworkPieceVariant& variant : piece.variants) {
+                pieces.push_back({variant.name, orientationOf(variant.id)});
+            }
+        }
+        const std::vector<std::string> labels = PieceLabels::Make(pieces);
+        size_t next = 0;
+        for (NetworkPiece& piece : button.pieces) {
+            piece.label = labels[next++];
+            for (NetworkPieceVariant& variant : piece.variants) {
+                variant.label = labels[next++];
+            }
+        }
+    }
 }
 
 NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
@@ -562,7 +654,70 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
     const auto menuItems = LoadMenuItems(index);
     const auto previewModels = LoadPreviewModels(index);
 
+    // The name of a RUL0 ID: the text of its own PlaceQueryID, or else of the piece it is a copy of. A
+    // turned or mirrored copy mostly has no name of its own.
+    std::unordered_map<uint32_t, std::string> texts;  // by PlaceQueryID
+    const auto nameOf = [&](uint32_t id) -> const std::string& {
+        uint32_t query = 0xFFFFFFFF;
+        for (int depth = 0; depth < 16 && id != 0; ++depth) {
+            const auto piece = rul0->puzzlePieces.find(id);
+            if (piece == rul0->puzzlePieces.end()) {
+                break;
+            }
+            if (piece->second.placeQueryId != 0xFFFFFFFF) {
+                query = piece->second.placeQueryId;
+                break;
+            }
+            id = piece->second.copyFrom;
+        }
+        const auto [text, isNew] = texts.try_emplace(query);
+        if (isNew && query != 0xFFFFFFFF) {
+            text->second = LoadText(index, DBPF::Tgi{kLTextType, kPlaceQueryGroup, query});
+        }
+        return text->second;
+    };
+    // An ID that is not a turned or mirrored copy: its picture shows the piece as its name means it.
+    const auto unturned = [&](const uint32_t id) {
+        const auto piece = rul0->puzzlePieces.find(id);
+        return piece != rul0->puzzlePieces.end() &&
+               (piece->second.requestedTransform.rotate == RUL0::Rotation::NONE ||
+                piece->second.requestedTransform.rotate == RUL0::Rotation::ROT_0) &&
+               !piece->second.requestedTransform.transpose;
+    };
+    // The model for a piece's picture and another to try when that one does not render. The real model,
+    // the one of the Piece line, comes first when there is one, then the model of the preview effect.
+    const auto pictureOf = [&](const RUL0::PuzzlePiece& piece) {
+        uint32_t model = piece.effect.initialized ? piece.effect.instanceId : 0;
+        uint32_t fallback = 0;
+        if (const auto preview = previewModels.find(Lower(piece.effect.name));
+            preview != previewModels.end() && preview->second != model) {
+            fallback = preview->second;
+            if (!index.containsTgi(DBPF::Tgi{kModelType, kPieceModelGroup, model})) {
+                std::swap(model, fallback);
+                fallback = 0;
+            }
+        }
+        model = ClosestZoomModel(index, model);
+        // The model of the Piece line often covers only the tile under the cursor, or is a one-tile stand-in
+        // such as the flat quad of the FLUP ramps. When it covers half the piece or less and the preview
+        // model covers more, the preview shows the piece, and the Piece model is the one to try when that
+        // does not render.
+        if (fallback != 0) {
+            const auto layout = PieceLayout(piece);
+            const size_t pieceTiles = layout.empty() ? 0 : layout.size() * layout.front().size();
+            if (pieceTiles >= 2) {
+                const auto shown = ModelTiles(index, model);
+                const auto preview = ModelTiles(index, fallback);
+                if (shown && preview && *shown * 2 <= pieceTiles && *preview > *shown) {
+                    std::swap(model, fallback);
+                }
+            }
+        }
+        return std::pair{model, fallback};
+    };
+
     NetworksCache cache;
+    std::unordered_map<uint32_t, PieceLabels::Orientation> orientations;  // of the listed pieces, by RUL0 ID
     std::map<std::vector<std::pair<uint32_t, uint32_t>>, size_t> seen;  // rows -> index in networks
     std::vector<std::pair<std::vector<uint32_t>, NetworkPieceButton>> buttons;  // with the menu order
     // The TAB loops in the order of RUL0. That is the order the NAM team chose, with the levels of a
@@ -580,23 +735,50 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
             if (!piece) {
                 return;
             }
-            // The picture shows the real model, the one of the Piece line, when there is one. The model
-            // of the preview effect is second choice.
-            uint32_t model = piece->effect.initialized ? piece->effect.instanceId : 0;
-            uint32_t fallback = 0;
-            if (const auto preview = previewModels.find(Lower(piece->effect.name));
-                preview != previewModels.end() && preview->second != model) {
-                fallback = preview->second;
-                if (!index.containsTgi(DBPF::Tgi{kModelType, kPieceModelGroup, model})) {
-                    std::swap(model, fallback);
-                    fallback = 0;
+            // Home and End go through the IDs of the row. Mostly they are the turns and mirrored copies of
+            // one piece, but a row can hold more pieces, such as the left and the right switch. A piece is
+            // the IDs with one name: a copy without a name of its own is a turn or mirror of its source.
+            // An ID with no name at all, or without a section (the NAM DLL makes some), goes with the ID
+            // before it.
+            std::vector<std::pair<const std::string*, std::vector<uint32_t>>> named;  // in the order of the row
+            size_t last = 0;
+            for (const uint32_t id : row) {
+                const std::string& name = nameOf(id);
+                if (name.empty() && !named.empty()) {
+                    named[last].second.push_back(id);
+                    continue;
                 }
+                auto same = std::ranges::find_if(named, [&](const auto& entry) { return *entry.first == name; });
+                if (same == named.end()) {
+                    same = named.insert(named.end(), {&name, {}});
+                }
+                same->second.push_back(id);
+                last = static_cast<size_t>(same - named.begin());
             }
-            model = ClosestZoomModel(index, model);
-            std::string name = LoadText(index, DBPF::Tgi{kLTextType, kPlaceQueryGroup, piece->placeQueryId});
-            button.pieces.push_back({name.empty() ? fmt::format("Piece 0x{:X}", row.front()) : std::move(name),
-                                     row.front(), model, fallback, static_cast<uint32_t>(row.size()),
-                                     PieceLayout(*piece), piece->costs != 0xFFFFFFFF ? piece->costs : 0});
+
+            const auto [model, fallback] = pictureOf(*piece);
+            const std::string& name = *named.front().first;
+            NetworkPiece& listed = button.pieces.emplace_back(
+                NetworkPiece{name.empty() ? fmt::format("Piece 0x{:X}", row.front()) : name, row.front(), model,
+                             fallback, static_cast<uint32_t>(row.size()), PieceLayout(*piece),
+                             piece->costs != 0xFFFFFFFF ? piece->costs : 0, named.front().second, {}});
+            orientations.try_emplace(row.front(), PieceOrientation(*piece));
+            for (auto other = named.begin() + 1; other != named.end(); ++other) {
+                const std::vector<uint32_t>& entries = other->second;
+                const auto start = std::ranges::find_if(entries, unturned);
+                const uint32_t id = start != entries.end() ? *start : entries.front();
+                const auto* variant = ResolvePiece(*rul0, id);
+                if (!variant) {
+                    // Nothing to show, but the tab still follows Home and End there.
+                    listed.entries.insert(listed.entries.end(), entries.begin(), entries.end());
+                    continue;
+                }
+                orientations.try_emplace(id, PieceOrientation(*variant));
+                const auto [variantModel, variantFallback] = pictureOf(*variant);
+                listed.variants.push_back({other->first->empty() ? fmt::format("Piece 0x{:X}", id) : *other->first, id,
+                                           variantModel, variantFallback, PieceLayout(*variant),
+                                           variant->costs != 0xFFFFFFFF ? variant->costs : 0, entries});
+            }
 
             // A starter piece is also an override network that can be dragged directly.
             auto starter = StarterRows(*piece, sections, spreading, rul2Facts.dragTiles);
@@ -648,14 +830,19 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
     // effects share is such a stand-in, and the preview model is the one to show.
     std::unordered_map<uint32_t, uint32_t> previewOfModel;
     std::unordered_set<uint32_t> standIns;
+    const auto notePreview = [&](const uint32_t model, const uint32_t fallback) {
+        if (fallback == 0) {
+            return;
+        }
+        if (const auto [seen, isNew] = previewOfModel.try_emplace(model, fallback); !isNew && seen->second != fallback) {
+            standIns.insert(model);
+        }
+    };
     for (const auto& [order, button] : buttons) {
         for (const NetworkPiece& piece : button.pieces) {
-            if (piece.fallbackModel == 0) {
-                continue;
-            }
-            if (const auto [seen, isNew] = previewOfModel.try_emplace(piece.previewModel, piece.fallbackModel);
-                !isNew && seen->second != piece.fallbackModel) {
-                standIns.insert(piece.previewModel);
+            notePreview(piece.previewModel, piece.fallbackModel);
+            for (const NetworkPieceVariant& variant : piece.variants) {
+                notePreview(variant.previewModel, variant.fallbackModel);
             }
         }
     }
@@ -667,6 +854,9 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
     for (auto& [order, button] : buttons) {
         for (NetworkPiece& piece : button.pieces) {
             preferPreview(piece.previewModel, piece.fallbackModel);
+            for (NetworkPieceVariant& variant : piece.variants) {
+                preferPreview(variant.previewModel, variant.fallbackModel);
+            }
         }
     }
     for (OverrideNetwork& network : cache.networks) {
@@ -690,17 +880,34 @@ NetworksCache NetworkDiscovery::Discover(const DbpfIndexService& index) {
 
     std::ranges::stable_sort(buttons, {}, [](const auto& entry) { return entry.first; });
     size_t pieces = 0;
+    size_t variants = 0;
     for (auto& [order, button] : buttons) {
         pieces += button.pieces.size();
+        for (const NetworkPiece& piece : button.pieces) {
+            variants += piece.variants.size();
+        }
+        SetPieceLabels(button, orientations);
         cache.buttons.push_back(std::move(button));
     }
-    spdlog::info("Found {} override networks ({} drag on diagonals) and {} pieces under {} menu buttons",
+    std::vector<PieceLabels::Button> buttonNames;
+    for (const NetworkPieceButton& button : cache.buttons) {
+        PieceLabels::Button& named = buttonNames.emplace_back(PieceLabels::Button{button.name, {}});
+        for (const NetworkPiece& piece : button.pieces) {
+            named.pieceNames.push_back(piece.name);
+        }
+    }
+    const std::vector<std::string> buttonLabels = PieceLabels::ButtonLabels(buttonNames);
+    for (size_t b = 0; b < cache.buttons.size(); ++b) {
+        cache.buttons[b].label = buttonLabels[b];
+    }
+    spdlog::info("Found {} override networks ({} drag on diagonals) and {} pieces with {} variants under {} menu "
+                 "buttons",
                  cache.networks.size(), std::ranges::count(cache.networks, true, &OverrideNetwork::diagonal), pieces,
-                 cache.buttons.size());
+                 variants, cache.buttons.size());
     return cache;
 }
 
-std::vector<std::byte> NetworkDiscovery::LayoutPicture(const NetworkPiece& piece, const uint32_t size) {
+std::vector<std::byte> NetworkDiscovery::LayoutPicture(const std::vector<std::vector<uint32_t>>& layout, const uint32_t size) {
     // A colour for each network, by cISC4NetworkOccupant::eNetworkType, then one for other cells.
     constexpr std::array<std::array<uint8_t, 3>, 14> kColors = {{
         {120, 120, 120}, {135, 100, 65},  {70, 72, 90},    {170, 170, 165}, {60, 120, 200},
@@ -708,22 +915,22 @@ std::vector<std::byte> NetworkDiscovery::LayoutPicture(const NetworkPiece& piece
         {150, 145, 115}, {48, 48, 54},    {85, 88, 110},   {110, 135, 110},
     }};
     size_t columns = 0;
-    for (const auto& row : piece.layout) {
+    for (const auto& row : layout) {
         columns = std::max(columns, row.size());
     }
     if (columns == 0 || size < 16) {
         return {};
     }
     const uint32_t margin = size / 12;
-    const uint32_t cellSize = std::max<uint32_t>(2, (size - 2 * margin) / static_cast<uint32_t>(std::max(columns, piece.layout.size())));
+    const uint32_t cellSize = std::max<uint32_t>(2, (size - 2 * margin) / static_cast<uint32_t>(std::max(columns, layout.size())));
     const uint32_t left = (size - cellSize * static_cast<uint32_t>(columns)) / 2;
-    const uint32_t top = (size - cellSize * static_cast<uint32_t>(piece.layout.size())) / 2;
+    const uint32_t top = (size - cellSize * static_cast<uint32_t>(layout.size())) / 2;
     const uint32_t gap = cellSize >= 8 ? 1 : 0;
 
     std::vector<std::byte> pixels(static_cast<size_t>(size) * size * 4, std::byte{0});
-    for (size_t z = 0; z < piece.layout.size(); ++z) {
-        for (size_t x = 0; x < piece.layout[z].size(); ++x) {
-            const uint32_t cell = piece.layout[z][x];
+    for (size_t z = 0; z < layout.size(); ++z) {
+        for (size_t x = 0; x < layout[z].size(); ++x) {
+            const uint32_t cell = layout[z][x];
             if (cell == 0) {
                 continue;
             }

@@ -359,7 +359,7 @@ protected:
     // means cached thumbnails have the wrong size and the caller should clear its cache.
     // gridOnly: the tab has no list, so only the tile size shows.
     bool RenderViewControls_(const bool gridOnly = false) {
-        static constexpr float kTileSizes[] = {44.0f, 66.0f, 88.0f};
+        const float* kTileSizes = tileSizes_;
         static constexpr const char* kTileLabels[] = {"Small", "Medium", "Large"};
 
         if (!viewLoaded_) {
@@ -437,6 +437,8 @@ protected:
     bool viewLoaded_ = false;  // view settings read from favorites on first use
     bool gridView_ = false;
     int gridTileSizeIndex_ = 1;
+    // The tile sizes of Small, Medium and Large. A tab whose tiles carry badges can make them larger.
+    float tileSizes_[3] = {44.0f, 66.0f, 88.0f};
     float gridTileSize_ = 66.0f;
     float gridTileScale_ = 1.0f;  // tiles with a name on them are drawn larger
     ThumbnailCache<uint64_t> previewCache_{4, 1};
