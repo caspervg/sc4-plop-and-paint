@@ -7,6 +7,13 @@ file(GLOB APP_SOURCES CONFIGURE_DEPENDS
 
 add_executable(${APP_NAME} ${APP_SOURCES})
 
+add_executable(PieceLabelsTests
+    ${CMAKE_SOURCE_DIR}/tests/PieceLabelsTests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/PieceLabels.cpp
+)
+target_include_directories(PieceLabelsTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME PieceLabelsTests COMMAND PieceLabelsTests)
+
 # Fetching and reading the SC4 Prop Texture Catalog (PackCatalogBuilder).
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(CURL REQUIRED)

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
@@ -49,10 +50,20 @@ namespace {
 
     uint64_t NetworkKey(const OverrideNetwork& network) { return MakeGIKey(0, network.starterPiece); }
     uint64_t PieceKey(const NetworkPiece& piece) { return MakeGIKey(1, piece.id); }
+    uint64_t VariantKey(const uint32_t id) { return MakeGIKey(1, id); }
     uint64_t NetworkFavorite(const OverrideNetwork& network) {
         return FavoritesRepository::NetworkFavoriteKey(false, network.starterPiece);
     }
     uint64_t PieceFavorite(const NetworkPiece& piece) { return FavoritesRepository::NetworkFavoriteKey(true, piece.id); }
+
+    // The NAM's Network Eraser, the one piece of its menu button. The tab has a button of its own for it.
+    constexpr uint32_t kNetworkEraserPiece = 0x00005024;
+
+    // The name of a menu button as the list shows it. A cache from an older builder has no label.
+    const std::string& ButtonLabel(const NetworkPieceButton& button) {
+        return button.label.empty() ? button.name : button.label;
+    }
+
 
     // The name of a network as the game's menus call it.
     const char* NetworkTypeName(const uint32_t type) {
@@ -69,55 +80,56 @@ namespace {
         return words;
     }
 
-    // The names of the pieces of one button without the words that all of them start with, up to a
-    // separator: "Canal - straight boat" becomes "Straight boat" when every piece starts with "Canal -".
-    // The button tells those words already. Only a separator ends the cut, so that a name never loses
-    // the start of a phrase, as "Road x Street Roundabout" would.
-    std::vector<std::string> ShortNames(const std::vector<NetworkPiece>& pieces) {
+    // The words that all of these names start with, up to a separator: "Canal -" when every name starts
+    // with "Canal -". Only a separator ends the cut, so that a name never loses the start of a phrase, as
+    // "Road x Street Roundabout" would. Empty when fewer than two names, or when a name has nothing after.
+    std::vector<std::string> SharedPrefix(const std::vector<std::string>& names) {
+        if (names.size() < 2) {
+            return {};
+        }
         std::vector<std::vector<std::string>> words;
-        for (const NetworkPiece& piece : pieces) {
-            words.push_back(Words(piece.name));
+        for (const std::string& name : names) {
+            words.push_back(Words(name));
         }
         size_t prefix = 0;
-        if (pieces.size() >= 2) {
-            while (std::ranges::all_of(words, [&](const auto& name) {
-                return prefix < name.size() && name[prefix] == words.front()[prefix];
-            })) {
-                ++prefix;
-            }
-            const auto isSeparator = [](const std::string& word) {
-                return word == "-" || word == "|" || word.ends_with(':') || word.ends_with(',');
-            };
-            while (prefix > 0 && !isSeparator(words.front()[prefix - 1])) {
-                --prefix;
-            }
-            if (std::ranges::any_of(words, [prefix](const auto& name) { return name.size() <= prefix; })) {
-                prefix = 0;
-            }
+        while (std::ranges::all_of(words, [&](const auto& name) {
+            return prefix < name.size() && name[prefix] == words.front()[prefix];
+        })) {
+            ++prefix;
         }
+        const auto isSeparator = [](const std::string& word) {
+            return word == "-" || word == "|" || word.ends_with(':') || word.ends_with(',');
+        };
+        while (prefix > 0 && !isSeparator(words.front()[prefix - 1])) {
+            --prefix;
+        }
+        if (std::ranges::any_of(words, [prefix](const auto& name) { return name.size() <= prefix; })) {
+            return {};
+        }
+        return {words.front().begin(), words.front().begin() + static_cast<ptrdiff_t>(prefix)};
+    }
 
-        std::vector<std::string> names;
-        for (size_t i = 0; i < pieces.size(); ++i) {
-            if (prefix == 0) {
-                names.push_back(pieces[i].name);
-                continue;
-            }
-            std::string name = words[i][prefix];
-            for (size_t w = prefix + 1; w < words[i].size(); ++w) {
-                name += ' ' + words[i][w];
-            }
-            name[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(name[0])));
-            names.push_back(std::move(name));
+    // The name without these words in front, when it starts with them and has more: "Canal - straight
+    // boat" becomes "Straight boat" without "Canal -". The button or the piece tells those words already.
+    std::string WithoutPrefix(const std::string& name, const std::vector<std::string>& prefix) {
+        const std::vector<std::string> words = Words(name);
+        if (prefix.empty() || words.size() <= prefix.size() || !std::equal(prefix.begin(), prefix.end(), words.begin())) {
+            return name;
         }
-        return names;
+        std::string shortName = words[prefix.size()];
+        for (size_t w = prefix.size() + 1; w < words.size(); ++w) {
+            shortName += ' ' + words[w];
+        }
+        shortName[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(shortName[0])));
+        return shortName;
     }
 
     // "2×3" for the tiles a piece covers, empty for one tile.
-    std::string SizeText(const NetworkPiece& piece) {
+    std::string SizeText(const std::vector<std::vector<uint32_t>>& layout) {
         size_t top = SIZE_MAX, bottom = 0, left = SIZE_MAX, right = 0;
-        for (size_t row = 0; row < piece.layout.size(); ++row) {
-            for (size_t column = 0; column < piece.layout[row].size(); ++column) {
-                if (piece.layout[row][column] != 0) {
+        for (size_t row = 0; row < layout.size(); ++row) {
+            for (size_t column = 0; column < layout[row].size(); ++column) {
+                if (layout[row][column] != 0) {
                     top = std::min(top, row);
                     bottom = std::max(bottom, row);
                     left = std::min(left, column);
@@ -198,9 +210,9 @@ namespace {
     }
 
     // The networks in the cells of a piece: bit n is eNetworkType n.
-    uint32_t PieceNetworks(const NetworkPiece& piece) {
+    uint32_t PieceNetworks(const std::vector<std::vector<uint32_t>>& layout) {
         uint32_t networks = 0;
-        for (const auto& row : piece.layout) {
+        for (const auto& row : layout) {
             for (const uint32_t cell : row) {
                 networks |= cell & ((1u << kBaseNetworkNames.size()) - 1);
             }
@@ -214,6 +226,11 @@ NetworksPanelTab::NetworksPanelTab(SC4PlopAndPaintDirector* director, FavoritesR
     : PanelTab(director, nullptr, nullptr, favorites, imguiService) {
     gridView_ = true;  // tiles only, no list
     gridTileScale_ = 1.4f;
+    // A step up from the other tabs: on a smaller tile the size and row badges cover the picture.
+    tileSizes_[0] = 66.0f;
+    tileSizes_[1] = 88.0f;
+    tileSizes_[2] = 132.0f;
+    gridTileSize_ = tileSizes_[1];
     for (const BaseNetwork& network : kBaseNetworks) {
         baseSearch_.push_back(TextSearch::Normalize(std::string(network.name) + " base network"));
     }
@@ -260,33 +277,79 @@ NetworksPanelTab::NetworksPanelTab(SC4PlopAndPaintDirector* director, FavoritesR
     uint32_t allNetworks = 0;
     for (NetworkPieceButton& button : cache_.buttons) {
         const size_t b = &button - cache_.buttons.data();
-        pieceShortName_.push_back(ShortNames(button.pieces));
-        auto& networks = pieceNetworks_.emplace_back();
-        auto& sizes = pieceSize_.emplace_back();
-        for (size_t p = 0; p < button.pieces.size(); ++p) {
-            networks.push_back(PieceNetworks(button.pieces[p]));
-            allNetworks |= networks.back();
-            sizes.push_back(SizeText(button.pieces[p]));
-            pieceById_.try_emplace(button.pieces[p].id, b, p);
-        }
         if (button.path.empty()) {
             button.path.emplace_back("Other");
         }
         if (std::ranges::find(menus_, button.path.front()) == menus_.end()) {
             menus_.push_back(button.path.front());
         }
-        std::string where = button.name;
+        std::string where = button.name + ' ' + button.label;
         for (const std::string& menu : button.path) {
             where += ' ' + menu;
         }
-        auto& texts = pieceSearch_.emplace_back();
-        auto& nameTexts = pieceNameSearch_.emplace_back();
+        std::vector<std::string> pieceNames;
         for (const NetworkPiece& piece : button.pieces) {
-            texts.push_back(TextSearch::Normalize(piece.name + ' ' + where) + TextSearch::HexId(piece.id));
-            nameTexts.push_back(TextSearch::Normalize(piece.name) + TextSearch::HexId(piece.id));
-            suggester_.Add(texts.back());
+            pieceNames.push_back(piece.name);
+        }
+        const std::vector<std::string> buttonWords = SharedPrefix(pieceNames);
+
+        auto& buttonVariants = variants_.emplace_back();
+        for (size_t p = 0; p < button.pieces.size(); ++p) {
+            const NetworkPiece& piece = button.pieces[p];
+            std::vector<std::string> names{piece.name};
+            for (const NetworkPieceVariant& variant : piece.variants) {
+                names.push_back(variant.name);
+            }
+            const std::vector<std::string> pieceWords = SharedPrefix(names);
+            auto& pieceVariants = buttonVariants.emplace_back();
+            // The cache builder's label is the tile's name. The search goes by the full name and the label, so
+            // that "OWR" also finds "One-Way Road".
+            const auto add = [&](const std::string& name, const std::string& label, const uint32_t id,
+                                 const uint32_t cost, const std::vector<std::vector<uint32_t>>& layout,
+                                 const std::vector<uint32_t>& entries) {
+                const size_t v = pieceVariants.size();
+                Variant& variant = pieceVariants.emplace_back();
+                variant.name = name;
+                variant.shortName = label.empty() ? WithoutPrefix(name, buttonWords) : label;
+                variant.pickerName = WithoutPrefix(name, pieceWords);
+                variant.id = id;
+                variant.cost = cost;
+                variant.networks = PieceNetworks(layout);
+                variant.size = SizeText(layout);
+                variant.search = TextSearch::Normalize(name + ' ' + label + ' ' + where) + TextSearch::HexId(id);
+                variant.nameSearch = TextSearch::Normalize(name + ' ' + label) + TextSearch::HexId(id);
+                suggester_.Add(variant.search);
+                allNetworks |= variant.networks;
+                pieceById_.try_emplace(id, Tile{{b, p}, v});
+                for (const uint32_t entry : entries) {
+                    pieceById_.try_emplace(entry, Tile{{b, p}, v});
+                }
+            };
+            add(piece.name, piece.label, piece.id, piece.cost, piece.layout, piece.entries);
+            for (const NetworkPieceVariant& variant : piece.variants) {
+                add(variant.name, variant.label, variant.id, variant.cost, variant.layout, variant.entries);
+            }
         }
         pieceCount_ += button.pieces.size();
+    }
+
+    // The Network Eraser has its own button above the views, so it is not in the button list.
+    for (size_t b = 0; b < cache_.buttons.size(); ++b) {
+        const NetworkPieceButton& button = cache_.buttons[b];
+        if (button.pieces.front().id == kNetworkEraserPiece ||
+            (eraserButton_ == kNone && button.name == "Network Eraser")) {
+            eraserButton_ = b;
+        }
+    }
+    // The button list keeps the order of the game's menus, as the cache has it: the NAM puts buttons that
+    // work alike next to each other.
+    for (size_t b = 0; b < cache_.buttons.size(); ++b) {
+        if (b != eraserButton_) {
+            buttonOrder_.push_back(b);
+        }
+    }
+    if (!buttonOrder_.empty()) {
+        selectedButton_ = buttonOrder_.front();
     }
     // The networks to filter by: those of the game's menus in their order, then the others.
     for (const BaseNetwork& network : kBaseNetworks) {
@@ -327,7 +390,7 @@ bool NetworksPanelTab::IsFavorite_(const uint64_t favoriteKey) const {
 }
 
 void NetworksPanelTab::RenderTileMenu_(const uint64_t favoriteKey) const {
-    if (favorites_ && ImGui::BeginPopupContextItem("##tileMenu")) {
+    if (favorites_ && favoriteKey != 0 && ImGui::BeginPopupContextItem("##tileMenu")) {
         if (ImGui::Selectable(IsFavorite_(favoriteKey) ? "Remove from favorites" : "Add to favorites")) {
             favorites_->ToggleFamilyFavorite(favoriteKey);
         }
@@ -335,20 +398,21 @@ void NetworksPanelTab::RenderTileMenu_(const uint64_t favoriteKey) const {
     }
 }
 
-void NetworksPanelTab::RenderTileFace_(const uint64_t key, const std::string& name, const char* badge,
-                                       const bool active, const uint64_t favoriteKey) {
+float NetworksPanelTab::RenderTileFace_(const uint64_t key, const std::string& name, const char* badge,
+                                        const bool active, const uint64_t favoriteKey) {
     const auto texture = thumbnailCache_.Get(key);
     if (!texture && thumbnails_.HasThumbnail(key)) {
         thumbnailCache_.Request(key);
     }
     // The name on a dark band at the foot of the tile, and the picture in the square above it, so that the
-    // name never covers the model. Pictures of network pieces look much alike. Small tiles have room for one
-    // line only.
+    // name never covers the model. Pictures of network pieces look much alike, so the name gets two lines
+    // from the default tile size on: one line holds about 11 letters, too few to tell most pieces apart.
+    // Small tiles have room for one line only.
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const ImVec2 min = ImGui::GetItemRectMin();
     const ImVec2 max = ImGui::GetItemRectMax();
     const float fontSize = ImGui::GetFontSize() * 0.8f;
-    const float lines = max.y - min.y >= ImGui::GetFontSize() * 6.0f ? 2.0f : 1.0f;
+    const float lines = max.y - min.y >= ImGui::GetFontSize() * 4.5f ? 2.0f : 1.0f;
     const float bandTop = max.y - (fontSize * lines + 6.0f);
     RenderGridTile_(std::nullopt);  // the background and border of the whole tile
     if (texture && *texture) {
@@ -368,8 +432,9 @@ void NetworksPanelTab::RenderTileFace_(const uint64_t key, const std::string& na
         drawList->AddRectFilled(badgeMin, ImVec2(max.x - 3.0f, min.y + size.y + 5.0f), IM_COL32(32, 32, 32, 220), 3.0f);
         drawList->AddText(ImVec2(badgeMin.x + 3.0f, badgeMin.y + 1.0f), IM_COL32(220, 220, 220, 255), badge);
     }
-    ThumbnailGrid::DecorateLastTile(active, IsFavorite_(favoriteKey));
+    ThumbnailGrid::DecorateLastTile(active, favoriteKey != 0 && IsFavorite_(favoriteKey));
     RenderTileMenu_(favoriteKey);
+    return bandTop;
 }
 
 void NetworksPanelTab::RenderNetworkTile_(const OverrideNetwork& network, const bool active) {
@@ -414,54 +479,189 @@ void NetworksPanelTab::RenderNetworkTile_(const OverrideNetwork& network, const 
     }
 }
 
-void NetworksPanelTab::RenderPieceTile_(const PieceRef ref, const bool active, const bool shortName) {
-    const NetworkPieceButton& button = cache_.buttons[ref.first];
-    const NetworkPiece& piece = button.pieces[ref.second];
-    const std::string& size = pieceSize_[ref.first][ref.second];
-    RenderTileFace_(PieceKey(piece), shortName ? pieceShortName_[ref.first][ref.second] : piece.name,
-                    size.empty() ? nullptr : size.c_str(), active, PieceFavorite(piece));
+void NetworksPanelTab::RenderPieceTile_(const Tile tile, const bool active, const bool shortName) {
+    const auto [b, p] = tile.ref;
+    const NetworkPieceButton& button = cache_.buttons[b];
+    const NetworkPiece& piece = button.pieces[p];
+    const std::vector<Variant>& variants = variants_[b][p];
+    const Variant& shown = variants[tile.variant];
+    const float bandTop = RenderTileFace_(VariantKey(shown.id), shortName ? shown.shortName : shown.name,
+                                          shown.size.empty() ? nullptr : shown.size.c_str(), active,
+                                          PieceFavorite(piece));
+    const bool tileHovered = ImGui::IsItemHovered();
+    const bool tileClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
 
-    if (ImGui::IsItemHovered()) {
+    // A row with more pieces than this one has a badge in the corner above the name: two stacked squares
+    // and how many pieces there are. A click on it opens the list of them.
+    bool overBadge = false;
+    if (variants.size() > 1) {
+        char count[16];
+        std::snprintf(count, sizeof(count), "%zu", variants.size());
+        const float textHeight = ImGui::GetFontSize();
+        const float square = std::floor(textHeight * 0.55f);
+        const ImVec2 countSize = ImGui::CalcTextSize(count);
+        const ImVec2 max(ImGui::GetItemRectMax().x - 3.0f, bandTop - 3.0f);
+        const ImVec2 min(max.x - (square + 3.0f + 4.0f + countSize.x + 10.0f), max.y - (textHeight + 4.0f));
+        overBadge = tileHovered && ImGui::IsMouseHoveringRect(min, max);
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->AddRectFilled(min, max, overBadge ? IM_COL32(80, 80, 80, 240) : IM_COL32(32, 32, 32, 220), 3.0f);
+        if (overBadge) {
+            drawList->AddRect(min, max, IM_COL32(255, 255, 255, 160), 3.0f);
+        }
+        const ImU32 ink = IM_COL32(220, 220, 220, 255);
+        const ImVec2 front(min.x + 5.0f, min.y + (max.y - min.y - square) * 0.5f + 1.5f);
+        drawList->AddRect(ImVec2(front.x + 3.0f, front.y - 3.0f), ImVec2(front.x + 3.0f + square, front.y - 3.0f + square),
+                          ink);
+        drawList->AddRectFilled(front, ImVec2(front.x + square, front.y + square), IM_COL32(32, 32, 32, 255));
+        drawList->AddRect(front, ImVec2(front.x + square, front.y + square), ink);
+        drawList->AddText(ImVec2(front.x + square + 3.0f + 4.0f, min.y + 2.0f), ink, count);
+    }
+
+    if (overBadge) {
+        ImGui::SetTooltip("%zu pieces in this row. Click to choose one.", variants.size());
+    }
+    else if (tileHovered) {
         ImGui::BeginTooltip();
         // As wide as the picture: the name wraps, and where the piece is stops at two lines.
         const float width = thumbnails_.StoredSize() > 0 ? static_cast<float>(thumbnails_.StoredSize())
                                                          : ImGui::GetFontSize() * 18.0f;
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
-        ImGui::TextUnformatted(piece.name.c_str());
+        ImGui::TextUnformatted(shown.name.c_str());
         ImGui::PopTextWrapPos();
-        const std::string where = button.path.front() + ", " + button.name;
+        const std::string where = button.path.front() + ", " + ButtonLabel(button);
         const ImVec2 at = ImGui::GetCursorScreenPos();
         const auto [lines, cut] = ClampedText(ImGui::GetWindowDrawList(), at, width, where.c_str(),
                                               ImGui::GetColorU32(ImGuiCol_TextDisabled), 2);
         ImGui::Dummy(ImVec2(width, lines * ImGui::GetTextLineHeight()));
-        if (!size.empty()) {
-            ImGui::TextDisabled("%s tiles", size.c_str());
+        if (!shown.size.empty()) {
+            ImGui::TextDisabled("%s tiles", shown.size.c_str());
         }
-        if (piece.cost > 0) {
-            ImGui::TextDisabled("Cost: \xC2\xA7%u", piece.cost);  // the simoleon sign, U+00A7
+        if (shown.cost > 0) {
+            ImGui::TextDisabled("Cost: \xC2\xA7%u", shown.cost);  // the simoleon sign, U+00A7
         }
-        RenderLargePreview_(thumbnails_, PieceKey(piece));
+        if (variants.size() > 1) {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
+            ImGui::TextDisabled("One of %zu pieces in this row. Click the badge to choose another, or press Home "
+                                "or End in the city.",
+                                variants.size());
+            ImGui::PopTextWrapPos();
+        }
+        RenderLargePreview_(thumbnails_, VariantKey(shown.id));
         ImGui::EndTooltip();
     }
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
-        ReleaseImGuiInputCapture_();
-        if (director_->StartNetworkPiece(button.id, piece.id)) {
-            std::erase(recent_, ref);
-            recent_.insert(recent_.begin(), ref);
-            if (recent_.size() > kMaxRecent) {
-                recent_.pop_back();
-            }
+
+    if (tileClicked) {
+        if (overBadge) {
+            ImGui::OpenPopup("##variants");
+        }
+        else {
+            PlacePiece_(tile);
         }
     }
+    if (variants.size() > 1) {
+        RenderVariantPicker_(tile.ref, active ? std::optional(tile.variant) : std::nullopt);
+    }
+}
+
+void NetworksPanelTab::RenderVariantPicker_(const PieceRef ref, const std::optional<size_t> active) {
+    const std::vector<Variant>& variants = variants_[ref.first][ref.second];
+    const float tileSize = TileSize_();
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const auto columns = static_cast<float>(std::min<size_t>(variants.size(), 4));
+    // Room for up to four tiles in a row, and a pixel more so that rounding never drops one.
+    ImGui::SetNextWindowSize(ImVec2(
+        columns * tileSize + (columns - 1.0f) * style.ItemSpacing.x + 2.0f * style.WindowPadding.x + 1.0f, 0.0f));
+    if (!ImGui::BeginPopup("##variants")) {
+        return;
+    }
+    ImGui::TextUnformatted("Pieces in this row");
+    visibleTiles_ += ThumbnailGrid::Render(
+        variants.size(), tileSize, [&](const size_t v) { return VariantKey(variants[v].id); },
+        [&](const size_t v) {
+            const Variant& variant = variants[v];
+            RenderTileFace_(VariantKey(variant.id), variant.pickerName, variant.size.empty() ? nullptr : variant.size.c_str(),
+                            active == v, 0);
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                const float width = thumbnails_.StoredSize() > 0 ? static_cast<float>(thumbnails_.StoredSize())
+                                                                 : ImGui::GetFontSize() * 18.0f;
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
+                ImGui::TextUnformatted(variant.name.c_str());
+                ImGui::PopTextWrapPos();
+                if (variant.cost > 0) {
+                    ImGui::TextDisabled("Cost: \xC2\xA7%u", variant.cost);
+                }
+                RenderLargePreview_(thumbnails_, VariantKey(variant.id));
+                ImGui::EndTooltip();
+            }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+                PlacePiece_({ref, v});
+                ImGui::CloseCurrentPopup();
+            }
+        });
+    PanelUi::SecondaryText("Home and End in the city go through these too, and turn them.");
+    ImGui::EndPopup();
+}
+
+void NetworksPanelTab::PlacePiece_(const Tile tile) {
+    ReleaseImGuiInputCapture_();
+    const NetworkPieceButton& button = cache_.buttons[tile.ref.first];
+    const NetworkPiece& piece = button.pieces[tile.ref.second];
+    if (director_->StartNetworkPiece(button.id, piece.id, variants_[tile.ref.first][tile.ref.second][tile.variant].id)) {
+        // Recent has each piece once, as the variant used last.
+        std::erase_if(recent_, [&](const Tile& used) { return used.ref == tile.ref; });
+        recent_.insert(recent_.begin(), tile);
+        if (recent_.size() > kMaxRecent) {
+            recent_.pop_back();
+        }
+    }
+}
+
+bool NetworksPanelTab::VariantFiltered_(const Variant& variant) const {
+    return (variant.networks & networkFilter_) == networkFilter_;
 }
 
 bool NetworksPanelTab::PieceFiltered_(const PieceRef ref) const {
-    return (pieceNetworks_[ref.first][ref.second] & networkFilter_) == networkFilter_ &&
-           (!favoritesOnly_ || IsFavorite_(PieceFavorite(cache_.buttons[ref.first].pieces[ref.second])));
+    return (!favoritesOnly_ || IsFavorite_(PieceFavorite(cache_.buttons[ref.first].pieces[ref.second]))) &&
+           std::ranges::any_of(variants_[ref.first][ref.second],
+                               [this](const Variant& variant) { return VariantFiltered_(variant); });
 }
 
 bool NetworksPanelTab::PieceShown_(const PieceRef ref, const TextSearch::Query& query) const {
-    return PieceFiltered_(ref) && query.Matches(pieceSearch_[ref.first][ref.second]);
+    return (!favoritesOnly_ || IsFavorite_(PieceFavorite(cache_.buttons[ref.first].pieces[ref.second]))) &&
+           std::ranges::any_of(variants_[ref.first][ref.second], [&](const Variant& variant) {
+               return VariantFiltered_(variant) && query.Matches(variant.search);
+           });
+}
+
+bool NetworksPanelTab::PieceNamed_(const PieceRef ref, const TextSearch::Query& query) const {
+    return !query.Empty() && std::ranges::any_of(variants_[ref.first][ref.second], [&](const Variant& variant) {
+               return VariantFiltered_(variant) && query.Matches(variant.nameSearch);
+           });
+}
+
+NetworksPanelTab::Tile NetworksPanelTab::TileOf_(const PieceRef ref, const TextSearch::Query& query) const {
+    const std::vector<Variant>& variants = variants_[ref.first][ref.second];
+    if (!query.Empty()) {
+        for (size_t v = 0; v < variants.size(); ++v) {
+            if (VariantFiltered_(variants[v]) && query.Matches(variants[v].nameSearch)) {
+                return {ref, v};
+            }
+        }
+    }
+    for (size_t v = 0; v < variants.size(); ++v) {
+        if (VariantFiltered_(variants[v]) && query.Matches(variants[v].search)) {
+            return {ref, v};
+        }
+    }
+    return {ref, 0};
+}
+
+std::optional<NetworksPanelTab::Tile> NetworksPanelTab::ActiveTile_() const {
+    if (const auto found = pieceById_.find(director_->ActiveNetworkPiece()); found != pieceById_.end()) {
+        return found->second;
+    }
+    return std::nullopt;
 }
 
 int NetworksPanelTab::ActiveFilterCount_() const {
@@ -567,13 +767,35 @@ std::string NetworksPanelTab::ActiveTool_() const {
             return "Dragging " + network->name;
         }
     }
-    if (const auto piece = pieceById_.find(director_->ActiveNetworkPiece()); piece != pieceById_.end()) {
-        return "Placing " + cache_.buttons[piece->second.first].pieces[piece->second.second].name;
+    if (const auto tile = ActiveTile_()) {
+        return "Placing " + variants_[tile->ref.first][tile->ref.second][tile->variant].name;
     }
     return {};
 }
 
+void NetworksPanelTab::RenderEraserButton_() {
+    if (eraserButton_ == kNone) {
+        return;
+    }
+    const PieceRef eraser{eraserButton_, 0};
+    const std::optional<Tile> active = ActiveTile_();
+    const bool erasing = active && active->ref == eraser;
+    if (erasing) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+    }
+    if (ImGui::SmallButton("Network eraser")) {
+        PlacePiece_({eraser, 0});
+    }
+    if (erasing) {
+        ImGui::PopStyleColor();
+    }
+    Tooltip("Erase one tile of a draggable or FLEX network: click the tile in the city.");
+    ImGui::SameLine();
+}
+
 void NetworksPanelTab::RenderToolRow_() {
+    // The eraser is at hand in both views, whatever the filters and the selected button.
+    RenderEraserButton_();
     const std::string active = ActiveTool_();
     if (active.empty()) {
         Hint(view_ == View::Drag ? "Click a network to drag it in the city. Right-click a network to star it."
@@ -685,7 +907,8 @@ void NetworksPanelTab::RenderDragView_(const TextSearch::Query& query) {
 }
 
 void NetworksPanelTab::RenderButtonList_(const std::vector<size_t>& buttons,
-                                         const std::vector<std::vector<size_t>>& pieces, const size_t recentCount) {
+                                         const std::vector<std::vector<size_t>>& pieces, const size_t recentCount,
+                                         const bool collapsible) {
     if (recentCount > 0) {
         ImGui::PushID("Recent");
         if (ButtonRow("Recent", recentCount, selectedButton_ == kRecent)) {
@@ -693,18 +916,35 @@ void NetworksPanelTab::RenderButtonList_(const std::vector<size_t>& buttons,
         }
         ImGui::PopID();
     }
+    bool open = true;
     for (size_t i = 0; i < buttons.size(); ++i) {
         const NetworkPieceButton& button = cache_.buttons[buttons[i]];
-        // The menu, and the submenus below it when there are some, as a heading above its buttons.
+        // The menu, and the submenus below it when there are some, as a heading above its buttons. The
+        // headings start closed, but for the one of the selected button, which also opens when TAB in the
+        // city goes to a button under a closed heading.
         if (i == 0 || button.path != cache_.buttons[buttons[i - 1]].path) {
             std::string heading = button.path.front();
             for (size_t level = 1; level < button.path.size(); ++level) {
                 heading += " / " + button.path[level];
             }
-            ImGui::SeparatorText(heading.c_str());
+            if (collapsible) {
+                if (openSelectedMenu_ && selectedButton_ != kRecent &&
+                    cache_.buttons[selectedButton_].path == button.path) {
+                    ImGui::SetNextItemOpen(true);
+                    openSelectedMenu_ = false;
+                }
+                open = ImGui::CollapsingHeader((heading + "##menu").c_str());
+            }
+            else {
+                ImGui::SeparatorText(heading.c_str());
+                open = true;
+            }
+        }
+        if (!open) {
+            continue;
         }
         ImGui::PushID(static_cast<int>(buttons[i]));
-        if (ButtonRow(button.name.c_str(), pieces[i].size(), selectedButton_ == buttons[i])) {
+        if (ButtonRow(ButtonLabel(button).c_str(), pieces[i].size(), selectedButton_ == buttons[i])) {
             selectedButton_ = buttons[i];
             scrollToButton_ = buttons[i];
         }
@@ -724,7 +964,7 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
     std::vector<size_t> buttons;
     std::vector<std::vector<size_t>> pieces;
     size_t count = 0;
-    for (size_t b = 0; b < cache_.buttons.size(); ++b) {
+    for (const size_t b : buttonOrder_) {
         const NetworkPieceButton& button = cache_.buttons[b];
         if (menu_ >= 0 && button.path.front() != menus_[menu_]) {
             continue;
@@ -734,7 +974,7 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
         for (size_t p = 0; p < button.pieces.size(); ++p) {
             if (PieceShown_({b, p}, query)) {
                 matches.push_back(p);
-                if (!query.Empty() && query.Matches(pieceNameSearch_[b][p])) {
+                if (PieceNamed_({b, p}, query)) {
                     named.push_back(p);
                 }
             }
@@ -748,10 +988,13 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
             pieces.push_back(std::move(matches));
         }
     }
-    std::vector<PieceRef> recent;
-    for (const PieceRef ref : recent_) {
+    // Recent shows each piece as the variant used last, while the filters let that variant through.
+    std::vector<Tile> recent;
+    for (const Tile& tile : recent_) {
+        const PieceRef ref = tile.ref;
         if ((menu_ < 0 || cache_.buttons[ref.first].path.front() == menus_[menu_]) && PieceShown_(ref, query)) {
-            recent.push_back(ref);
+            const Variant& used = variants_[ref.first][ref.second][tile.variant];
+            recent.push_back(VariantFiltered_(used) && query.Matches(used.search) ? tile : TileOf_(ref, query));
         }
     }
 
@@ -763,13 +1006,14 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
     }
 
     // TAB, Home or End in the game changed the piece, or a click here did: go to its tile.
-    const uint32_t activePiece = director_->ActiveNetworkPiece();
-    if (activePiece != lastActivePiece_) {
+    const std::optional<Tile> activeTile = ActiveTile_();
+    if (const uint32_t activePiece = director_->ActiveNetworkPiece(); activePiece != lastActivePiece_) {
         lastActivePiece_ = activePiece;
-        if (const auto found = pieceById_.find(activePiece); found != pieceById_.end()) {
-            reveal_ = found->second;
-            if (selectedButton_ != kRecent && std::ranges::find(buttons, found->second.first) != buttons.end()) {
-                selectedButton_ = found->second.first;
+        if (activeTile) {
+            reveal_ = activeTile->ref;
+            if (selectedButton_ != kRecent && std::ranges::find(buttons, activeTile->ref.first) != buttons.end()) {
+                openSelectedMenu_ = openSelectedMenu_ || selectedButton_ != activeTile->ref.first;
+                selectedButton_ = activeTile->ref.first;
             }
         }
     }
@@ -778,27 +1022,28 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
     if (selectedButton_ == kRecent ? recent.empty() : selected == buttons.end()) {
         selectedButton_ = buttons.front();
         selected = buttons.begin();
+        openSelectedMenu_ = true;
     }
 
     // The list keeps at least half of a narrow panel for the pieces. Drag its edge to make it wider.
     const float listWidth = std::min(ImGui::GetFontSize() * 15.0f, ImGui::GetContentRegionAvail().x * 0.45f);
     if (ImGui::BeginChild("Buttons", ImVec2(listWidth, 0.0f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX)) {
-        RenderButtonList_(buttons, pieces, recent.size());
+        RenderButtonList_(buttons, pieces, recent.size(), query.Empty() && networkFilter_ == 0);
     }
     ImGui::EndChild();
     ImGui::SameLine();
 
     if (ImGui::BeginChild("Pieces", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
                           ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
-        const auto refsOf = [&](const size_t index) {
-            std::vector<PieceRef> refs;
+        const auto tilesOf = [&](const size_t index) {
+            std::vector<Tile> tiles;
             for (const size_t p : pieces[index]) {
-                refs.emplace_back(buttons[index], p);
+                tiles.push_back(TileOf_({buttons[index], p}, query));
             }
-            return refs;
+            return tiles;
         };
         if (selectedButton_ == kRecent) {
-            RenderPieceGrid_(recent, activePiece, false);
+            RenderPieceGrid_(recent, activeTile, false);
         }
         else if (!query.Empty() || networkFilter_ != 0) {
             // A search or a network filter: the matches of all buttons, each under its button. A click
@@ -809,31 +1054,31 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
                 if (buttons[i] == scrollToButton_) {
                     ImGui::SetScrollHereY(0.0f);
                 }
-                ImGui::SeparatorText(cache_.buttons[buttons[i]].name.c_str());
+                ImGui::SeparatorText(ButtonLabel(cache_.buttons[buttons[i]]).c_str());
                 ImGui::PushID(static_cast<int>(buttons[i]));
-                std::vector<PieceRef> named;
-                std::vector<PieceRef> rest;
+                std::vector<Tile> named;
+                std::vector<Tile> rest;
                 if (!query.Empty()) {
                     for (size_t p = 0; p < cache_.buttons[buttons[i]].pieces.size(); ++p) {
                         const PieceRef ref{buttons[i], p};
                         if (PieceFiltered_(ref)) {
-                            (query.Matches(pieceNameSearch_[ref.first][ref.second]) ? named : rest).push_back(ref);
+                            (PieceNamed_(ref, query) ? named : rest).push_back(TileOf_(ref, query));
                         }
                     }
                 }
                 if (named.empty()) {
-                    RenderPieceGrid_(refsOf(i), activePiece, true);
+                    RenderPieceGrid_(tilesOf(i), activeTile, true);
                 }
                 else {
                     const size_t bright = named.size();
                     named.insert(named.end(), rest.begin(), rest.end());
-                    RenderPieceGrid_(named, activePiece, true, bright);
+                    RenderPieceGrid_(named, activeTile, true, bright);
                 }
                 ImGui::PopID();
             }
         }
         else {
-            RenderPieceGrid_(refsOf(selected - buttons.begin()), activePiece, true);
+            RenderPieceGrid_(tilesOf(selected - buttons.begin()), activeTile, true);
         }
         scrollToButton_ = kNone;
         reveal_.reset();  // drawn now, or not shown with these filters
@@ -841,25 +1086,28 @@ void NetworksPanelTab::RenderPiecesView_(const TextSearch::Query& query) {
     ImGui::EndChild();
 }
 
-void NetworksPanelTab::RenderPieceGrid_(const std::vector<PieceRef>& refs, const uint32_t activePiece,
+void NetworksPanelTab::RenderPieceGrid_(const std::vector<Tile>& tiles, const std::optional<Tile> active,
                                         const bool shortNames, const size_t brightCount) {
     const float tileSize = TileSize_();
     if (reveal_) {
         // Scroll only when the tile is not in sight already.
-        if (const auto at = std::ranges::find(refs, *reveal_); at != refs.end()) {
-            const float top = ImGui::GetCursorPosY() + ThumbnailGrid::ScrollYFor(at - refs.begin(), tileSize);
+        if (const auto at = std::ranges::find(tiles, *reveal_, &Tile::ref); at != tiles.end()) {
+            const float top = ImGui::GetCursorPosY() + ThumbnailGrid::ScrollYFor(at - tiles.begin(), tileSize);
             if (top < ImGui::GetScrollY() || top + tileSize > ImGui::GetScrollY() + ImGui::GetWindowHeight()) {
                 ImGui::SetScrollY(top);
             }
             reveal_.reset();
         }
     }
+    // The tile's ID is that of the piece, whichever variant it shows, so that its list of variants stays
+    // open when Home or End change the variant.
     visibleTiles_ += ThumbnailGrid::Render(
-        refs.size(), tileSize,
-        [&](const size_t i) { return PieceKey(cache_.buttons[refs[i].first].pieces[refs[i].second]); },
+        tiles.size(), tileSize,
+        [&](const size_t i) { return PieceKey(cache_.buttons[tiles[i].ref.first].pieces[tiles[i].ref.second]); },
         [&](const size_t i) {
-            const NetworkPiece& piece = cache_.buttons[refs[i].first].pieces[refs[i].second];
-            RenderPieceTile_(refs[i], piece.id == activePiece, shortNames);
+            // The piece being placed shows the variant that Home and End went to.
+            const bool isActive = active && active->ref == tiles[i].ref;
+            RenderPieceTile_(isActive ? *active : tiles[i], isActive, shortNames);
             if (i >= brightCount) {
                 ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
                                                           ImGui::GetColorU32(ImGuiCol_WindowBg, 0.65f),

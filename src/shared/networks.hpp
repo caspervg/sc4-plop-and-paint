@@ -26,6 +26,20 @@ struct OverrideNetwork {
     bool diagonal = false;      // a drag can start or go on a diagonal
 };
 
+// Another piece that Home and End reach from a piece: a row of a TAB loop can hold more than one piece,
+// such as the left and the right switch. One with a name of its own, with its rotations and mirrored
+// copies, which are not listed apart. Its picture is in network_thumbnails.bin under MakeGIKey(1, id).
+struct NetworkPieceVariant {
+    std::string name;
+    uint32_t id = 0;            // RUL0 ID to start on: one that is not turned or mirrored, when there is one
+    uint32_t previewModel = 0;
+    uint32_t fallbackModel = 0;
+    std::vector<std::vector<uint32_t>> layout;  // as NetworkPiece::layout
+    uint32_t cost = 0;
+    std::vector<uint32_t> entries;  // all its RUL0 IDs in the row, its rotations and mirrored copies too
+    std::string label;              // as NetworkPiece::label
+};
+
 // A puzzle piece: one row of a TAB loop in RUL0. Its picture is in network_thumbnails.bin under
 // MakeGIKey(1, id).
 struct NetworkPiece {
@@ -40,6 +54,15 @@ struct NetworkPiece {
     std::vector<std::vector<uint32_t>> layout;
     static constexpr uint32_t kOtherCell = 0x8000;
     uint32_t cost = 0;
+    // The RUL0 IDs in the row that are this piece, its rotations and mirrored copies. Empty in a cache
+    // from an older builder: then only id is known.
+    std::vector<uint32_t> entries;
+    // The other pieces of the row, in the order that Home and End reach them.
+    std::vector<NetworkPieceVariant> variants;
+    // The name for the piece's tile: what tells it apart from the other pieces of its button, such as
+    // "Curve with one Road Jct" for "Tram-in-Road - Curve with one Road junction" (PieceLabels). Search
+    // still goes by name. Empty in a cache from an older builder.
+    std::string label;
 };
 
 // A button of the game's network menus, with the pieces TAB goes through. The buttons are in the order
@@ -49,6 +72,9 @@ struct NetworkPieceButton {
     std::vector<std::string> path;  // the menu the button is in, then the submenus down to it
     uint32_t id = 0;                // the first piece. The menu button's ID is 0x6A470000 plus this.
     std::vector<NetworkPiece> pieces;
+    // The name for the button list: buttons that share a name get the words typical of their pieces, such as
+    // "Underground Rail · Pedmall". Empty in a cache from an older builder.
+    std::string label;
 };
 
 struct NetworksCache {

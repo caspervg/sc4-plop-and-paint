@@ -642,24 +642,28 @@ bool SC4PlopAndPaintDirector::StartOverrideNetworkDrag(const OverrideNetwork& ne
     return true;
 }
 
-bool SC4PlopAndPaintDirector::StartNetworkPiece(const uint32_t buttonPiece, const uint32_t piece) {
+bool SC4PlopAndPaintDirector::StartNetworkPiece(const uint32_t buttonPiece, const uint32_t piece,
+                                                const uint32_t variant) {
     // A menu button for pieces is this plus the 16 bits of its first piece.
     constexpr uint32_t kPieceItems = 0x6A470000;
     const bool isLong = piece > 0xFFFF;
-    if (!StartNetworkTool_(kPieceItems | ((isLong ? buttonPiece : piece) & 0xFFFF))) {
+    const uint32_t started = isLong ? buttonPiece : piece;
+    if (!StartNetworkTool_(kPieceItems | (started & 0xFFFF))) {
         return false;
     }
-    if (isLong) {
-        // Most pieces further down a TAB loop have longer IDs than the message can carry, so put the
-        // piece where the tool keeps its current one.
+    // Most pieces further down a TAB loop have longer IDs than the message can carry, and the other
+    // pieces of a row are not in the menus at all, so put the piece where the tool keeps its current one.
+    const uint32_t target = variant != 0 ? variant : piece;
+    if (target != started) {
         auto* const tool = cSC4ViewInputControlNetworkIntxTool::From(networkToolControl_);
         if (!tool) {
-            LOG_WARN("Cannot go to piece 0x{:X}: the game's piece tool is not as expected", piece);
-            return true;  // the tool is on the first piece of the button, and TAB still gets there
+            LOG_WARN("Cannot go to piece 0x{:X}: the game's piece tool is not as expected", target);
+            networkPiece_ = started;
+            return true;  // the tool is on the first piece, and TAB, Home and End still get there
         }
-        tool->currentPiece = piece;
+        tool->currentPiece = target;
     }
-    networkPiece_ = piece;
+    networkPiece_ = target;
     return true;
 }
 

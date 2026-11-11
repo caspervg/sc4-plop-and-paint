@@ -859,19 +859,27 @@ namespace {
                 for (const auto& network : networksCache.networks) {
                     render(0, network.starterPiece, network.previewModel, network.fallbackModel);
                 }
+                // A piece, or another piece of its row that Home and End reach.
+                const auto renderPiece = [&](const uint32_t id, const uint32_t model, const uint32_t fallbackModel,
+                                             const std::vector<std::vector<uint32_t>>& layout) {
+                    if (render(1, id, model, fallbackModel) || !parser.rendersThumbnails()) {
+                        return;
+                    }
+                    // Last choice: a diagram of the piece's cells, which every piece has.
+                    if (auto pixels = NetworkDiscovery::LayoutPicture(layout, networkThumbnailSize); !pixels.empty()) {
+                        PreRendered diagram;
+                        diagram.data = rfl::Bytestring(std::move(pixels));
+                        diagram.width = networkThumbnailSize;
+                        diagram.height = networkThumbnailSize;
+                        thumbnailEncoder.submit(networkThumbnails, MakeGIKey(1, id), Thumbnail{std::move(diagram)},
+                                                networkThumbnailSize);
+                    }
+                };
                 for (const auto& button : networksCache.buttons) {
                     for (const auto& piece : button.pieces) {
-                        if (render(1, piece.id, piece.previewModel, piece.fallbackModel) || !parser.rendersThumbnails()) {
-                            continue;
-                        }
-                        // Last choice: a diagram of the piece's cells, which every piece has.
-                        if (auto pixels = NetworkDiscovery::LayoutPicture(piece, networkThumbnailSize); !pixels.empty()) {
-                            PreRendered diagram;
-                            diagram.data = rfl::Bytestring(std::move(pixels));
-                            diagram.width = networkThumbnailSize;
-                            diagram.height = networkThumbnailSize;
-                            thumbnailEncoder.submit(networkThumbnails, MakeGIKey(1, piece.id), Thumbnail{std::move(diagram)},
-                                                    networkThumbnailSize);
+                        renderPiece(piece.id, piece.previewModel, piece.fallbackModel, piece.layout);
+                        for (const auto& variant : piece.variants) {
+                            renderPiece(variant.id, variant.previewModel, variant.fallbackModel, variant.layout);
                         }
                     }
                 }
