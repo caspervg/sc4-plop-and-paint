@@ -838,6 +838,7 @@ namespace {
 
             {
                 // Pictures of the preview models: key group 0 for a network's starter piece, 1 for a piece.
+                // Key group 2 holds the Item Icons of the menu buttons and of the game's own drag tools.
                 // They are twice the size of the other thumbnails, in a file of their own: network pieces
                 // are full of thin lines that a small picture blurs, and their tooltips show them large.
                 constexpr uint32_t kS3DType = 0x5AD0E817;
@@ -881,6 +882,21 @@ namespace {
                         for (const auto& variant : piece.variants) {
                             renderPiece(variant.id, variant.previewModel, variant.fallbackModel, variant.layout);
                         }
+                    }
+                }
+                // The icons are PNGs, so they need no renderer. Buttons often share one.
+                std::unordered_set<uint32_t> icons;
+                for (const auto& button : networksCache.buttons) {
+                    icons.insert(button.icon);
+                }
+                for (const auto& tool : networksCache.baseTools) {
+                    icons.insert(tool.icon);
+                }
+                icons.erase(0);
+                for (const uint32_t icon : icons) {
+                    if (auto thumbnail = parser.loadItemIcon(icon)) {
+                        thumbnailEncoder.submit(networkThumbnails, MakeGIKey(2, icon), std::move(*thumbnail),
+                                                networkThumbnailSize);
                     }
                 }
             }

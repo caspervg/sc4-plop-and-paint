@@ -173,6 +173,9 @@ public:
     // With a faint tile grid, so that the angle of a network shows. Only network pieces use these
     // models, so the renderer's cache never mixes pictures with and without the grid.
     [[nodiscard]] std::optional<Thumbnail> renderModelThumbnail(const DBPF::Tgi& modelTgi, uint32_t size) const;
+    // The colour picture of an Item Icon (a PNG in the lot icon group), as the menu buttons show it.
+    // Empty when the icon is missing or does not decode. Needs no renderer.
+    [[nodiscard]] std::optional<Thumbnail> loadItemIcon(uint32_t iconInstance) const;
     // Whether thumbnails are rendered at all (--render-thumbnails).
     [[nodiscard]] bool rendersThumbnails() const { return thumbnailRenderer_ != nullptr; }
 

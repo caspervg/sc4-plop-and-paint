@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -25,6 +26,8 @@
 // button then goes to its pieces. Tiles and buttons show the short labels of the cache builder
 // (PieceLabels); the search also goes by the full names.
 //
+// The base networks and the buttons of the list show the icons of their buttons in the game's menus.
+//
 // The Network Eraser has a button of its own above both views.
 // A click starts the game's own tool on that piece, and the tab follows when TAB, Home or End in the
 // game change the piece.
@@ -42,6 +45,7 @@ public:
     void OnDeviceReset(uint32_t deviceGeneration) override;
     void OnShutdown() override {
         thumbnailCache_.Clear();
+        iconCache_.Clear();
         previewCache_.Clear();
     }
 
@@ -81,6 +85,13 @@ private:
     void RenderButtonList_(const std::vector<size_t>& buttons, const std::vector<std::vector<size_t>>& pieces,
                            size_t recentCount, bool collapsible);
     void RenderEraserButton_();
+    // A base network's button: the icon of its menu button, then its name. A plain button without an icon.
+    bool RenderBaseNetworkButton_(const char* name, uint32_t icon, bool active);
+    [[nodiscard]] float BaseNetworkButtonWidth_(const char* name, uint32_t icon) const;
+    // The texture of an Item Icon, once it has loaded. Asks for it to load.
+    std::optional<void*> Icon_(uint32_t icon);
+    // Icons are as high as a row of the button list.
+    [[nodiscard]] static float IconSide_() { return ImGui::GetTextLineHeight() * 2.0f; }
     void RenderNetworkTile_(const OverrideNetwork& network, bool active);
     // The tiles of these pieces. shortNames: all are of one button, which the view shows above them.
     // The tiles from brightCount on are greyed out: the rest of a TAB loop around the pieces that match.
@@ -131,6 +142,9 @@ private:
     TextSearch::Suggester suggester_;
     ThumbnailStore thumbnails_;
     ThumbnailCache<uint64_t> thumbnailCache_{};
+    ThumbnailCache<uint64_t> iconCache_{};  // at IconSide_(), apart from the tiles, which are larger
+    std::array<uint32_t, 13> baseIcons_{};  // Item Icon of each base network, by eNetworkType, 0 for none
+    bool buttonIcons_ = false;              // some button of the list has an icon: the list makes room for it
 
     View view_ = View::Drag;
     char searchBuf_[256] = {};
@@ -146,5 +160,6 @@ private:
     size_t scrollToButton_ = kNone;   // a button whose pieces to scroll to, in the view of all matches
     static constexpr size_t kNone = static_cast<size_t>(-2);
     size_t visibleTiles_ = 0;
+    size_t visibleIcons_ = 0;
     uint32_t lastDeviceGeneration_ = 0;
 };
