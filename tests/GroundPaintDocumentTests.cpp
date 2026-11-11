@@ -270,6 +270,36 @@ int main() {
         const TerrainPaintStyle& style = service.paints.at(looks.Find(id)->paintId).style;
         CHECK(style.color.fY == 0.4f && style.textureOffsetX == 3.0f && style.textureOffsetZ == -2.0f &&
               style.depthOffset == 5);
+        CHECK(style.layer == TerrainPaintLayer::OverLots);
+        // The layer goes to the service, and with the save.
+        recoloured.look.layer = PaintLayer::UnderLots;
+        looks.Update({recoloured});
+        CHECK(service.shapeSets == shapeSets);
+        CHECK(service.paints.at(looks.Find(id)->paintId).style.layer == TerrainPaintLayer::UnderLots);
+        recoloured.look.layer = PaintLayer::OverShadows;
+        looks.Update({recoloured});
+        CHECK(service.paints.at(looks.Find(id)->paintId).style.layer == TerrainPaintLayer::OverShadows);
+        const std::vector<char> withLayer = looks.Save();
+        GroundPaintDocument layered(kWhite);
+        CHECK(layered.Load(withLayer) && layered.Find(id)->look.layer == PaintLayer::OverShadows);
+        {
+            // A save from before the layer has no such field: its paint is over lots, as it was drawn. The
+            // same bytes stand for a save from this version read by an older one, which does not know the
+            // field and skips it.
+            std::vector<char> older = withLayer;
+            constexpr char kField[] = {'l', 'a', 'y', 'e', 'r'};
+            int renamed = 0;
+            for (auto it = older.begin(); (it = std::search(it, older.end(), kField, kField + 5)) != older.end();
+                 ++renamed) {
+                it[2] = 'x';
+            }
+            CHECK(renamed == 1);
+            GroundPaintDocument loadedOlder(kWhite);
+            CHECK(loadedOlder.Load(older) && loadedOlder.Find(id)->look.layer == PaintLayer::OverLots);
+            CHECK(loadedOlder.Find(id)->look.depthOffset == 5);
+        }
+        recoloured.look.layer = PaintLayer::OverLots;
+        looks.Update({recoloured});
         // Shown while a control is held, then put back.
         recoloured.look.opacity = 0.5f;
         looks.ShowChanged(recoloured);

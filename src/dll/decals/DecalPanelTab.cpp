@@ -190,6 +190,32 @@ namespace {
         return true;
     }
 
+    // Where the decal sits among what the game draws flat on the ground, as for ground paint. The
+    // overlay manager and the under-lots flag say it, and presets keep both.
+    enum class DecalLayer : int {
+        OverLots,     // StaticLand: over lot and network textures, under shadows
+        UnderLots,    // StaticLand and kTerrainDecalFlagUnderLots: under lot and network textures
+        OverShadows,  // DynamicLand: over shadows as well
+    };
+
+    DecalLayer LayerOf(const TerrainDecalState& state) {
+        if (state.overlayType == cISTETerrainView::tOverlayManagerType::DynamicLand) {
+            return DecalLayer::OverShadows;
+        }
+        return (state.flags & kTerrainDecalFlagUnderLots) != 0 ? DecalLayer::UnderLots : DecalLayer::OverLots;
+    }
+
+    void SetLayer(TerrainDecalState& state, const DecalLayer layer) {
+        state.overlayType = layer == DecalLayer::OverShadows ? cISTETerrainView::tOverlayManagerType::DynamicLand
+                                                             : cISTETerrainView::tOverlayManagerType::StaticLand;
+        if (layer == DecalLayer::UnderLots) {
+            state.flags |= kTerrainDecalFlagUnderLots;
+        }
+        else {
+            state.flags &= ~kTerrainDecalFlagUnderLots;
+        }
+    }
+
     TerrainDecalState MakeDefaultDecalState() {
         TerrainDecalState state;
         state.decalInfo.baseSize = 16.0f;
@@ -715,6 +741,13 @@ void DecalPanelTab::RenderSettingsModal_() {
     }
     ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     ImGui::ColorEdit3("Color tint##decalColor", &state.color.fX);
+    int layer = static_cast<int>(LayerOf(state));
+    if (ImGui::Combo("Layer##decalLayer", &layer, "Over lots and networks\0Under lots and networks\0Over shadows\0")) {
+        SetLayer(state, static_cast<DecalLayer>(layer));
+    }
+    Tooltip("Over lots and networks: the decal covers lot and road textures, and shadows fall on it.\n"
+            "Under lots and networks: lot and road textures cover the decal, as if it were the ground.\n"
+            "Over shadows: the decal covers the shadows of the game as well.");
 
     // Rare settings, closed by default. Their state shows on the closed header.
     char header[48];

@@ -70,6 +70,14 @@ namespace Ground {
         Patches,  // the first covers the shape; the others lie on it in soft-edged patches
     };
 
+    // Where the paint sits among what the game draws flat on the ground. Buildings, props and cars
+    // hide it in every layer, as they hide the ground.
+    enum class PaintLayer : uint8_t {
+        OverLots,     // over lot and network textures, under the shadows of buildings
+        UnderLots,    // under lot and network textures, as if it were part of the ground
+        OverShadows,  // over lot and network textures and over shadows
+    };
+
     // What a shape is painted with.
     struct Look {
         // Several textures are mixed by weight, as mix says. None paints a plain colour.
@@ -91,6 +99,8 @@ namespace Ground {
         TextureMix mix = TextureMix::Squares;
         float patchSizeMeters = 12.0f;
         float patchBlendMeters = 2.0f;  // the soft edge of the patches
+        // Missing in cities saved before it existed, which then read OverLots, as they were drawn.
+        PaintLayer layer = PaintLayer::OverLots;
 
         bool operator==(const Look&) const = default;
     };

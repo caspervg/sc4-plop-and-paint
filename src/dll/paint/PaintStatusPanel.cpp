@@ -81,6 +81,13 @@ void PaintStatusPanel::OnRender() {
             if (decal->IsMirrored()) {
                 state("Mirror", "%s", "On");
             }
+            // Only a layer other than the usual one.
+            if (decal->GetState().overlayType == cISTETerrainView::tOverlayManagerType::DynamicLand) {
+                state("Layer", "%s", "Over shadows");
+            }
+            else if ((decal->GetState().flags & kTerrainDecalFlagUnderLots) != 0) {
+                state("Layer", "%s", "Under lots and networks");
+            }
         }
         else if (line && settings.alignToPath) {
             state("Rotation", "%s", "Along the line");

@@ -680,6 +680,18 @@ void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bo
                               "Drag to the right to set how far the edge moves in and out.");
         }
     }
+    int layer = static_cast<int>(look.layer);
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::Combo("##layer", &layer, "Over lots and networks\0Under lots and networks\0Over shadows\0")) {
+        look.layer = static_cast<PaintLayer>(layer);
+        committed = true;
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Over lots and networks: the paint covers lot and road textures, and shadows fall on it.\n"
+                          "Under lots and networks: lot and road textures cover the paint, as if it were the ground.\n"
+                          "Over shadows: the paint covers the shadows of the game as well.\n"
+                          "Buildings, props and cars stay on top of the paint in every case.");
+    }
     // Rarely needed, but a value that is set still shows while this is closed.
     char advanced[48];
     std::snprintf(advanced, sizeof(advanced), look.depthOffset < 0 ? "Advanced###advanced" : "Advanced: depth %d###advanced",

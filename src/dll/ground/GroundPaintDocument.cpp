@@ -15,6 +15,18 @@ namespace Ground {
         constexpr uint32_t kDecalTextureGroup = 0x0986135E;
         constexpr size_t kMaxUndoSteps = 100;
 
+        TerrainPaintLayer ToServiceLayer(const PaintLayer layer) {
+            switch (layer) {
+            case PaintLayer::UnderLots:
+                return TerrainPaintLayer::UnderLots;
+            case PaintLayer::OverShadows:
+                return TerrainPaintLayer::OverShadows;
+            case PaintLayer::OverLots:
+            default:
+                return TerrainPaintLayer::OverLots;
+            }
+        }
+
         // The paint's style. area is what is painted, for the size of the worn patches. part 0 is
         // the whole area; with texture patches, part i is the patches of texture i.
         TerrainPaintStyle ToStyle(const PaintObject& object, const Area& area, const int32_t drawOrder, const bool hidden,
@@ -44,6 +56,7 @@ namespace Ground {
             style.featherMeters = part == 0 ? look.featherMeters : std::max(look.featherMeters, look.patchBlendMeters);
             style.drawOrder = drawOrder;
             style.depthOffset = look.depthOffset;
+            style.layer = ToServiceLayer(look.layer);
             style.enabled = !hidden;
             style.flags = transient ? kTerrainPaintFlagTransient : 0u;
             if (object.shape.wear > 0.0f) {
