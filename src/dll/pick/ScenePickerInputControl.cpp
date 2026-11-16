@@ -76,9 +76,12 @@ bool ScenePickerInputControl::OnMouseWheel(const int32_t x, const int32_t z, con
     // Alt+scroll cycles the stack (matching other DLLs that consume the
     // wheel); plain scroll always stays camera zoom.
     const bool altHeld = (GetKeyState(VK_MENU) & 0x8000) != 0;
-    if (altHeld && active_ && IsOnTop() && strategy_ && wheelDelta != 0 && strategy_->CandidateCount() > 1) {
+    if (altHeld && active_ && IsOnTop() && strategy_ && cursorValid_ && wheelDelta != 0 &&
+        strategy_->CandidateCount() > 1) {
         strategy_->CycleCandidates(wheelDelta > 0 ? 1 : -1);
-        UpdateCursorWorldFromScreen_(x, z);
+        // Keep the cursor from the last mouse move. The wheel's x/z are not reliably in the same
+        // space (Windows sends WM_MOUSEWHEEL in screen coordinates), so re-picking from them moves
+        // the stack to another spot whenever the game window is not at the screen origin.
         RefreshHover_();
         BuildOverlay_();
         return true;
