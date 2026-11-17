@@ -82,6 +82,8 @@ namespace Ground {
 
         // The topmost visible object at a point.
         [[nodiscard]] std::optional<uint32_t> HitTest(Vec2 point) const;
+        // Every visible object at a point, topmost first.
+        [[nodiscard]] std::vector<uint32_t> HitTestAll(Vec2 point) const;
 
         [[nodiscard]] const std::vector<uint32_t>& Selection() const { return selection_; }
         [[nodiscard]] bool IsSelected(uint32_t id) const;

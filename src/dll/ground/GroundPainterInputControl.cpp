@@ -504,6 +504,13 @@ bool GroundPainterInputControl::OnMouseMove(const int32_t x, const int32_t z, co
     // The game can send several moves a frame: they only update where things are, and
     // ProcessPendingActions shows the result once per tick.
     moved_ = true;
+    if (lookPickArmed_ || KeyHeld(VK_MENU)) {
+        if (std::vector<uint32_t> under = document_ ? document_->HitTestAll(cursor_) : std::vector<uint32_t>{};
+            under != lookPickUnder_) {
+            lookPickUnder_ = std::move(under);
+            lookPickCycle_ = 0;
+        }
+    }
     if (IsMiddle_()) {
         const float dx = static_cast<float>(x - middleStartX_);
         if (Is_(Gesture::MiddleBrush)) {
@@ -1391,6 +1398,13 @@ void GroundPainterInputControl::RefreshPreview_() {
                     guides.push_back({outline, true, kSelectionColor});
                 }
             }
+            if (settings_.tool != Tool::Erase && (lookPickArmed_ || KeyHeld(VK_MENU))) {
+                if (const auto target = LookPickTarget_()) {
+                    for (const Ring& outline : document_->AreaOf(*target)) {
+                        guides.push_back({outline, true, kHoverColor});
+                    }
+                }
+            }
         }
     }
 
@@ -1567,8 +1581,33 @@ const std::string& GroundPainterInputControl::MeasureText() const {
     return selectionMeasure_;
 }
 
+std::optional<uint32_t> GroundPainterInputControl::LookPickTarget_() const {
+    if (!document_ || !cursorValid_) {
+        return std::nullopt;
+    }
+    const std::vector<uint32_t> under = document_->HitTestAll(cursor_);
+    if (under.empty()) {
+        return std::nullopt;
+    }
+    const auto count = static_cast<int32_t>(under.size());
+    return under[static_cast<size_t>(((lookPickCycle_ % count) + count) % count)];
+}
+
+bool GroundPainterInputControl::OnMouseWheel(const int32_t x, const int32_t z, const uint32_t modifiers,
+                                             const int32_t wheelDelta) {
+    // Alt+scroll changes which of the overlapping shapes the eyedropper copies. As in the texture
+    // picker, at the cursor of the last mouse move: the wheel's own position can be off.
+    if (active_ && IsOnTop() && document_ && wheelDelta != 0 && settings_.tool != Tool::Select &&
+        settings_.tool != Tool::Erase && KeyHeld(VK_MENU) && cursorValid_ && document_->HitTestAll(cursor_).size() > 1) {
+        lookPickCycle_ += wheelDelta > 0 ? 1 : -1;
+        RefreshPreview_();
+        return true;
+    }
+    return cSC4BaseViewInputControlEx::OnMouseWheel(x, z, modifiers, wheelDelta);
+}
+
 bool GroundPainterInputControl::PickLook_() {
-    const auto hit = document_ ? document_->HitTest(cursor_) : std::nullopt;
+    const auto hit = LookPickTarget_();
     const PaintObject* const object = hit ? document_->Find(*hit) : nullptr;
     if (!object) {
         return false;
@@ -1582,7 +1621,7 @@ bool GroundPainterInputControl::PickLook_() {
 
 std::string GroundPainterInputControl::StatusText() const {
     if (lookPickArmed_) {
-        return "Click painted ground to copy its look.";
+        return "Click painted ground to copy its look. If shapes overlap, hold Alt and scroll to change between them.";
     }
     if (Is_(Gesture::PenHandle) || Is_(Gesture::MoveHandle)) {
         return "Drag to shape the curve. Hold Shift to turn it in 15 degree steps. Hold Alt to bend one side only. Release the button to keep it.";

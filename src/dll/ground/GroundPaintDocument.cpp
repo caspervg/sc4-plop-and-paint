@@ -714,6 +714,18 @@ namespace Ground {
         return std::nullopt;
     }
 
+    std::vector<uint32_t> GroundPaintDocument::HitTestAll(const Vec2 point) const {
+        std::vector<uint32_t> hits;
+        for (auto it = objects_.rbegin(); it != objects_.rend(); ++it) {
+            const auto built = built_.find(it->id);
+            if (!it->hidden && built != built_.end() && Contains(built->second.bounds, point) &&
+                Contains(built->second.area, point)) {
+                hits.push_back(it->id);
+            }
+        }
+        return hits;
+    }
+
     bool GroundPaintDocument::IsSelected(const uint32_t id) const {
         return std::ranges::find(selection_, id) != selection_.end();
     }

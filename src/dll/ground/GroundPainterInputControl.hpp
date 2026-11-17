@@ -32,6 +32,7 @@ public:
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseUpL(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
+    bool OnMouseWheel(int32_t x, int32_t z, uint32_t modifiers, int32_t wheelDelta) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
     bool OnMouseDownM(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseUpM(int32_t x, int32_t z, uint32_t modifiers) override;
@@ -168,6 +169,10 @@ private:
     uint32_t lookPickCount_ = 0;
     // Copies the look of the painted ground under the cursor; false when there is none.
     bool PickLook_();
+    // What the eyedropper copies: one of the shapes under the cursor, as Alt+scroll chose.
+    [[nodiscard]] std::optional<uint32_t> LookPickTarget_() const;
+    int32_t lookPickCycle_ = 0;
+    std::vector<uint32_t> lookPickUnder_{};
     bool cursorValid_ = false;
     Ground::Vec2 cursor_{};
     std::vector<Ground::Vec2> anchors_{};
