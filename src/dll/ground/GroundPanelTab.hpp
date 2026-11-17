@@ -157,6 +157,7 @@ private:
     // Newest first, this session.
     std::vector<uint32_t> recentTextures_{};
     size_t activePalette_ = 0;
+    bool libraryOpen_ = false;
     // The texture of a mix whose share and buttons show.
     size_t chosenTexture_ = 0;
     LookEditorState toolLook_{};

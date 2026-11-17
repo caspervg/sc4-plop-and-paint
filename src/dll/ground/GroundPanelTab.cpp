@@ -934,6 +934,7 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float
         state.plainColour = look.color;
         look.color = {1.0f, 1.0f, 1.0f};
         state.wantsTexture = true;
+        libraryOpen_ = true;
         committed = true;
     }
     ImGui::SameLine();
@@ -1014,7 +1015,25 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float
             }
         }
     }
-    RenderTextureLibrary_(look, committed);
+    if (ToggleButton("Texture library", libraryOpen_)) {
+        libraryOpen_ = !libraryOpen_;
+    }
+    Tooltip("Show or hide the textures to paint with, in a window of its own.\n"
+            "You can move the window, or dock it next to this panel.");
+    if (libraryOpen_) {
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.55f, viewport->WorkPos.y + viewport->WorkSize.y * 0.1f),
+                                ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 30.0f, ImGui::GetFontSize() * 36.0f), ImGuiCond_FirstUseEver);
+        const bool forSelection = &look == &editing_.look;
+        const std::string title = std::string("Texture library - ") +
+                                  (!forSelection ? "new shapes" : editing_.name.empty() ? "selected shape" : editing_.name.c_str()) +
+                                  "###PlopAndPaintGroundTextures";
+        if (ImGui::Begin(title.c_str(), &libraryOpen_, ImGuiWindowFlags_NoNav)) {
+            RenderTextureLibrary_(look, committed);
+        }
+        ImGui::End();
+    }
 }
 
 void GroundPanelTab::RenderPalettes_(Look& look, float& wear, float* roughness, LookEditorState& state,
@@ -1579,11 +1598,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
     Hint((std::to_string(shown.size()) + " textures. Click a texture to paint with it. Ctrl+click to mix textures. "
                                          "Right-click to set a favorite.").c_str());
 
-    // About five rows. Drag its bottom edge for more or fewer.
-    const ImGuiStyle& gridStyle = ImGui::GetStyle();
-    const float gridHeight = 5.0f * (kPickerThumbSize + gridStyle.FramePadding.y * 2.0f + gridStyle.ItemSpacing.y) +
-                             gridStyle.WindowPadding.y * 2.0f;
-    if (ImGui::BeginChild("##textures", ImVec2(0, gridHeight), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY)) {
+    if (ImGui::BeginChild("##textures", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
         const ImGuiStyle& style = ImGui::GetStyle();
         const float tile = kPickerThumbSize + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
         const int columns = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / tile));
