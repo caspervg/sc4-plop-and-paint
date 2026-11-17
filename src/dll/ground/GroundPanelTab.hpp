@@ -61,6 +61,8 @@ private:
     // Tint, size, turn and shift on one line. Only the repeat length when the texture follows a line.
     void RenderTextureLayout_(Ground::Look& look, bool following, bool& changed, bool& committed);
     void RenderTextureLibrary_(Ground::Look& look, bool& committed);
+    // Click: paint with it. Ctrl: add it to the mix or take it out. Shift: add it to the preset.
+    void LibraryClick_(Ground::Look& look, uint32_t instanceId, bool ctrl, bool& committed);
     // A texture tile: its thumbnail, outlined when in use. True when clicked.
     bool TextureTile_(uint32_t instanceId, float size, bool inUse);
     void UseTexture_(Ground::Look& look, uint32_t instanceId, bool addToMix, bool& committed);
@@ -168,6 +170,8 @@ private:
     std::vector<uint32_t> recentTextures_{};
     size_t activePalette_ = 0;
     bool libraryOpen_ = false;
+    std::string libraryNotice_{};
+    std::chrono::steady_clock::time_point libraryNoticeAt_{};
     bool layersOpen_ = false;
     char renameBuffer_[64]{};
     // The texture of a mix whose share and buttons show.

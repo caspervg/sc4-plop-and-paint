@@ -1659,8 +1659,31 @@ void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) {
         }
     }
     ImGui::TextDisabled("0x%08X", instanceId);
-    ImGui::TextUnformatted("Click to paint with this texture.\nCtrl+click to add it to the mix or remove it from the mix.\nRight-click to add or remove it as a favorite.");
+    ImGui::TextUnformatted("Click to paint with this texture.\nCtrl+click to add it to the mix or remove it from the mix.\n"
+                           "Shift+click to add it to the preset chosen under Presets.\nRight-click to add or remove it as a favorite.");
     ImGui::EndTooltip();
+}
+
+void GroundPanelTab::LibraryClick_(Look& look, const uint32_t instanceId, const bool ctrl, bool& committed) {
+    if (!ImGui::GetIO().KeyShift) {
+        UseTexture_(look, instanceId, ctrl, committed);
+        return;
+    }
+    // Shift: into the preset chosen under Presets, without painting with it.
+    libraryNoticeAt_ = std::chrono::steady_clock::now();
+    std::vector<PaintPalette>* const presets = favorites_ ? &favorites_->GetPaintPalettes() : nullptr;
+    if (!presets || activePalette_ >= presets->size()) {
+        libraryNotice_ = "Make a preset first: click Save as preset under Presets.";
+        return;
+    }
+    PaintPalette& preset = (*presets)[activePalette_];
+    if (std::ranges::any_of(preset.textures, [&](const PaintPaletteTexture& entry) { return entry.instanceId.value() == instanceId; })) {
+        libraryNotice_ = "This texture is already in " + preset.name + ".";
+        return;
+    }
+    preset.textures.push_back({rfl::Hex<uint32_t>(instanceId), 1.0f});
+    favorites_->Save();
+    libraryNotice_ = "Added to " + preset.name + ".";
 }
 
 void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
@@ -1693,7 +1716,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
             const bool ctrl = tileClicked(id);
             ImGui::PopID();
             if (clicked) {
-                UseTexture_(look, id, ctrl, committed);
+                LibraryClick_(look, id, ctrl, committed);
                 break;
             }
         }
@@ -1723,8 +1746,15 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
         }
         return;
     }
-    Hint((std::to_string(shown.size()) + " textures. Click a texture to paint with it. Ctrl+click to mix textures. "
-                                         "Right-click to set a favorite.").c_str());
+    const std::vector<PaintPalette>* presets = favorites_ ? &favorites_->GetPaintPalettes() : nullptr;
+    const std::string toPreset = presets && activePalette_ < presets->size()
+                                     ? " Shift+click to add it to the preset " + (*presets)[activePalette_].name + "."
+                                     : "";
+    Hint((std::to_string(shown.size()) + " textures. Click a texture to paint with it. Ctrl+click to add it to the mix." +
+          toPreset + " Right-click to set a favorite.").c_str());
+    if (!libraryNotice_.empty() && std::chrono::steady_clock::now() - libraryNoticeAt_ < std::chrono::seconds(3)) {
+        ImGui::TextColored(kAttentionColor, "%s", libraryNotice_.c_str());
+    }
 
     if (ImGui::BeginChild("##textures", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
         const ImGuiStyle& style = ImGui::GetStyle();
@@ -1756,7 +1786,7 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
             }
         }
         if (picked) {
-            UseTexture_(look, picked->first, picked->second, committed);
+            LibraryClick_(look, picked->first, picked->second, committed);
         }
     }
     ImGui::EndChild();
