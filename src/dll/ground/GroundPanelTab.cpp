@@ -223,6 +223,15 @@ namespace {
         committed = committed || ImGui::IsItemDeactivatedAfterEdit();
     }
 
+    // Right-click on the control last drawn puts the value back to its default.
+    template <typename T>
+    void ResetOnRightClick(T& value, const T fallback, bool& committed) {
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && value != fallback) {
+            value = fallback;
+            committed = true;
+        }
+    }
+
     void Length(const char* label, float& value, const float min, const float max, bool& changed, bool& committed) {
         ImGui::DragFloat(label, &value, 0.01f, min, max, "%.2f m");
         Track(changed, committed);
@@ -772,73 +781,71 @@ void GroundPanelTab::RenderStatus_() {
 void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bool& changed, bool& committed) {
     ImGui::PushID("finish");
     ImGui::SeparatorText("Finish");
-    // Three short sliders on one line, each saying what it is in its value.
+    // Each control says what it is in its value. Right-click puts it back.
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
-    const float width = (ImGui::GetContentRegionAvail().x - 2.0f * spacing) / 3.0f;
+    const int count = roughness ? 4 : 3;
+    const float width = (ImGui::GetContentRegionAvail().x - static_cast<float>(count - 1) * spacing) / static_cast<float>(count);
     float opacity = look.opacity * 100.0f;
     ImGui::SetNextItemWidth(width);
     if (ImGui::SliderFloat("##opacity", &opacity, 0.0f, 100.0f, "Opacity %.0f%%")) {
         look.opacity = opacity / 100.0f;
     }
     Track(changed, committed);
+    ResetOnRightClick(look.opacity, 1.0f, committed);
+    Tooltip("How much of the ground shows through. Right-click for 100%.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(width);
     ImGui::DragFloat("##softEdge", &look.featherMeters, 0.05f, 0.0f, 32.0f,
-                     look.featherMeters > 0.0f ? "Soft edge %.2f m" : "Sharp edge");
+                     look.featherMeters > 0.0f ? "Soft edge %.2f m" : "Soft edge: none");
     Track(changed, committed);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("The distance from the edge over which the paint fades out. Drag to the right for a soft edge.");
+    ResetOnRightClick(look.featherMeters, 0.0f, committed);
+    Tooltip("The distance from the edge over which the paint fades out. Right-click for a hard edge.");
+    if (roughness) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(width);
+        ImGui::DragFloat("##rough", roughness, 0.02f, 0.0f, 16.0f, *roughness > 0.0f ? "Rough edge %.2f m" : "Rough edge: none");
+        Track(changed, committed);
+        ResetOnRightClick(*roughness, 0.0f, committed);
+        Tooltip("Make the outline uneven and natural, for example for grass, dirt or gravel.\n"
+                "Drag to the right to set how far the edge moves in and out. Right-click for a straight edge.");
     }
     ImGui::SameLine();
     float worn = wear * 100.0f;
     ImGui::SetNextItemWidth(width);
-    if (ImGui::SliderFloat("##worn", &worn, 0.0f, 90.0f, worn > 0.0f ? "Worn %.0f%%" : "Not worn")) {
+    if (ImGui::SliderFloat("##worn", &worn, 0.0f, 90.0f, worn > 0.0f ? "Wear %.0f%%" : "Wear: none")) {
         wear = worn / 100.0f;
     }
     Track(changed, committed);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Remove patches of paint, as on an old road.");
-    }
+    ResetOnRightClick(wear, 0.0f, committed);
+    Tooltip("Remove patches of paint, as on an old road. Right-click for none.");
 
-    // A rough edge is not for markings, whose lines should stay crisp.
-    if (roughness) {
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::DragFloat("##rough", roughness, 0.02f, 0.0f, 16.0f, *roughness > 0.0f ? "Rough edge %.2f m" : "Smooth edge");
-        Track(changed, committed);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Make the outline uneven and natural, for example for grass, dirt or gravel.\n"
-                              "Drag to the right to set how far the edge moves in and out.");
-        }
-    }
+    const float depthWidth = PanelUi::ButtonWidth("Depth...") + spacing;
     int layer = static_cast<int>(look.layer);
-    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::SetNextItemWidth(-depthWidth);
     if (ImGui::Combo("##layer", &layer, "Over lots and networks\0Under lots and networks\0Over shadows\0")) {
         look.layer = static_cast<PaintLayer>(layer);
         committed = true;
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Over lots and networks: the paint covers lot and road textures, and shadows fall on it.\n"
-                          "Under lots and networks: lot and road textures cover the paint, as if it were the ground.\n"
-                          "Over shadows: the paint covers the shadows of the game as well.\n"
-                          "Buildings, props and cars stay on top of the paint in every case.");
+    Tooltip("Over lots and networks: the paint covers lot and road textures, and shadows fall on it.\n"
+            "Under lots and networks: lot and road textures cover the paint, as if it were the ground.\n"
+            "Over shadows: the paint covers the shadows of the game as well.\n"
+            "Buildings, props and cars stay on top of the paint in every case.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton(look.depthOffset < 0 ? "Depth..." : "Depth*")) {
+        ImGui::OpenPopup("depth");
     }
-    // Rarely needed, but a value that is set still shows while this is closed.
-    char advanced[48];
-    std::snprintf(advanced, sizeof(advanced), look.depthOffset < 0 ? "Advanced###advanced" : "Advanced: depth %d###advanced",
-                  look.depthOffset);
-    if (ImGui::TreeNode(advanced)) {
-        ImGui::SetNextItemWidth(-1.0f);
+    Tooltip(look.depthOffset < 0 ? "Change the depth if the paint flickers." : "The depth is changed. Click to see it.");
+    if (ImGui::BeginPopup("depth")) {
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
         ImGui::SliderInt("##depth", &look.depthOffset, -1, 8, look.depthOffset < 0 ? "Depth: default" : "Depth %d");
         Track(changed, committed);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Increase this value if the paint flickers or goes under lot textures.\n"
-                              "At 4 or more, the paint shows on top of the shadows of the game.");
-        }
-        ImGui::TreePop();
+        ResetOnRightClick(look.depthOffset, -1, committed);
+        Tooltip("Increase this value if the paint flickers or goes under lot textures.\n"
+                "At 4 or more, the paint shows on top of the shadows of the game. Right-click for the default.");
+        ImGui::EndPopup();
     }
     ImGui::PopID();
 }
-
 void GroundPanelTab::RenderGrid_() {
     ImGui::PushID("grid");
     const bool wasShown = settings_.showGrid;
@@ -1830,36 +1837,42 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
 void GroundPanelTab::RenderSelection_(Document& document) {
     if (document.Selection().empty()) {
         editingId_ = 0;
+        Hint("Click painted ground in the city, or click a shape in Layers.");
         return;
     }
-
     const uint32_t first = document.Selection().front();
-    RenderSelectionActions_(document);
+    const bool one = document.Selection().size() == 1;
+    if (one) {
+        SyncEditing_(document, first);
+    }
+    else {
+        editingId_ = 0;
+    }
+    RenderSelectionHeader_(document);
     if (document.Selection().empty() || document.Selection().front() != first) {
         editingId_ = 0;
         return;
     }
-    RenderTransform_(document);
-    RenderInspector_(document, first);
-
-    const std::vector<uint32_t> selection = document.Selection();
-    if (!selection.empty()) {
-        RenderShapeTools_(document, selection);
-        RenderPlanting_(selection.front());
+    if (one) {
+        RenderInspector_(document, first);
     }
+    else {
+        ImGui::SeparatorText("Shape");
+        RenderTransform_(document);
+    }
+    RenderToolWindows_(document);
 }
 
-void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) {
-    const PaintObject* const object = document.Find(first);
-    if (!object || document.Selection().size() != 1) {
-        editingId_ = 0;
+void GroundPanelTab::SyncEditing_(Document& document, const uint32_t id) {
+    const PaintObject* const object = document.Find(id);
+    if (!object) {
         return;
     }
     // Takes in what changed elsewhere, such as an undo or a point dragged in the city, so that the
     // next edit here does not put the old values back. Not while a control here is in use.
-    const bool newObject = editingId_ != first;
+    const bool newObject = editingId_ != id;
     if (newObject || (!ImGui::IsAnyItemActive() && document.Revision() != editingRevision_)) {
-        editingId_ = first;
+        editingId_ = id;
         editing_ = *object;
         editingRevision_ = document.Revision();
     }
@@ -1868,20 +1881,18 @@ void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) 
         // Painted with a texture: its colour is the tint; the plain colour starts white.
         selectionLook_.wantsTexture = !object->look.textures.empty();
     }
+}
+void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) {
+    const PaintObject* const object = document.Find(first);
+    if (!object || editingId_ != first) {
+        return;
+    }
 
     bool changed = false;
     bool committed = false;
-    char name[64];
-    std::snprintf(name, sizeof(name), "%s", editing_.name.c_str());
-    if (ImGui::InputTextWithHint("Name", ObjectLabel(*object).c_str(), name, sizeof(name))) {
-        editing_.name = name;
-    }
-    Track(changed, committed);
-
     ShapeSpec& shape = editing_.shape;
-    if (shape.kind != ShapeKind::Merged) {
-        ImGui::SeparatorText(shape.kind == ShapeKind::Marking ? "Marking" : "Shape");
-    }
+    ImGui::SeparatorText(shape.kind == ShapeKind::Marking ? "Marking" : "Shape");
+    RenderTransform_(document);
     // What only the point that was clicked last can have: a curve, or its own corner radius.
     const auto renderPointRadius = [&] {
         if (shape.pathStyle != PathStyle::Straight) {
@@ -1918,7 +1929,8 @@ void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) 
         }
         const bool own = *picked < shape.pointRadii.size() && shape.pointRadii[*picked] >= 0.0f;
         float radius = own ? shape.pointRadii[*picked] : shape.cornerRadius;
-        if (ImGui::DragFloat("This corner", &radius, 0.05f, 0.0f, 50.0f, radius > 0.0f ? "%.2f m" : "sharp")) {
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::DragFloat("##thisCorner", &radius, 0.05f, 0.0f, 50.0f, radius > 0.0f ? "This corner %.2f m" : "This corner: sharp")) {
             shape.pointRadii.resize(shape.points.size(), -1.0f);
             shape.pointRadii[*picked] = radius;
         }
@@ -1927,8 +1939,12 @@ void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) 
     };
     switch (shape.kind) {
     case ShapeKind::Area:
-        ImGui::DragFloat("Round corners", &shape.cornerRadius, 0.05f, 0.0f, 50.0f, shape.cornerRadius > 0.0f ? "%.2f m" : "no");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::DragFloat("##corners", &shape.cornerRadius, 0.05f, 0.0f, 50.0f,
+                         shape.cornerRadius > 0.0f ? "Round corners %.2f m" : "Corners: sharp");
         Track(changed, committed);
+        ResetOnRightClick(shape.cornerRadius, 0.0f, committed);
+        Tooltip("Drag to the right to round every corner. Right-click to make them sharp again.");
         renderPointRadius();
         break;
     case ShapeKind::Line: {
@@ -1950,8 +1966,9 @@ void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) 
         break;
     }
     case ShapeKind::Brush:
-        ImGui::DragFloat(shape.outline.empty() ? "Brush size" : "Brush size (last stroke)", &shape.brushRadius, 0.05f,
-                         0.25f, 64.0f, "%.2f m radius");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::DragFloat("##brush", &shape.brushRadius, 0.05f, 0.25f, 64.0f,
+                         shape.outline.empty() ? "Brush %.2f m radius" : "Last stroke %.2f m radius");
         Track(changed, committed);
         break;
     case ShapeKind::Marking:
@@ -1984,63 +2001,106 @@ void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) 
     }
 }
 
-void GroundPanelTab::RenderSelectionActions_(Document& document) {
+void GroundPanelTab::RenderSelectionHeader_(Document& document) {
     const std::vector<uint32_t> selection = document.Selection();
     const uint32_t first = selection.front();
-    ImGui::Text("%zu selected", selection.size());
-
-    // The order works on one shape: it would otherwise move only the first of several.
     const bool one = selection.size() == 1;
-    const auto orderButton = [&](const char* label, const char* tip, void (Document::*move)(uint32_t)) {
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!one);
-        if (ImGui::SmallButton(label)) {
-            (document.*move)(first);
-        }
-        ImGui::EndDisabled();
-        Tooltip(one ? tip : "Select one shape to change its order.");
-    };
-    orderButton("Up", "Draw it over the shape above it.", &Document::MoveUp);
-    orderButton("Down", "Draw it under the shape below it.", &Document::MoveDown);
-    orderButton("Top", "Draw it over all other shapes.", &Document::MoveToTop);
-    orderButton("Bottom", "Draw it under all other shapes.", &Document::MoveToBottom);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float buttons = PanelUi::ButtonWidth("Copy") + PanelUi::ButtonWidth("Delete") + PanelUi::ButtonWidth("...") +
+                          style.ItemSpacing.x * 3.0f;
 
+    if (one && editingId_ == first) {
+        char name[64];
+        std::snprintf(name, sizeof(name), "%s", editing_.name.c_str());
+        ImGui::SetNextItemWidth(-buttons);
+        if (ImGui::InputTextWithHint("##name", ObjectLabel(editing_).c_str(), name, sizeof(name))) {
+            editing_.name = name;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            document.Update({editing_});
+            editingRevision_ = document.Revision();
+        }
+        Tooltip("The name in Layers. Click to change it.");
+    }
+    else {
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("%zu shapes", selection.size());
+    }
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - buttons + style.ItemSpacing.x);
     if (ImGui::SmallButton("Copy")) {
         document.Duplicate(selection, {4.0f, 4.0f});
     }
-    Tooltip("Add a copy next to it.");
+    Tooltip("Add a copy next to it. Press Ctrl+D.");
     ImGui::SameLine();
-    const bool grouped = std::ranges::any_of(selection, [&](const uint32_t id) {
-        const PaintObject* const object = document.Find(id);
-        return object && object->group != 0;
-    });
-    if (grouped) {
-        if (ImGui::SmallButton("Ungroup")) document.Ungroup(selection);
-    }
-    else {
-        ImGui::BeginDisabled(selection.size() < 2);
-        if (ImGui::SmallButton("Group")) document.Group(selection);
-        ImGui::EndDisabled();
-        Tooltip(selection.size() < 2 ? "Select two or more shapes. Hold Ctrl and click to add a shape."
-                                     : "Select these shapes as one from now on.");
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(selection.size() < 2);
-    if (ImGui::SmallButton("Merge")) document.Merge(selection);
-    ImGui::EndDisabled();
-    Tooltip(selection.size() < 2 ? "Select two or more shapes. Hold Ctrl and click to add a shape."
-                                 : "Join the selected shapes into one.\nThe new shape gets the look of the top shape.\nYou cannot edit their points after this.");
-    ImGui::SameLine(0.0f, kGroupGap);
     if (ImGui::SmallButton("Delete")) {
         document.Remove(selection);
-    }
-    Tooltip("Remove it from the city. Press Ctrl+Z to bring it back.");
-}
-
-void GroundPanelTab::RenderPlanting_(const uint32_t objectId) {
-    if (!ImGui::CollapsingHeader("Props and flora on it")) {
         return;
     }
+    Tooltip("Remove it from the city. Press Delete. Press Ctrl+Z to bring it back.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("...")) {
+        ImGui::OpenPopup("more");
+    }
+    Tooltip("Group, join, order, border, repeat, mirror, and props and flora on it.");
+    if (ImGui::BeginPopup("more")) {
+        const bool grouped = std::ranges::any_of(selection, [&](const uint32_t id) {
+            const PaintObject* const object = document.Find(id);
+            return object && object->group != 0;
+        });
+        if (ImGui::MenuItem("Put in a new group")) {
+            document.Group(selection);
+        }
+        if (grouped && ImGui::MenuItem("Take out of the group")) {
+            document.Ungroup(selection);
+        }
+        if (ImGui::MenuItem("Join into one shape", nullptr, false, selection.size() >= 2)) {
+            document.Merge(selection);
+        }
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Order", one)) {
+            if (ImGui::MenuItem("To the top")) document.MoveToTop(first);
+            if (ImGui::MenuItem("Up one")) document.MoveUp(first);
+            if (ImGui::MenuItem("Down one")) document.MoveDown(first);
+            if (ImGui::MenuItem("To the bottom")) document.MoveToBottom(first);
+            ImGui::EndMenu();
+        }
+        ImGui::Separator();
+        ImGui::MenuItem("Border, repeat, mirror...", nullptr, &shapeToolsOpen_);
+        ImGui::MenuItem("Props and flora on it...", nullptr, &plantingOpen_);
+        ImGui::EndPopup();
+    }
+
+    const GroundPainterInputControl* const painter = director_->GetGroundPainter();
+    if (const std::string measure = painter ? painter->MeasureText() : std::string{}; !measure.empty()) {
+        ImGui::TextDisabled("%s", measure.c_str());
+    }
+}
+
+void GroundPanelTab::RenderToolWindows_(Document& document) {
+    const std::vector<uint32_t> selection = document.Selection();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const auto place = [&](const float x) {
+        ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * x, viewport->WorkPos.y + viewport->WorkSize.y * 0.2f),
+                                ImGuiCond_FirstUseEver);
+    };
+    if (shapeToolsOpen_) {
+        place(0.35f);
+        if (ImGui::Begin("Border, repeat, mirror###PlopAndPaintGroundShapeTools", &shapeToolsOpen_,
+                         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoNav)) {
+            RenderShapeTools_(document, selection);
+        }
+        ImGui::End();
+    }
+    if (plantingOpen_) {
+        place(0.4f);
+        if (ImGui::Begin("Props and flora on it###PlopAndPaintGroundPlanting", &plantingOpen_,
+                         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoNav)) {
+            RenderPlanting_(selection.front());
+        }
+        ImGui::End();
+    }
+}
+void GroundPanelTab::RenderPlanting_(const uint32_t objectId) {
     ImGui::PushID("planting");
     const RecentPaintHistory& recent = director_->GetRecentPaintHistory();
     if (recent.Empty()) {
@@ -2080,9 +2140,6 @@ void GroundPanelTab::RenderShapeTools_(Document& document, const std::vector<uin
         // A new selection: repeats start just clear of it.
         toolsFor_ = selection.front();
         repeatStep_ = {std::ceil(size.x + 1.0f), std::ceil(size.z + 1.0f)};
-    }
-    if (!ImGui::CollapsingHeader("Border, repeat, mirror")) {
-        return;
     }
     ImGui::PushID("shapeTools");
 

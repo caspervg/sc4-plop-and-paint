@@ -80,7 +80,12 @@ private:
     void RenderSelection_(Ground::GroundPaintDocument& document);
     // The name, shape and look of the one selected object.
     void RenderInspector_(Ground::GroundPaintDocument& document, uint32_t first);
-    void RenderSelectionActions_(Ground::GroundPaintDocument& document);
+    // Name or count, size, Copy, Delete and a menu with the rest.
+    void RenderSelectionHeader_(Ground::GroundPaintDocument& document);
+    // Takes the selected object into editing_ when it is new or changed elsewhere.
+    void SyncEditing_(Ground::GroundPaintDocument& document, uint32_t id);
+    // Border, repeat, mirror and the planting, each in a window of its own while open.
+    void RenderToolWindows_(Ground::GroundPaintDocument& document);
     // Border, repeat and mirror for the selection.
     void RenderShapeTools_(Ground::GroundPaintDocument& document, const std::vector<uint32_t>& selection);
     // Fill the selected object with the last props or flora painted, or plant them along it.
@@ -173,6 +178,8 @@ private:
     std::string libraryNotice_{};
     std::chrono::steady_clock::time_point libraryNoticeAt_{};
     bool layersOpen_ = false;
+    bool shapeToolsOpen_ = false;
+    bool plantingOpen_ = false;
     char renameBuffer_[64]{};
     // The texture of a mix whose share and buttons show.
     size_t chosenTexture_ = 0;
