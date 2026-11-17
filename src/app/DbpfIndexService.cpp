@@ -7,6 +7,7 @@
 
 #include "DBPFReader.h"
 #include "ParseTypes.h"
+#include "PathText.hpp"
 
 DbpfIndexService::DbpfIndexService(PluginLocator locator) : locator_(std::move(locator)) {}
 
@@ -215,15 +216,15 @@ void DbpfIndexService::worker_() {
                 break;
             }
 
-            {
-                std::unique_lock lock(mutex_);
-                currentFile_ = filePath.filename().string();
-            }
-
             try {
+                {
+                    std::unique_lock lock(mutex_);
+                    currentFile_ = PathToUtf8(filePath.filename());
+                }
+
                 auto reader = std::make_unique<DBPF::Reader>();
                 if (!reader->LoadFile(filePath)) {
-                    spdlog::warn("Failed to load {}, not a DBPF file?", filePath.string());
+                    spdlog::warn("Failed to load {}, not a DBPF file?", PathToUtf8(filePath));
                     ++errorCount_;
                     ++processedFiles_;
                     continue;
@@ -257,8 +258,8 @@ void DbpfIndexService::worker_() {
                     ++processedFiles_;
                 }
 
-            } catch ([[maybe_unused]] const std::exception& error) {
-                spdlog::error("Error loading {}", currentFile_);
+            } catch (const std::exception& error) {
+                spdlog::error("Error loading {}: {}", PathToUtf8(filePath), error.what());
                 ++errorCount_;
                 ++processedFiles_;
             }
@@ -271,8 +272,11 @@ void DbpfIndexService::worker_() {
         }
 
     } catch (const std::exception& error) {
+        spdlog::error("Plugin indexing stopped early: {}", error.what());
         ++errorCount_;
+        std::unique_lock lock(mutex_);
         done_ = true;
+        currentFile_.clear();
     }
 }
 

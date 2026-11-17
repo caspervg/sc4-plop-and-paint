@@ -6,11 +6,13 @@
 #include "rfl/xml/read.hpp"
 #include "spdlog/spdlog.h"
 
+#include "PathText.hpp"
+
 bool PropertyMapper::loadFromXml(const std::filesystem::path& xmlPath) {
     try {
         std::ifstream file(xmlPath, std::ios::binary);
         if (!file.is_open()) {
-            spdlog::error("Failed to open properties XML: {}", xmlPath.string());
+            spdlog::error("Failed to open properties XML: {}", PathToUtf8(xmlPath));
             return false;
         }
 

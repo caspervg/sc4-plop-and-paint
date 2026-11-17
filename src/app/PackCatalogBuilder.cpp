@@ -12,6 +12,8 @@
 #include <curl/header.h>
 #include <sqlite3.h>
 
+#include "PathText.hpp"
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -42,7 +44,7 @@ namespace {
         file = std::fopen(target.c_str(), "wb");
 #endif
         if (!file) {
-            logger.error("Cannot write {}", target.string());
+            logger.error("Cannot write {}", PathToUtf8(target));
             return Fetched::Failed;
         }
 
@@ -131,8 +133,8 @@ namespace {
 namespace PackCatalogBuilder {
     std::optional<PackCatalog> Read(const fs::path& databasePath, spdlog::logger& logger) {
         sqlite3* db = nullptr;
-        if (sqlite3_open_v2(databasePath.string().c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
-            logger.warn("Could not open the pack catalog {}: {}", databasePath.string(), db ? sqlite3_errmsg(db) : "");
+        if (sqlite3_open_v2(PathToUtf8(databasePath).c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+            logger.warn("Could not open the pack catalog {}: {}", PathToUtf8(databasePath), db ? sqlite3_errmsg(db) : "");
             sqlite3_close(db);
             return std::nullopt;
         }
@@ -229,7 +231,7 @@ namespace PackCatalogBuilder {
             catalog.exemplars.assign(exemplarRows.begin(), exemplarRows.end());
         }
         if (!ok) {
-            logger.warn("The pack catalog {} is not in the expected form: {}", databasePath.string(), sqlite3_errmsg(db));
+            logger.warn("The pack catalog {} is not in the expected form: {}", PathToUtf8(databasePath), sqlite3_errmsg(db));
         }
         sqlite3_close(db);
         if (!ok) {

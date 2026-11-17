@@ -35,6 +35,7 @@
 #include "PathDetection.hpp"
 #include "PluginLocator.hpp"
 #include "PropertyMapper.hpp"
+#include "PathText.hpp"
 #include "Utils.hpp"
 
 #include <rfl/cbor.hpp>
@@ -294,10 +295,10 @@ namespace {
         if (resolved.winePrefix) {
             logger.info("  Wine Prefix: {}", resolved.winePrefix->string());
         }
-        logger.info("  Game Root: {} ({})", config.gameRoot.string(), resolved.gameRootSource);
-        logger.info("  Game Locale: {}", (config.gameRoot / config.localeDir).string());
-        logger.info("  Game Plugins: {}", config.gamePluginsRoot.string());
-        logger.info("  User Plugins: {} ({})", config.userPluginsRoot.string(), resolved.userPluginsSource);
+        logger.info("  Game Root: {} ({})", PathToUtf8(config.gameRoot), resolved.gameRootSource);
+        logger.info("  Game Locale: {}", PathToUtf8(config.gameRoot / config.localeDir));
+        logger.info("  Game Plugins: {}", PathToUtf8(config.gamePluginsRoot));
+        logger.info("  User Plugins: {} ({})", PathToUtf8(config.userPluginsRoot), resolved.userPluginsSource);
     }
 
     bool IsDirectoryEmpty(const fs::path& directory) {
@@ -327,13 +328,13 @@ namespace {
             {
                 std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
                 if (!file) {
-                    logger.error("Failed to open file for writing: {}", tempPath.string());
+                    logger.error("Failed to open file for writing: {}", PathToUtf8(tempPath));
                     return false;
                 }
                 rfl::cbor::write(data, file);
                 file.flush();
                 if (!file.good()) {
-                    logger.error("Failed to write cache data to {}", tempPath.string());
+                    logger.error("Failed to write cache data to {}", PathToUtf8(tempPath));
                     file.close();
                     std::error_code removeEc;
                     fs::remove(tempPath, removeEc);
@@ -343,7 +344,7 @@ namespace {
             std::error_code renameEc;
             fs::rename(tempPath, cborPath, renameEc);
             if (renameEc) {
-                logger.error("Failed to move {} into place: {}", tempPath.string(), renameEc.message());
+                logger.error("Failed to move {} into place: {}", PathToUtf8(tempPath), renameEc.message());
                 std::error_code removeEc;
                 fs::remove(tempPath, removeEc);
                 return false;
@@ -351,7 +352,7 @@ namespace {
             return true;
         }
         catch (const std::exception& error) {
-            logger.error("Error writing {}: {}", cborPath.string(), error.what());
+            logger.error("Error writing {}: {}", PathToUtf8(cborPath), error.what());
             std::error_code removeEc;
             fs::remove(tempPath, removeEc);
             return false;
@@ -364,7 +365,11 @@ namespace {
         std::optional<PackCatalog> current;
         std::error_code existsEc;
         if (fs::exists(path, existsEc)) {
-            if (auto loaded = rfl::cbor::load<PackCatalog, rfl::DefaultIfMissing>(path.string())) {
+            // Read through the path itself: rfl::cbor::load takes a narrow string, which cannot hold every
+            // Windows path.
+            std::ifstream file(path, std::ios::binary);
+            const std::vector<char> bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+            if (auto loaded = rfl::cbor::read<PackCatalog, rfl::DefaultIfMissing>(bytes)) {
                 current = std::move(*loaded);
             }
         }
@@ -376,7 +381,7 @@ namespace {
         if (!WriteCborAtomic(logger, path, *catalog)) {
             return false;
         }
-        logger.info("Wrote {}", path.string());
+        logger.info("Wrote {}", PathToUtf8(path));
         return true;
     }
 
@@ -389,7 +394,7 @@ namespace {
             logger.info("Initializing plugin scanner...");
 
             if (IsDirectoryEmpty(config.userPluginsRoot)) {
-                logger.warn("User Plugins folder is empty: {}", config.userPluginsRoot.string());
+                logger.warn("User Plugins folder is empty: {}", PathToUtf8(config.userPluginsRoot));
             }
 
             // Create locator to discover plugin files
@@ -417,7 +422,7 @@ namespace {
                 std::error_code existsEc;
                 if (fs::exists(loc, existsEc)) {
                     if (propertyMapper.loadFromXml(loc)) {
-                        logger.info("Loaded property mapper from: {}", loc.string());
+                        logger.info("Loaded property mapper from: {}", PathToUtf8(loc));
                         mapperLoaded = true;
                         break;
                     }
@@ -428,7 +433,7 @@ namespace {
                 logger.error("Could not load PropertyMapper XML - aborting scan, exemplars cannot be "
                              "classified without property definitions");
                 for (const auto& loc : mapperLocations) {
-                    logger.error("  Looked for: {}", loc.string());
+                    logger.error("  Looked for: {}", PathToUtf8(loc));
                 }
                 indexService.shutdown();
                 return false;
@@ -530,7 +535,7 @@ namespace {
                     // The last file in load order wins, matching the game's override rules.
                     const auto indexIt = loadOrderIndices.find(files.back());
                     if (indexIt == loadOrderIndices.end()) {
-                        logger.warn("Indexed file {} missing from load order list", files.back().string());
+                        logger.warn("Indexed file {} missing from load order list", PathToUtf8(files.back()));
                         continue;
                     }
                     fileToExemplarTgis[indexIt->second].push_back(tgi);
@@ -548,11 +553,11 @@ namespace {
                     // Get cached reader from index service
                     auto* reader = indexService.getReader(filePath);
                     if (!reader) {
-                        logger.warn("Failed to get reader for file: {}", filePath.string());
+                        logger.warn("Failed to get reader for file: {}", PathToUtf8(filePath));
                         continue;
                     }
 
-                    logger.debug("Processing {} exemplars from {}", tgis.size(), filePath.filename().string());
+                    logger.debug("Processing {} exemplars from {}", tgis.size(), PathToUtf8(filePath.filename()));
 
                     // Process all exemplars in this file
                     for (const auto& tgi : tgis) {
@@ -654,7 +659,7 @@ namespace {
                     }
                 }
                 catch (const std::exception& error) {
-                    logger.warn("Error processing file {}: {}", filePath.filename().string(), error.what());
+                    logger.warn("Error processing file {}: {}", PathToUtf8(filePath.filename()), error.what());
                 }
             }
 
@@ -800,7 +805,7 @@ namespace {
                 fs::create_directories(config.userPluginsRoot, dirEc);
                 if (dirEc) {
                     logger.error("Failed to create output directory {}: {}",
-                                 config.userPluginsRoot.string(), dirEc.message());
+                                 PathToUtf8(config.userPluginsRoot), dirEc.message());
                 }
             }
 
@@ -811,14 +816,14 @@ namespace {
                 try {
                     const auto size = static_cast<uint16_t>(thumbnailSize);
                     if (ThumbnailBin::WriteEncoded(binPath, std::move(entries), size, size)) {
-                        logger.info("Exported {} {} thumbnails to {}", count, label, binPath.string());
+                        logger.info("Exported {} {} thumbnails to {}", count, label, PathToUtf8(binPath));
                     }
                     else {
-                        logger.error("Failed to write {} thumbnails to {}", label, binPath.string());
+                        logger.error("Failed to write {} thumbnails to {}", label, PathToUtf8(binPath));
                     }
                 }
                 catch (const std::exception& error) {
-                    logger.error("Error writing {} thumbnails to {}: {}", label, binPath.string(), error.what());
+                    logger.error("Error writing {} thumbnails to {}: {}", label, PathToUtf8(binPath), error.what());
                 }
             };
 
@@ -848,7 +853,7 @@ namespace {
             if (!allBuildings.empty()) {
                 const auto cborPath = config.userPluginsRoot / "lots.cbor";
                 logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound,
-                            cborPath.string());
+                            PathToUtf8(cborPath));
                 if (writeCborAtomic(cborPath, allBuildings)) {
                     logger.info("Successfully exported lot configs");
                 }
@@ -895,7 +900,7 @@ namespace {
 
                 logger.info("Exporting {} props, {} prop families and {} seasonal sets to {}",
                             propsCache.props.size(), propsCache.propFamilies.size(),
-                            propsCache.seasonalSets.size(), cborPath.string());
+                            propsCache.seasonalSets.size(), PathToUtf8(cborPath));
                 if (writeCborAtomic(cborPath, propsCache)) {
                     logger.info("Successfully exported props");
                 }
@@ -912,7 +917,7 @@ namespace {
                 FloraCache floraCache;
                 floraCache.floraItems = std::move(allFlora);
 
-                logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), cborPath.string());
+                logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), PathToUtf8(cborPath));
                 if (writeCborAtomic(cborPath, floraCache)) {
                     logger.info("Successfully exported flora");
                 }

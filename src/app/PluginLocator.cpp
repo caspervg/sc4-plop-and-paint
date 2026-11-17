@@ -26,7 +26,7 @@ namespace {
     }
 
     auto IsDatFile(const fs::path& file) -> bool {
-        auto ext = file.extension().string();
+        auto ext = PathToUtf8(file.extension());
         std::ranges::transform(ext, ext.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
         return ext == ".dat";
     }
