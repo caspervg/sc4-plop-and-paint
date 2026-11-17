@@ -995,7 +995,7 @@ const Exemplar::Property* ExemplarParser::findProperty(
 ) const {
     // If we have an index service, use recursive cohort following
     if (indexService_) {
-        std::unordered_set<uint32_t> visitedCohorts;
+        std::unordered_set<DBPF::Tgi, DBPF::TgiHash> visitedCohorts;
         return findPropertyRecursive(exemplar, propertyId, visitedCohorts);
     }
     // Otherwise, just direct lookup
@@ -1005,7 +1005,7 @@ const Exemplar::Property* ExemplarParser::findProperty(
 const Exemplar::Property* ExemplarParser::findPropertyRecursive(
     const Exemplar::Record& exemplar,
     const uint32_t propertyId,
-    std::unordered_set<uint32_t>& visitedCohorts
+    std::unordered_set<DBPF::Tgi, DBPF::TgiHash>& visitedCohorts
 ) const {
     // Check the current exemplar for the property
     if (auto* prop = exemplar.FindProperty(propertyId)) {
@@ -1017,17 +1017,15 @@ const Exemplar::Property* ExemplarParser::findPropertyRecursive(
         return nullptr;
     }
 
-    // Parent cohort is stored in the exemplar header, not as a property
-    // Check if this exemplar has a parent cohort (instance != 0)
-    if (exemplar.parent.instance == 0) {
+    // Parent cohort is stored in the exemplar header, not as a property; an all-zero key means none
+    if (exemplar.parent == DBPF::Tgi{}) {
         return nullptr;
     }
 
-    // Prevent infinite loops
-    if (visitedCohorts.contains(exemplar.parent.instance)) {
+    // Prevent infinite loops. Compare whole keys: different cohorts may share an instance ID.
+    if (!visitedCohorts.insert(exemplar.parent).second) {
         return nullptr;
     }
-    visitedCohorts.insert(exemplar.parent.instance);
 
     // Use the full parent TGI (type, group, instance) from the exemplar header
     const DBPF::Tgi& parentTgi = exemplar.parent;
