@@ -582,11 +582,10 @@ void GroundPanelTab::OnRender() {
             SelectTool_(Tool::Area);
         }
     }
-    ImGui::PushID("tools");
-    RenderToolRow_();
-    ImGui::PopID();
-
     Document* const document = director_->GetGroundDocument();
+    ImGui::PushID("tools");
+    RenderToolbar_(document);
+    ImGui::PopID();
     if (!director_->IsGroundPaintAvailable() || !document) {
         ImGui::TextWrapped("Ground painting needs SC4RenderServices with terrain paint and "
                            "EnableCustomTerrainDecalRenderer=true in SC4RenderServices.ini.");
@@ -630,10 +629,14 @@ void GroundPanelTab::OnRender() {
             SettingsChanged_();
         }
     }
-    if (painting) {
-        RenderGrid_();
+    if (!std::exchange(libraryShown_, false) && libraryOpen_) {
+        bool committed = false;
+        RenderLibraryWindow_(settings_.look, toolLook_, committed);
+        libraryShown_ = false;
+        if (committed) {
+            SettingsChanged_();
+        }
     }
-
     ImGui::PushID("layers");
     RenderLayers_(*document);
     ImGui::PopID();
@@ -654,7 +657,7 @@ void GroundPanelTab::OnRender() {
     });
 }
 
-void GroundPanelTab::RenderToolRow_() {
+void GroundPanelTab::RenderToolbar_(Document* const document) {
     const bool painting = director_->IsGroundPainting();
     const bool available = director_->IsGroundPaintAvailable() && director_->GetGroundDocument();
     // The buttons wrap in a narrow panel, with a wider gap between the groups.
@@ -685,40 +688,85 @@ void GroundPanelTab::RenderToolRow_() {
 
     toolButtons(kPaintTools);
     toolButtons(kEditTools);
+
+    // Global: undo, the windows, the grid and help, on the right when they fit.
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const auto width = [&](const char* label) { return ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f; };
+    const char* const kLabels[] = {"Undo", "Redo", "Layers", "Library", "Grid", "?"};
+    float total = 0.0f;
+    for (const char* label : kLabels) {
+        total += width(label) + style.ItemSpacing.x;
+    }
+    const float right = ImGui::GetWindowContentRegionMax().x;
+    ImGui::SameLine();
+    if (ImGui::GetCursorPosX() + total + kGroupGap <= right) {
+        ImGui::SetCursorPosX(right - total + style.ItemSpacing.x);
+    }
+    else {
+        ImGui::NewLine();
+    }
+    ImGui::BeginDisabled(!document || !document->CanUndo());
+    if (ImGui::Button("Undo")) {
+        document->Undo();
+    }
+    ImGui::EndDisabled();
+    Tooltip("Undo. Press Ctrl+Z, or the back mouse button.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!document || !document->CanRedo());
+    if (ImGui::Button("Redo")) {
+        document->Redo();
+    }
+    ImGui::EndDisabled();
+    Tooltip("Redo. Press Ctrl+Y, or the forward mouse button.");
+    ImGui::SameLine();
+    if (ToggleButton("Layers", layersOpen_)) {
+        layersOpen_ = !layersOpen_;
+    }
+    char layersTip[96];
+    std::snprintf(layersTip, sizeof(layersTip), "Show or hide the list of what you painted (%zu shapes).",
+                  document ? document->Objects().size() : size_t{0});
+    Tooltip(layersTip);
+    ImGui::SameLine();
+    if (ToggleButton("Library", libraryOpen_)) {
+        libraryOpen_ = !libraryOpen_;
+    }
+    Tooltip("Show or hide the texture library.\nYou can move it, or dock it next to this panel.");
+    ImGui::SameLine();
+    if (ToggleButton("Grid", settings_.showGrid || settings_.snapPointsToGrid)) {
+        ImGui::OpenPopup("grid");
+    }
+    Tooltip("Grid and snapping.");
+    if (ImGui::BeginPopup("grid")) {
+        RenderGrid_();
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    ImGui::Button("?");
+    if (ImGui::IsItemHovered()) {
+        const GroundPainterInputControl* painter = director_->GetGroundPainter();
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+        ImGui::TextUnformatted(painter && director_->IsGroundPainting() ? painter->StatusText().c_str()
+                                                                        : "Click a tool to paint the ground.");
+        ImGui::Spacing();
+        ImGui::TextDisabled("Press Esc once to cancel a shape and again to stop. Right-drag moves the camera.");
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
 }
 
 void GroundPanelTab::RenderStatus_() {
     const GroundPainterInputControl* painter = director_->GetGroundPainter();
     const bool painting = painter && director_->IsGroundPainting();
-    const std::string text =
-        painting          ? painter->StatusText()
-        : pickingTexture_ ? "Click a texture in the city. You can click ground that you painted, a decal, or the base "
-                            "or overlay texture of a lot. If textures overlap, hold Alt and scroll to change between "
-                            "them. Press Esc to cancel."
-                          : "Click a tool above. Use Area, Line, Brush or Marking to paint the ground. Use Select to "
-                            "change the paint. Use Erase to remove it.";
-
-    static const std::string kNoMeasure;
-    const std::string& measure = painting ? painter->MeasureText() : kNoMeasure;
-    const ImGuiStyle& style = ImGui::GetStyle();
-    const float wrap = ImGui::GetContentRegionAvail().x - style.WindowPadding.x * 2.0f;
-    // Room for a measure line always while painting, so the box does not jump as it comes and goes.
-    constexpr const char* kStopHint = "Press Esc once to cancel the shape. Press Esc again to stop. Right-drag to move the camera.";
-    const float height = ImGui::CalcTextSize(text.c_str(), nullptr, false, wrap).y +
-                         (painting ? ImGui::GetTextLineHeightWithSpacing() + style.ItemSpacing.y * 2.0f +
-                                         ImGui::CalcTextSize(kStopHint, nullptr, false, wrap).y
-                                   : 0.0f) +
-                         style.WindowPadding.y * 2.0f;
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
-    if (ImGui::BeginChild("##status", ImVec2(0, height), true, ImGuiWindowFlags_NoScrollbar)) {
-        ImGui::TextWrapped("%s", text.c_str());
-        if (painting) {
-            ImGui::TextColored(kAttentionColor, "%s", measure.empty() ? " " : measure.c_str());
-            Hint(kStopHint);
+    const std::string text = painting          ? painter->ShortStatus()
+                             : pickingTexture_ ? "Click a texture in the city. Alt+scroll changes between textures that overlap."
+                                               : "Choose a tool to paint the ground.";
+    ImGui::TextWrapped("%s", text.c_str());
+    if (painting && settings_.tool != Tool::Select) {
+        if (const std::string& measure = painter->MeasureText(); !measure.empty()) {
+            ImGui::TextColored(kAttentionColor, "%s", measure.c_str());
         }
     }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
 }
 
 void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bool& changed, bool& committed) {
@@ -793,7 +841,6 @@ void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bo
 
 void GroundPanelTab::RenderGrid_() {
     ImGui::PushID("grid");
-    ImGui::SeparatorText("Grid and snapping");
     const bool wasShown = settings_.showGrid;
     const bool wasSnapping = settings_.snapPointsToGrid;
     bool changed = false;
@@ -988,6 +1035,7 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float
         ImGui::SameLine();
         ImGui::ColorEdit3("Other color##paint", look.color.data(), ImGuiColorEditFlags_NoInputs);
         Track(changed, committed);
+        RenderLibraryWindow_(look, state, committed);
         return;
     }
 
@@ -1027,25 +1075,34 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float
             }
         }
     }
-    if (ToggleButton("Texture library", libraryOpen_)) {
-        libraryOpen_ = !libraryOpen_;
+    RenderLibraryWindow_(look, state, committed);
+}
+
+void GroundPanelTab::RenderLibraryWindow_(Look& look, LookEditorState& state, bool& committed) {
+    libraryShown_ = true;
+    if (!libraryOpen_) {
+        return;
     }
-    Tooltip("Show or hide the textures to paint with, in a window of its own.\n"
-            "You can move the window, or dock it next to this panel.");
-    if (libraryOpen_) {
-        const ImGuiViewport* viewport = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.55f, viewport->WorkPos.y + viewport->WorkSize.y * 0.1f),
-                                ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 30.0f, ImGui::GetFontSize() * 36.0f), ImGuiCond_FirstUseEver);
-        const bool forSelection = &look == &editing_.look;
-        const std::string title = std::string("Texture library - ") +
-                                  (!forSelection ? "new shapes" : editing_.name.empty() ? "selected shape" : editing_.name.c_str()) +
-                                  "###PlopAndPaintGroundTextures";
-        if (ImGui::Begin(title.c_str(), &libraryOpen_, ImGuiWindowFlags_NoNav)) {
-            RenderTextureLibrary_(look, committed);
-        }
-        ImGui::End();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.55f, viewport->WorkPos.y + viewport->WorkSize.y * 0.1f),
+                            ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 30.0f, ImGui::GetFontSize() * 36.0f), ImGuiCond_FirstUseEver);
+    const bool forSelection = &look == &editing_.look;
+    const std::string title = std::string("Texture library - ") +
+                              (!forSelection ? "new shapes" : editing_.name.empty() ? "selected shape" : editing_.name.c_str()) +
+                              "###PlopAndPaintGroundTextures";
+    bool picked = false;
+    if (ImGui::Begin(title.c_str(), &libraryOpen_, ImGuiWindowFlags_NoNav)) {
+        RenderTextureLibrary_(look, picked);
     }
+    ImGui::End();
+    if (picked && !look.textures.empty() && !state.wantsTexture) {
+        // From Color: the colour is kept for going back, and stops being a tint.
+        state.plainColour = look.color;
+        look.color = {1.0f, 1.0f, 1.0f};
+        state.wantsTexture = true;
+    }
+    committed |= picked;
 }
 
 void GroundPanelTab::RenderPalettes_(Look& look, float& wear, float* roughness, LookEditorState& state,
@@ -2126,29 +2183,6 @@ void GroundPanelTab::RenderTransform_(Document& document) {
 }
 
 void GroundPanelTab::RenderLayers_(Document& document) {
-    char header[64];
-    std::snprintf(header, sizeof(header), "Painted in this city (%zu)", document.Objects().size());
-    ImGui::SeparatorText(header);
-
-    ImGui::BeginDisabled(!document.CanUndo());
-    if (ImGui::SmallButton("Undo")) {
-        document.Undo();
-    }
-    ImGui::EndDisabled();
-    Tooltip("Press Ctrl+Z, or the back mouse button.");
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!document.CanRedo());
-    if (ImGui::SmallButton("Redo")) {
-        document.Redo();
-    }
-    ImGui::EndDisabled();
-    Tooltip("Press Ctrl+Y, or the forward mouse button.");
-    ImGui::SameLine(0.0f, kGroupGap);
-    if (ToggleButton("Layers", layersOpen_)) {
-        layersOpen_ = !layersOpen_;
-    }
-    Tooltip("Show what you painted in a window of its own.\n"
-            "There you can show, hide, lock, order, name and group it.");
     if (!layersOpen_) {
         return;
     }

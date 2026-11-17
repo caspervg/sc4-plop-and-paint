@@ -57,6 +57,8 @@ public:
     [[nodiscard]] bool IsDrawing() const { return !anchors_.empty() || gesture_ == Gesture::Stroke; }
     // What to do next with the current tool, for the panel: one or two short sentences.
     [[nodiscard]] std::string StatusText() const;
+    // The one thing to do next, in a few words. StatusText has every gesture.
+    [[nodiscard]] std::string ShortStatus() const;
     // Lengths, turns and areas of what is being drawn or is selected; empty when there are none.
     [[nodiscard]] const std::string& MeasureText() const;
 

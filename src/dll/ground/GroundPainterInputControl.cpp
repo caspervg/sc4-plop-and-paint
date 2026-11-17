@@ -1626,6 +1626,54 @@ bool GroundPainterInputControl::PickLook_() {
     return true;
 }
 
+std::string GroundPainterInputControl::ShortStatus() const {
+    if (lookPickArmed_) {
+        return "Click painted ground to copy its look.";
+    }
+    if (Is_(Gesture::PenHandle) || Is_(Gesture::MoveHandle)) {
+        return "Drag to shape the curve. Release to keep it.";
+    }
+    if (Is_(Gesture::Stroke)) {
+        return "Release the button to finish.";
+    }
+    const size_t points = anchors_.size();
+    switch (settings_.tool) {
+    case Tool::Area:
+    case Tool::Line:
+    case Tool::Erase: {
+        const bool area = settings_.tool != Tool::Line;
+        if (settings_.tool == Tool::Erase && settings_.eraseWithBrush) {
+            return "Drag over painted ground to remove it.";
+        }
+        if (settings_.drawStyle == DrawStyle::Freehand) {
+            return area ? "Hold the left button and draw around the area." : "Hold the left button and draw the line.";
+        }
+        if (points == 0) {
+            return area ? "Click in the city to place the first corner." : "Click in the city where the line starts.";
+        }
+        return area ? "Click to add corners. Click the first corner or press Enter to finish."
+                    : "Click to continue the line. Press Enter to finish.";
+    }
+    case Tool::Brush:
+        return "Hold the left button and drag to paint.";
+    case Tool::Marking:
+        return StatusText();
+    case Tool::Select: {
+        if (!document_ || document_->Selection().empty()) {
+            return "Click painted ground to select it.";
+        }
+        if (Is_(Gesture::MoveTexture)) {
+            return "Release the button to keep the texture here.";
+        }
+        if (PointEditTarget_()) {
+            return Picked_() ? "Drag the point, or press Delete to remove it." : "Drag points to reshape. Click the outline to add a point.";
+        }
+        return "Drag to move the selection.";
+    }
+    }
+    return {};
+}
+
 std::string GroundPainterInputControl::StatusText() const {
     if (lookPickArmed_) {
         return "Click painted ground to copy its look. If shapes overlap, hold Alt and scroll to change between them.";
