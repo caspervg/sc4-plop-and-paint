@@ -27,6 +27,7 @@ namespace Ground {
                 const TextureChoice& choice = look.textures[patches ? part : i];
                 style.textures[i].key = cGZPersistResourceKey(kDecalTextureType, kDecalTextureGroup, choice.instance);
                 style.textures[i].weight = choice.weight;
+                style.textureFrameMasks[i] = choice.frames;
             }
             style.textureCount = static_cast<uint32_t>(count);
             if (count == 0) {

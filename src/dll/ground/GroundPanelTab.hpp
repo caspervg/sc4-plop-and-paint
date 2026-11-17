@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 
 #include "../common/PanelTab.hpp"
 #include "../decals/DecalPanelTab.hpp"
@@ -96,6 +97,14 @@ private:
     cIGZPersistResourceManager* pRM_;
     std::unique_ptr<DecalPanelTab> stampTab_;
     ThumbnailCache<uint32_t> thumbnails_{};
+    // Multi-FSH frames: how many each texture has (known once its thumbnail loads), and their
+    // thumbnails by frame << 32 | instance.
+    std::unordered_map<uint32_t, uint32_t> frameCounts_{};
+    ThumbnailCache<uint64_t> frameThumbnails_{};
+    [[nodiscard]] uint32_t FrameCount_(uint32_t instanceId) const;
+    bool FrameTile_(uint32_t instanceId, uint32_t frame, float size, bool inUse);
+    // The frames of one chosen texture to mix, as a popup.
+    void RenderFramePicker_(Ground::TextureChoice& choice, bool& committed);
 
     Ground::ToolSettings settings_{};
     // As the city's tool last got them.

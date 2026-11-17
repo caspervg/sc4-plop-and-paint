@@ -60,6 +60,8 @@ namespace Ground {
     struct TextureChoice {
         uint32_t instance = 0;  // a terrain decal texture, type 0x7AB50E44, group 0x0986135E
         float weight = 1.0f;
+        // A multi-FSH has one frame per entry: bit n lets a 16 m square use frame n. 0: the first only.
+        uint32_t frames = 0;
 
         bool operator==(const TextureChoice&) const = default;
     };

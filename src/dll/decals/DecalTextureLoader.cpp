@@ -1,5 +1,6 @@
 #include "DecalTextureLoader.hpp"
 
+#include <algorithm>
 #include <span>
 #include <utility>
 #include <vector>
@@ -12,13 +13,15 @@
 #include "cRZAutoRefCount.h"
 
 namespace {
-    // Reads and parses the FSH record, leaving the first bitmap's RGBA pixels
-    // in outRGBA. Returns false (quietly for missing records) on any failure.
-    bool LoadFirstBitmapRGBA(cIGZPersistResourceManager* pRM,
-                             const uint32_t instanceId,
-                             std::vector<uint8_t>& outRGBA,
-                             uint16_t& outWidth,
-                             uint16_t& outHeight) {
+    // Reads and parses the FSH record, leaving the RGBA pixels of one frame (FSH entry) in outRGBA,
+    // and how many frames it has in frameCount. Returns false (quietly for missing records) on any failure.
+    bool LoadBitmapRGBA(cIGZPersistResourceManager* pRM,
+                        const uint32_t instanceId,
+                        const uint32_t frame,
+                        std::vector<uint8_t>& outRGBA,
+                        uint16_t& outWidth,
+                        uint16_t& outHeight,
+                        uint32_t* frameCount = nullptr) {
         if (!pRM) {
             return false;
         }
@@ -51,13 +54,16 @@ namespace {
         }
 
         const FSH::Record& record = *parseResult;
-        if (record.entries.empty() || record.entries[0].bitmaps.empty()) {
-            LOG_WARN("DecalTextureLoader: FSH has no bitmaps for texture 0x{:08X}", instanceId);
+        if (frameCount) {
+            *frameCount = static_cast<uint32_t>(record.entries.size());
+        }
+        if (frame >= record.entries.size() || record.entries[frame].bitmaps.empty()) {
+            LOG_WARN("DecalTextureLoader: FSH has no bitmap {} for texture 0x{:08X}", frame, instanceId);
             return false;
         }
 
-        // Use the first (highest-resolution) bitmap from the first entry
-        const FSH::Bitmap& bitmap = record.entries[0].bitmaps[0];
+        // The highest-resolution bitmap of the frame
+        const FSH::Bitmap& bitmap = record.entries[frame].bitmaps[0];
         if (!FSH::Reader::ConvertToRGBA8(bitmap, outRGBA)) {
             LOG_WARN("DecalTextureLoader: RGBA conversion failed for texture 0x{:08X}", instanceId);
             return false;
@@ -75,7 +81,9 @@ bool LoadDecalTexture(cIGZPersistResourceManager* pRM,
                       cIGZImGuiService* imguiService,
                       const uint32_t instanceId,
                       ImGuiTexture& outTexture,
-                      ImVec2& outSourceSize) {
+                      ImVec2& outSourceSize,
+                      const uint32_t frame,
+                      uint32_t* frameCount) {
     if (!pRM || !imguiService) {
         return false;
     }
@@ -83,7 +91,7 @@ bool LoadDecalTexture(cIGZPersistResourceManager* pRM,
     std::vector<uint8_t> rgba;
     uint16_t width = 0;
     uint16_t height = 0;
-    if (!LoadFirstBitmapRGBA(pRM, instanceId, rgba, width, height)) {
+    if (!LoadBitmapRGBA(pRM, instanceId, frame, rgba, width, height, frameCount)) {
         return false;
     }
 
@@ -96,11 +104,20 @@ bool LoadDecalTexture(cIGZPersistResourceManager* pRM,
     return true;
 }
 
+uint32_t CountDecalFrames(cIGZPersistResourceManager* pRM, const uint32_t instanceId) {
+    std::vector<uint8_t> rgba;
+    uint16_t width = 0;
+    uint16_t height = 0;
+    uint32_t frames = 1;
+    LoadBitmapRGBA(pRM, instanceId, 0, rgba, width, height, &frames);
+    return std::max(frames, 1u);
+}
+
 TextureKind ClassifyDecalTexture(cIGZPersistResourceManager* pRM, const uint32_t instanceId) {
     std::vector<uint8_t> rgba;
     uint16_t width = 0;
     uint16_t height = 0;
-    if (!LoadFirstBitmapRGBA(pRM, instanceId, rgba, width, height)) {
+    if (!LoadBitmapRGBA(pRM, instanceId, 0, rgba, width, height)) {
         return TextureKind::Unknown;
     }
 

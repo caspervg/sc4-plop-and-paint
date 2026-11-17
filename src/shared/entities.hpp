@@ -232,6 +232,7 @@ struct TabViewSettings {
 struct PaintPaletteTexture {
     rfl::Hex<uint32_t> instanceId;
     float weight = 1.0f;
+    std::optional<uint32_t> frames;  // the multi-FSH frames in use; empty: the first only
 };
 
 // A whole look saved with a palette, as the Terrain Paint tab paints it.

@@ -1,6 +1,7 @@
 #include "GroundPanelTab.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <functional>
 #include <cfloat>
 #include <chrono>
@@ -342,10 +343,32 @@ namespace {
                a.look.patchBlendMeters == b.look.patchBlendMeters && a.shape.wear == b.shape.wear;
     }
 
+    std::optional<uint32_t> FramesOrNone(const uint32_t frames) {
+        return frames != 0 ? std::optional{frames} : std::nullopt;
+    }
+
+    // Every frame of a multi-FSH; 0 for one frame.
+    uint32_t AllFrames(const uint32_t count) {
+        return count <= 1 ? 0u : count >= 32 ? 0xFFFFFFFFu : (1u << count) - 1u;
+    }
+
+    // A small label on a corner of the item drawn last.
+    void CornerLabel(const char* text, const bool bottomRight) {
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        const ImVec2 size = ImGui::CalcTextSize(text);
+        const ImVec2 at = bottomRight ? ImVec2(max.x - size.x - 3.0f, max.y - size.y - 2.0f)
+                                      : ImVec2(min.x + 3.0f, max.y - size.y - 2.0f);
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(ImVec2(at.x - 2.0f, at.y - 1.0f), ImVec2(at.x + size.x + 2.0f, at.y + size.y + 1.0f),
+                            IM_COL32(0, 0, 0, 190), 2.0f);
+        draw->AddText(at, IM_COL32(255, 255, 255, 255), text);
+    }
+
     std::vector<PaintPaletteTexture> PaletteTextures(const std::vector<TextureChoice>& textures) {
         std::vector<PaintPaletteTexture> saved;
         for (const TextureChoice& choice : textures) {
-            saved.push_back({rfl::Hex<uint32_t>(choice.instance), choice.weight});
+            saved.push_back({rfl::Hex<uint32_t>(choice.instance), choice.weight, FramesOrNone(choice.frames)});
         }
         return saved;
     }
@@ -375,7 +398,7 @@ namespace {
             if (std::ranges::none_of(palette.textures, [&](const PaintPaletteTexture& entry) {
                     return entry.instanceId.value() == choice.instance;
                 })) {
-                palette.textures.push_back({rfl::Hex<uint32_t>(choice.instance), choice.weight});
+                palette.textures.push_back({rfl::Hex<uint32_t>(choice.instance), choice.weight, FramesOrNone(choice.frames)});
             }
         }
     }
@@ -388,7 +411,7 @@ void GroundPanelTab::UsePalette_(const PaintPalette& palette, Look& look, float&
     look.textures.clear();
     for (const PaintPaletteTexture& entry : textures) {
         if (look.textures.size() < kTerrainPaintMaxTextures) {
-            look.textures.push_back(TextureChoice{entry.instanceId.value(), entry.weight});
+            look.textures.push_back(TextureChoice{entry.instanceId.value(), entry.weight, entry.frames.value_or(0u)});
         }
     }
     if (const auto& saved = palette.look) {
@@ -438,6 +461,7 @@ GroundPanelTab::GroundPanelTab(SC4PlopAndPaintDirector* director,
 void GroundPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
     hoverPreview_.Clear();
     thumbnails_.OnDeviceReset();
+    frameThumbnails_.OnDeviceReset();
     if (stampTab_) {
         stampTab_->OnDeviceReset(deviceGeneration);
     }
@@ -445,6 +469,7 @@ void GroundPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
 
 void GroundPanelTab::OnShutdown() {
     thumbnails_.Clear();
+    frameThumbnails_.Clear();
     hoverPreview_.Clear();
     if (stampTab_) {
         stampTab_->OnShutdown();
@@ -641,7 +666,15 @@ void GroundPanelTab::OnRender() {
     thumbnails_.ProcessLoadQueue([this](const uint32_t instanceId) {
         ImGuiTexture texture;
         ImVec2 size{};
-        decals::LoadDecalTexture(pRM_, imguiService_, instanceId, texture, size);
+        uint32_t frames = 1;
+        decals::LoadDecalTexture(pRM_, imguiService_, instanceId, texture, size, 0, &frames);
+        frameCounts_[instanceId] = frames;
+        return texture;
+    });
+    frameThumbnails_.ProcessLoadQueue([this](const uint64_t key) {
+        ImGuiTexture texture;
+        ImVec2 size{};
+        decals::LoadDecalTexture(pRM_, imguiService_, static_cast<uint32_t>(key), texture, size, static_cast<uint32_t>(key >> 32));
         return texture;
     });
 }
@@ -1361,6 +1394,17 @@ void GroundPanelTab::RenderChosenTextures_(Look& look, bool& changed, bool& comm
     if (ImGui::SmallButton("Remove")) {
         removed = chosenTexture_;
     }
+    if (const uint32_t frames = FrameCount_(chosen.instance); frames > 1) {
+        ImGui::SameLine();
+        const int used = chosen.frames == 0 ? 1 : std::popcount(chosen.frames & AllFrames(frames));
+        char label[32];
+        std::snprintf(label, sizeof(label), "Variants %d/%u", used, frames);
+        if (ImGui::SmallButton(label)) {
+            ImGui::OpenPopup("frames");
+        }
+        Tooltip("This texture has more than one variant. Choose the variants to mix.");
+        RenderFramePicker_(chosen, committed);
+    }
     if (!mixed) {
         ImGui::EndGroup();
     }
@@ -1398,19 +1442,49 @@ bool GroundPanelTab::TextureTile_(const uint32_t instanceId, const float size, c
         const ImVec2 corner = ImGui::GetItemRectMin();
         ImGui::GetWindowDrawList()->AddText(ImVec2(corner.x + 3.0f, corner.y + 1.0f), IM_COL32(255, 215, 0, 255), "*");
     }
+    if (const uint32_t frames = FrameCount_(instanceId); frames > 1 && size >= 32.0f) {
+        CornerLabel(("x" + std::to_string(frames)).c_str(), false);
+    }
+    return clicked;
+}
+
+uint32_t GroundPanelTab::FrameCount_(const uint32_t instanceId) const {
+    const auto it = frameCounts_.find(instanceId);
+    return it != frameCounts_.end() ? it->second : 1;
+}
+
+bool GroundPanelTab::FrameTile_(const uint32_t instanceId, const uint32_t frame, const float size, const bool inUse) {
+    const uint64_t key = (static_cast<uint64_t>(frame) << 32) | instanceId;
+    bool clicked;
+    if (const auto texture = frameThumbnails_.Get(key); texture && *texture) {
+        clicked = ImGui::ImageButton("##f", reinterpret_cast<ImTextureID>(*texture), ImVec2(size, size));
+    }
+    else {
+        frameThumbnails_.Request(key);
+        clicked = ImGui::Button("##f", ImVec2(size + ImGui::GetStyle().FramePadding.x * 2.0f,
+                                              size + ImGui::GetStyle().FramePadding.y * 2.0f));
+    }
+    if (inUse) {
+        ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                                            ImGui::GetColorU32(ImGuiCol_CheckMark), 3.0f, 0, 3.0f);
+    }
     return clicked;
 }
 
 void GroundPanelTab::UseTexture_(Look& look, const uint32_t instanceId, const bool addToMix, bool& committed) {
     const auto it = std::ranges::find(look.textures, instanceId, &TextureChoice::instance);
+    if (!frameCounts_.contains(instanceId)) {
+        frameCounts_[instanceId] = decals::CountDecalFrames(pRM_, instanceId);
+    }
+    const TextureChoice choice{instanceId, 1.0f, AllFrames(FrameCount_(instanceId))};
     if (!addToMix) {
-        look.textures = {TextureChoice{instanceId, 1.0f}};
+        look.textures = {choice};
     }
     else if (it != look.textures.end()) {
         look.textures.erase(it);
     }
     else if (look.textures.size() < kTerrainPaintMaxTextures) {
-        look.textures.push_back(TextureChoice{instanceId, 1.0f});
+        look.textures.push_back(choice);
     }
     if (look.variationSeed == 0) {
         look.variationSeed = instanceId;
@@ -1508,6 +1582,41 @@ void GroundPanelTab::RenderPackFilter_() {
     packFilter_.Render("##pack", "textures");
 }
 
+void GroundPanelTab::RenderFramePicker_(TextureChoice& choice, bool& committed) {
+    if (!ImGui::BeginPopup("frames")) {
+        return;
+    }
+    const uint32_t count = std::min(FrameCount_(choice.instance), 32u);
+    ImGui::TextUnformatted("Variants to mix");
+    Hint("Each 16 m square takes one of the variants with an outline. Click a variant to add or remove it.");
+    uint32_t frames = choice.frames == 0 ? 1u : choice.frames & AllFrames(count);
+    for (uint32_t frame = 0; frame < count; ++frame) {
+        ImGui::PushID(static_cast<int>(frame));
+        if (frame % 4 != 0) {
+            ImGui::SameLine();
+        }
+        if (FrameTile_(choice.instance, frame, kThumbSize, (frames & (1u << frame)) != 0)) {
+            // At least one stays.
+            if (const uint32_t toggled = frames ^ (1u << frame); toggled != 0) {
+                frames = toggled;
+            }
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("All")) {
+        frames = AllFrames(count);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("First only")) {
+        frames = 1;
+    }
+    if (const uint32_t stored = frames == 1 ? 0u : frames; stored != choice.frames) {
+        choice.frames = stored;
+        committed = true;
+    }
+    ImGui::EndPopup();
+}
+
 void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) {
     // After a short wait, so that moving over the grid does not load every texture on the way.
     const bool showPreview = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
@@ -1516,6 +1625,22 @@ void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) {
     ImGui::BeginTooltip();
     if (showPreview) {
         hoverPreview_.Render(pRM_, imguiService_, instanceId);
+        if (const uint32_t frames = FrameCount_(instanceId); frames > 1) {
+            ImGui::Text("%u variants. Each 16 m square takes one of them.", frames);
+            for (uint32_t frame = 0; frame < std::min(frames, 8u); ++frame) {
+                const uint64_t key = (static_cast<uint64_t>(frame) << 32) | instanceId;
+                if (frame > 0) {
+                    ImGui::SameLine();
+                }
+                if (const auto texture = frameThumbnails_.Get(key); texture && *texture) {
+                    ImGui::Image(reinterpret_cast<ImTextureID>(*texture), ImVec2(40.0f, 40.0f));
+                }
+                else {
+                    frameThumbnails_.Request(key);
+                    ImGui::Dummy(ImVec2(40.0f, 40.0f));
+                }
+            }
+        }
     }
     if (file && pack) {
         ImGui::TextUnformatted(file->c_str());
