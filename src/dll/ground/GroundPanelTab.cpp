@@ -1095,11 +1095,15 @@ void GroundPanelTab::RenderLibraryWindow_(Look& look, LookEditorState& state, bo
                             ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 30.0f, ImGui::GetFontSize() * 36.0f), ImGuiCond_FirstUseEver);
     const bool forSelection = &look == &editing_.look;
-    const std::string title = std::string("Texture library - ") +
-                              (!forSelection ? "new shapes" : editing_.name.empty() ? "selected shape" : editing_.name.c_str()) +
-                              "###PlopAndPaintGroundTextures";
     bool picked = false;
-    if (ImGui::Begin(title.c_str(), &libraryOpen_, ImGuiWindowFlags_NoNav)) {
+    if (ImGui::Begin("Texture library###PlopAndPaintGroundTextures", &libraryOpen_, ImGuiWindowFlags_NoNav)) {
+        // What a click paints: the selected shape, or the next shapes that are drawn.
+        if (forSelection) {
+            ImGui::TextColored(kAttentionColor, "Painting: %s", ObjectLabel(editing_).c_str());
+        }
+        else {
+            ImGui::TextDisabled("Painting: the next shapes that you draw");
+        }
         RenderTextureLibrary_(look, picked);
     }
     ImGui::End();
