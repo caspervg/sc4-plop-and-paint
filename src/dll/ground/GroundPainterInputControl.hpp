@@ -93,6 +93,10 @@ private:
     // The selected object whose points can be dragged, if exactly one is selected.
     [[nodiscard]] const Ground::PaintObject* PointEditTarget_() const;
     bool StartPointEdit_(bool insert, bool remove);
+    [[nodiscard]] std::optional<size_t> PointUnderCursor_(const Ground::PaintObject& object) const;
+    // Where a click on the object's outline adds a point: the index the point gets, and the spot.
+    [[nodiscard]] std::optional<std::pair<size_t, Ground::Vec2>> OutlineInsertAt_(const Ground::PaintObject& object) const;
+    bool RemovePickedPoint_();
     void FinishPointDrag_();
     // Shift+drag in Select: moves the flat textures of the selection, not the shapes.
     bool StartTextureDrag_();

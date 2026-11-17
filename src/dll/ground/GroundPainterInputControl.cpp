@@ -59,13 +59,17 @@ namespace {
         return std::hypot(a.x - b.x, a.z - b.z);
     }
 
-    float DistanceToSegment(const Vec2 p, const Vec2 a, const Vec2 b) {
+    Vec2 ClosestOnSegment(const Vec2 p, const Vec2 a, const Vec2 b) {
         const float dx = b.x - a.x;
         const float dz = b.z - a.z;
         const float lengthSquared = dx * dx + dz * dz;
         const float t = lengthSquared > 0.0f ? std::clamp(((p.x - a.x) * dx + (p.z - a.z) * dz) / lengthSquared, 0.0f, 1.0f)
                                              : 0.0f;
-        return Distance(p, {a.x + t * dx, a.z + t * dz});
+        return {a.x + t * dx, a.z + t * dz};
+    }
+
+    float DistanceToSegment(const Vec2 p, const Vec2 a, const Vec2 b) {
+        return Distance(p, ClosestOnSegment(p, a, b));
     }
 }
 
@@ -571,6 +575,10 @@ bool GroundPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
         if (IsDrawing()) {
             CancelShape_();
         }
+        else if (settings_.tool == Tool::Select && PickedPoint()) {
+            pickedObject_ = 0;
+            RefreshPreview_();
+        }
         else if (settings_.tool == Tool::Select && returnTool_) {
             // Back to the tool the selected shape was drawn with.
             settings_.tool = *std::exchange(returnTool_, std::nullopt);
@@ -596,7 +604,10 @@ bool GroundPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
         }
         return true;
     case VK_DELETE:
-        if (settings_.tool == Tool::Select && !document_->Selection().empty()) {
+        if (settings_.tool == Tool::Select && PickedPoint()) {
+            RemovePickedPoint_();
+        }
+        else if (settings_.tool == Tool::Select && !document_->Selection().empty()) {
             const std::vector<uint32_t> selected = document_->Selection();
             document_->Remove(selected);
             RefreshPreview_();
@@ -1042,14 +1053,7 @@ bool GroundPainterInputControl::StartPointEdit_(const bool insert, const bool re
         return false;
     }
     const std::vector<Vec2>& points = object->shape.points;
-
-    std::optional<size_t> nearest;
-    for (size_t i = 0; i < points.size(); ++i) {
-        if (Distance(points[i], cursor_) < PickDistance_() &&
-            (!nearest || Distance(points[i], cursor_) < Distance(points[*nearest], cursor_))) {
-            nearest = i;
-        }
-    }
+    std::optional<size_t> nearest = PointUnderCursor_(*object);
 
     pointEdit_ = *object;
     if (!insert) {
@@ -1090,19 +1094,10 @@ bool GroundPainterInputControl::StartPointEdit_(const bool insert, const bool re
         document_->Update({pointEdit_});
         return true;
     }
-    if (!nearest && insert) {
-        // Ctrl+click on the path between two points adds one there.
-        const size_t segments = PointsClosed(*object) ? points.size() : points.size() - 1;
-        const size_t most = PointsFor(object->shape.marking.kind).maxPoints;
-        if (object->shape.kind == ShapeKind::Marking && most > 0 && points.size() >= most) {
-            return false;
-        }
-        for (size_t i = 0; i < segments; ++i) {
-            if (DistanceToSegment(cursor_, points[i], points[(i + 1) % points.size()]) < PickDistance_()) {
-                nearest = i + 1;
-                InsertShapePoint(pointEdit_.shape, i + 1, cursor_);
-                break;
-            }
+    if (!nearest) {
+        if (const auto spot = OutlineInsertAt_(*object)) {
+            nearest = spot->first;
+            InsertShapePoint(pointEdit_.shape, spot->first, spot->second);
         }
     }
     if (!nearest) {
@@ -1113,6 +1108,88 @@ bool GroundPainterInputControl::StartPointEdit_(const bool insert, const bool re
     pickedIndex_ = *nearest;
     document_->ShowChanged(pointEdit_);
     return true;
+}
+
+bool GroundPainterInputControl::RemovePickedPoint_() {
+    const auto picked = PickedPoint();
+    const PaintObject* const target = PointEditTarget_();
+    if (!picked || !target || target->shape.points.size() <= MinimumPoints(*target)) {
+        return false;
+    }
+    PaintObject changed = *target;
+    EraseShapePoint(changed.shape, *picked);
+    pickedObject_ = 0;
+    document_->Update({changed});
+    RefreshPreview_();
+    return true;
+}
+
+std::optional<size_t> GroundPainterInputControl::PointUnderCursor_(const PaintObject& object) const {
+    const std::vector<Vec2>& points = object.shape.points;
+    std::optional<size_t> nearest;
+    for (size_t i = 0; i < points.size(); ++i) {
+        if (Distance(points[i], cursor_) < PickDistance_() &&
+            (!nearest || Distance(points[i], cursor_) < Distance(points[*nearest], cursor_))) {
+            nearest = i;
+        }
+    }
+    return nearest;
+}
+
+std::optional<std::pair<size_t, Vec2>> GroundPainterInputControl::OutlineInsertAt_(const PaintObject& object) const {
+    const std::vector<Vec2>& points = object.shape.points;
+    const size_t most = PointsFor(object.shape.marking.kind).maxPoints;
+    if (points.size() < 2 || (object.shape.kind == ShapeKind::Marking && most > 0 && points.size() >= most)) {
+        return std::nullopt;
+    }
+    const bool closed = PointsClosed(object);
+
+    // Along the drawn path, so a click on a curve lands on it. Rounded corners miss their points: then the straight sides.
+    std::vector<Vec2> path;
+    std::vector<size_t> pointAt;
+    if (object.shape.kind == ShapeKind::Area || object.shape.kind == ShapeKind::Line) {
+        path = ShapePath(object.shape, closed);
+        size_t k = 0;
+        for (const Vec2& point : points) {
+            while (k < path.size() && Distance(path[k], point) > 0.05f) {
+                ++k;
+            }
+            if (k == path.size()) {
+                break;
+            }
+            pointAt.push_back(k);
+        }
+        if (pointAt.size() != points.size()) {
+            path.clear();
+        }
+    }
+
+    std::optional<std::pair<size_t, Vec2>> best;
+    float bestDistance = PickDistance_();
+    const auto consider = [&](const size_t side, const Vec2 a, const Vec2 b) {
+        const Vec2 spot = ClosestOnSegment(cursor_, a, b);
+        if (const float distance = Distance(cursor_, spot); distance < bestDistance) {
+            bestDistance = distance;
+            best = std::pair{side + 1, spot};
+        }
+    };
+    if (!path.empty()) {
+        const size_t edges = closed ? path.size() : path.size() - 1;
+        size_t side = 0;
+        for (size_t k = 0; k < edges; ++k) {
+            while (side + 1 < pointAt.size() && pointAt[side + 1] <= k) {
+                ++side;
+            }
+            consider(side, path[k], path[(k + 1) % path.size()]);
+        }
+    }
+    else {
+        const size_t sides = closed ? points.size() : points.size() - 1;
+        for (size_t i = 0; i < sides; ++i) {
+            consider(i, points[i], points[(i + 1) % points.size()]);
+        }
+    }
+    return best;
 }
 
 void GroundPainterInputControl::FinishPointDrag_() {
@@ -1147,6 +1224,8 @@ void GroundPainterInputControl::RefreshPreview_() {
     moved_ = false;
     std::vector<PaintOverlay::GroundGuide> guides;
     std::vector<Vec2> markers;
+    std::optional<std::pair<Vec2, bool>> hoverPoint;
+    std::optional<Vec2> addSpot;
     float ring = 0.0f;
     uint32_t ringColor = kCursorPathColor;
     // Curve handles: a line from the point to each end, and a marker on the end.
@@ -1185,6 +1264,14 @@ void GroundPainterInputControl::RefreshPreview_() {
                     const Vec2 p = target->shape.points[*picked];
                     const float kSize = std::max(0.3f, snapReach_ * 0.5f);
                     guides.push_back({{{p.x - kSize, p.z}, {p.x, p.z - kSize}, {p.x + kSize, p.z}, {p.x, p.z + kSize}}, true, kSnapPointColor});
+                }
+                if (cursorValid_ && !dragging_ && !textureDrag_) {
+                    if (const auto under = PointUnderCursor_(*target)) {
+                        hoverPoint = std::pair{target->shape.points[*under], KeyHeld(VK_MENU)};
+                    }
+                    else if (const auto spot = OutlineInsertAt_(*target)) {
+                        addSpot = spot->second;
+                    }
                 }
             }
             if (cursorValid_ && !dragging_) {
@@ -1235,6 +1322,24 @@ void GroundPainterInputControl::RefreshPreview_() {
         }
         return circle;
     };
+    const float cueSize = std::max(0.2f, snapReach_ * 0.6f);
+    const auto crossAt = [&](const Vec2 centre, const float size, const bool diagonal, const uint32_t color) {
+        const float a = diagonal ? size * 0.7071f : size;
+        const float b = diagonal ? a : 0.0f;
+        guides.push_back({{{centre.x - a, centre.z - b}, {centre.x + a, centre.z + b}}, false, color});
+        guides.push_back({{{centre.x - b, centre.z + a}, {centre.x + b, centre.z - a}}, false, color});
+    };
+    if (hoverPoint) {
+        const auto [point, removes] = *hoverPoint;
+        guides.push_back({circleAt(point, cueSize), true, removes ? kEraserColor : kSnapPointColor});
+        if (removes) {
+            crossAt(point, cueSize, true, kEraserColor);
+        }
+    }
+    if (addSpot) {
+        guides.push_back({circleAt(*addSpot, cueSize * 0.75f), true, kSnapPointColor});
+        crossAt(*addSpot, cueSize * 0.5f, false, kSnapPointColor);
+    }
     if (cursorValid_ && !penDrag_ && UsesPen_() && ClosesShape_() && anchors_.size() >= 3 &&
         Distance(cursor_, anchors_.front()) < CloseDistance_()) {
         // A ring round the first point: a click here closes the shape.
@@ -1460,8 +1565,11 @@ std::string GroundPainterInputControl::StatusText() const {
         }
         const std::string back = returnTool_ ? " Press Esc to draw another shape." : "";
         if (PointEditTarget_()) {
-            return "Drag the shape, its points or their curve handles to move them. Ctrl+click its outline to add a point. Alt+click a point to remove it. Alt+drag a curve handle to bend one side only. "
-                   "Shift+drag to move its texture. Press Delete to remove the shape." + back;
+            if (PickedPoint()) {
+                return "Drag a point or a curve handle to move it. Press Delete to remove the picked point. Press Esc to let go of it." + back;
+            }
+            return "Drag a point or a curve handle to move it. Click the outline to add a point. Alt+click a point to remove it. Alt+drag a curve handle to bend one side only. "
+                   "Drag inside the shape to move it. Shift+drag to move its texture. Press Delete to remove the shape." + back;
         }
         return "Drag to move. Shift+drag to move the texture. Press , or . to turn. Press - or = to scale. Press Ctrl+D to copy. Press Delete to remove." + back;
     }
