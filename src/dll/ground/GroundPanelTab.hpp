@@ -97,7 +97,6 @@ private:
 
     DecalRepository* decals_;
     cIGZPersistResourceManager* pRM_;
-    std::unique_ptr<DecalPanelTab> stampTab_;
     ThumbnailCache<uint32_t> thumbnails_{};
     // Multi-FSH frames: how many each texture has (known once its thumbnail loads), and their
     // thumbnails by frame << 32 | instance.
@@ -115,8 +114,6 @@ private:
     std::chrono::steady_clock::time_point lastSettingsPush_{};
     // When the selection's edit was last shown in the city with a new cut.
     std::chrono::steady_clock::time_point lastLivePreview_{};
-    bool stamping_ = false;
-    bool shownStamping_ = false;
     TextureHoverPreview hoverPreview_{};
 
     // The selected object being edited, applied when a control is let go.

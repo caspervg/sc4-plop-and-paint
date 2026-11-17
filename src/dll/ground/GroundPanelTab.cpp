@@ -452,30 +452,23 @@ GroundPanelTab::GroundPanelTab(SC4PlopAndPaintDirector* director,
                                cIGZImGuiService* imguiService)
     : PanelTab(director, nullptr, nullptr, favorites, imguiService)
     , decals_(decals)
-    , pRM_(pRM)
-    , stampTab_(decals ? std::make_unique<DecalPanelTab>(director, decals, favorites, pRM, imguiService) : nullptr) {
+    , pRM_(pRM) {
     const PaintGridChoice grid = director->GetGridChoice(&PaintGridChoices::ground);
     settings_.showGrid = *grid.show;
     settings_.snapPointsToGrid = *grid.snap;
     settings_.gridStepMeters = *grid.step;
 }
 
-void GroundPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
+void GroundPanelTab::OnDeviceReset(const uint32_t /*deviceGeneration*/) {
     hoverPreview_.Clear();
     thumbnails_.OnDeviceReset();
     frameThumbnails_.OnDeviceReset();
-    if (stampTab_) {
-        stampTab_->OnDeviceReset(deviceGeneration);
-    }
 }
 
 void GroundPanelTab::OnShutdown() {
     thumbnails_.Clear();
     frameThumbnails_.Clear();
     hoverPreview_.Clear();
-    if (stampTab_) {
-        stampTab_->OnShutdown();
-    }
 }
 
 void GroundPanelTab::SettingsChanged_() {
@@ -512,7 +505,6 @@ void GroundPanelTab::FlushSettings_() {
 }
 
 void GroundPanelTab::SelectTool_(const Tool tool) {
-    stamping_ = false;
     settings_.tool = tool;
     ReleaseImGuiInputCapture_();
     pushedSettings_ = settings_;
@@ -548,7 +540,7 @@ void GroundPanelTab::FinishTexturePick_() {
         use(settings_.look, toolLook_);
     }
     // Not when something else was started instead.
-    if (!stamping_ && !director_->IsAnyToolActive()) {
+    if (!director_->IsAnyToolActive()) {
         SelectTool_(pickResumeTool_);
     }
 }
@@ -593,25 +585,6 @@ void GroundPanelTab::OnRender() {
     ImGui::PushID("tools");
     RenderToolRow_();
     ImGui::PopID();
-    // Both modes list the same textures, so the search goes along when the mode changes.
-    if (stampTab_ && stamping_ != shownStamping_) {
-        if (stamping_) {
-            stampTab_->SetSearch(textureFilter_, packFilter_.Selected());
-        }
-        else {
-            std::snprintf(textureFilter_, sizeof(textureFilter_), "%s", stampTab_->SearchText());
-            packFilter_.Select(stampTab_->SelectedPack());
-        }
-    }
-    shownStamping_ = stamping_;
-
-    if (stamping_) {
-        ImGui::Separator();
-        if (stampTab_) {
-            stampTab_->OnRender();
-        }
-        return;
-    }
 
     Document* const document = director_->GetGroundDocument();
     if (!director_->IsGroundPaintAvailable() || !document) {
@@ -694,7 +667,7 @@ void GroundPanelTab::RenderToolRow_() {
         bool first = true;
         for (const ToolInfo& info : tools) {
             place(info.label, std::exchange(first, false));
-            const bool active = painting && !stamping_ && settings_.tool == info.tool;
+            const bool active = painting && settings_.tool == info.tool;
             ImGui::BeginDisabled(!available);
             if (ToggleButton(info.label, active)) {
                 // Clicking the tool in use puts it away.
@@ -712,16 +685,6 @@ void GroundPanelTab::RenderToolRow_() {
 
     toolButtons(kPaintTools);
     toolButtons(kEditTools);
-    place("Stamp decals", true);
-    if (ToggleButton("Stamp decals", stamping_)) {
-        stamping_ = !stamping_;
-        if (stamping_) {
-            director_->StopGroundPainting();
-        }
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Place, select and remove single texture decals.");
-    }
 }
 
 void GroundPanelTab::RenderStatus_() {
