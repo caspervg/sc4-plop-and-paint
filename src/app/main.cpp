@@ -32,6 +32,7 @@
 #include "DbpfIndexService.hpp"
 #include "ExemplarParser.hpp"
 #include "BuiltinPropFamilyNames.hpp"
+#include "Console.hpp"
 #include "PathDetection.hpp"
 #include "PluginLocator.hpp"
 #include "PropertyMapper.hpp"
@@ -981,6 +982,7 @@ namespace {
 
 int main(int argc, char* argv[]) {
     try {
+        UseUtf8Console();
         auto logger = spdlog::stdout_color_mt("lotplop-cli");
         spdlog::set_default_logger(logger);
         logger->set_level(spdlog::level::debug);
