@@ -1138,10 +1138,12 @@ void GroundPanelTab::RenderPalettes_(Look& look, float& wear, float* roughness, 
         committed = true;
     }
     ImGui::EndDisabled();
+    const std::string mixAll = "Paint with all textures of this preset as a mix, up to " +
+                               std::to_string(kTerrainPaintMaxTextures) +
+                               " textures.\nClick Save to keep the rest of the look in this preset too.";
     Tooltip(!canUse          ? "This preset is empty. Click Save to keep the look that you paint with now."
             : palette.look ? "Paint with the look of this preset: its textures, mix, size, turn, shift, tint, edges and wear."
-                           : "Paint with all textures of this preset as a mix, up to 8 textures.\n"
-                             "Click Save to keep the rest of the look in this preset too.");
+                           : mixAll.c_str());
 
     // Texture is chosen but no texture is picked yet: there is nothing to save.
     const bool nothingToSave = look.textures.empty() && state.wantsTexture;
