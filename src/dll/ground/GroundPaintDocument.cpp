@@ -32,7 +32,8 @@ namespace Ground {
         // The paint's style. area is what is painted, for the size of the worn patches. part 0 is
         // the whole area; with texture patches, part i is the patches of texture i.
         TerrainPaintStyle ToStyle(const PaintObject& object, const Area& area, const int32_t drawOrder, const bool hidden,
-                                  const bool transient, const uint32_t whiteTexture, const size_t part = 0) {
+                                  const bool transient, const uint32_t whiteTexture, const size_t part = 0,
+                                  const bool draft = false) {
             const Look& look = object.look;
             TerrainPaintStyle style{};
             const bool patches = UsesPatches(look);
@@ -61,7 +62,7 @@ namespace Ground {
             style.depthOffset = look.depthOffset;
             style.layer = ToServiceLayer(look.layer);
             style.enabled = !hidden;
-            style.flags = transient ? kTerrainPaintFlagTransient : 0u;
+            style.flags = (transient ? kTerrainPaintFlagTransient : 0u) | (draft ? kTerrainPaintFlagDraft : 0u);
             if (object.shape.wear > 0.0f) {
                 style.wear = object.shape.wear;
                 style.wearPatchMeters = WearPatchSize(area);
@@ -671,7 +672,7 @@ namespace Ground {
             return FlatShape(IsEmpty(partArea) ? kNothing : partArea, uvMap);
         };
         const auto styleOf = [&](const size_t part) {
-            return ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part);
+            return ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part, draft_);
         };
         const auto update = [&](const uint32_t id, const size_t part) {
             const TerrainPaintStyle style = styleOf(part);
@@ -730,7 +731,7 @@ namespace Ground {
             return;
         }
         const auto restyle = [&](const uint32_t id, const size_t part) {
-            const TerrainPaintStyle style = ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part);
+            const TerrainPaintStyle style = ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part, draft_);
             service_->SetPaintStyle(TerrainPaintId{id}, &style, sizeof(style));
         };
         restyle(paintId, 0);
@@ -893,11 +894,18 @@ namespace Ground {
         if (!service_ || !current || current->paintId == 0) {
             return;
         }
+        // Changes that make the service cut the paint again are shown as a draft, without soft
+        // edges and wear, until the change is done.
+        const bool recut = object.look.featherMeters != current->look.featherMeters ||
+                           object.look.patchBlendMeters != current->look.patchBlendMeters ||
+                           object.shape.wear != current->shape.wear;
         if (SameShape(object, *current) && UsesPatches(object.look) == UsesPatches(current->look)) {
             // A colour, opacity or texture change: no new cut.
             shownStyle_.insert(object.id);
+            draft_ = recut;
             Restyle_(object, AreaOf(current->id), current->paintId, current->patchPaintIds, current->drawOrder,
                      current->hidden, false);
+            draft_ = false;
             return;
         }
         const Area area = BuildArea(object);
@@ -907,9 +915,11 @@ namespace Ground {
         shownShape_.insert(object.id);
         const std::vector<Area>& patches = built_[object.id].patches;
         const bool samePatchCount = UsesPatches(object.look) && patches.size() + 1 == object.look.textures.size();
+        draft_ = true;
         ShowParts_(current->paintId, current->patchPaintIds, object, area,
                    samePatchCount ? patches : PatchesOf_(object.id, object, area, kPreviewPatchCells), BuildUvMap(object),
                    current->drawOrder, current->hidden, false, !(area == AreaOf(object.id)), !samePatchCount);
+        draft_ = false;
     }
 
     Bounds GroundPaintDocument::SelectionBounds() const {

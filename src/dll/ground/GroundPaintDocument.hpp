@@ -154,6 +154,8 @@ namespace Ground {
         cIGZTerrainPaintService* service_ = nullptr;
         std::vector<PaintObject> objects_{};
         std::unordered_map<uint32_t, Built> built_{};
+        // While ShowChanged shows a change that makes the paint be cut again: styles carry the draft flag.
+        bool draft_ = false;
         struct PatchMemo {
             Area area;
             std::vector<float> weights;
