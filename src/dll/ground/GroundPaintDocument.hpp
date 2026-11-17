@@ -52,9 +52,14 @@ namespace Ground {
         void Duplicate(std::span<const uint32_t> ids, Vec2 offset);
         // Makes the unlocked ones into one object, painted like the topmost; 0 when fewer than two.
         uint32_t Merge(std::span<const uint32_t> ids);
-        // A group is selected as one.
-        void Group(std::span<const uint32_t> ids);
+        // A group is selected as one. Its members lie next to each other in the order, where the
+        // topmost of them was. An empty name numbers it.
+        void Group(std::span<const uint32_t> ids, std::string name = {});
         void Ungroup(std::span<const uint32_t> ids);
+        void RenameGroup(uint32_t group, const std::string& name);
+        // Moves them, in their order, just over or under the target. Unless keepGroup, they join
+        // the target's group, or leave theirs when it has none.
+        void MoveNextTo(std::span<const uint32_t> ids, uint32_t target, bool over, bool keepGroup);
         // Moves, turns and scales the unlocked ones.
         void Transform(std::span<const uint32_t> ids, const Placement& placement);
         // A new object along the edge of these, painted like the topmost of them, on top and
@@ -79,8 +84,7 @@ namespace Ground {
 
         [[nodiscard]] const std::vector<uint32_t>& Selection() const { return selection_; }
         [[nodiscard]] bool IsSelected(uint32_t id) const;
-        // With its whole group.
-        void Select(uint32_t id, bool addToSelection);
+        void Select(uint32_t id, bool addToSelection, bool wholeGroup = true);
         void ClearSelection();
 
         // Shows an object that is still being drawn; nullptr hides it. Not saved, not undone.
@@ -131,6 +135,8 @@ namespace Ground {
         void RemovePaint_(uint32_t& paintId);
         void RemovePaints_(uint32_t& paintId, std::vector<uint32_t>& patchIds);
         void SortByOrder_();
+        // Commits the objects in this order, bottom to top, with what changed in them.
+        void Arrange_(std::vector<PaintObject> arranged);
         void Reorder_(uint32_t id, int steps);
         [[nodiscard]] PaintObject* FindMutable_(uint32_t id);
         [[nodiscard]] int32_t TopOrder_() const;

@@ -156,6 +156,9 @@ void GroundPainterInputControl::ProcessPendingActions() {
     if (moved_ && active_) {
         ShowMove_();
     }
+    else if (active_ && document_ && document_->Selection() != shownSelection_) {
+        RefreshPreview_();  // selected in the panel
+    }
     if (cancelPending_) {
         cancelPending_ = false;
         if (onCancel_) {
@@ -1222,6 +1225,9 @@ cISTETerrain* GroundPainterInputControl::Terrain_() const {
 void GroundPainterInputControl::RefreshPreview_() {
     // Up to date now, whatever asked for it.
     moved_ = false;
+    if (document_) {
+        shownSelection_ = document_->Selection();
+    }
     std::vector<PaintOverlay::GroundGuide> guides;
     std::vector<Vec2> markers;
     std::optional<std::pair<Vec2, bool>> hoverPoint;
@@ -1305,6 +1311,13 @@ void GroundPainterInputControl::RefreshPreview_() {
                 guides.push_back({DrawingPath_(), ClosesShape_(), eraser ? kEraserColor : kPathColor});
                 markers = anchors_;
                 showHandles(anchors_, anchorHandles_, anchorInHandles_);
+            }
+        }
+        else {
+            for (const uint32_t selected : document_->Selection()) {
+                for (const Ring& outline : document_->AreaOf(selected)) {
+                    guides.push_back({outline, true, kSelectionColor});
+                }
             }
         }
     }

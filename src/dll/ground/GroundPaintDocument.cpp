@@ -296,22 +296,33 @@ namespace Ground {
         return id;
     }
 
-    void GroundPaintDocument::Group(const std::span<const uint32_t> ids) {
-        std::vector<PaintObject> changed;
+    void GroundPaintDocument::Group(const std::span<const uint32_t> ids, std::string name) {
         uint32_t group = 0;
         for (const PaintObject& object : objects_) {
             group = std::max(group, object.group);
         }
         ++group;
-        for (const uint32_t id : ids) {
-            if (const PaintObject* object = Find(id)) {
-                changed.push_back(*object);
-                changed.back().group = group;
+        if (name.empty()) {
+            name = "Group " + std::to_string(group);
+        }
+        std::vector<PaintObject> others;
+        std::vector<PaintObject> members;
+        size_t at = 0;
+        for (const PaintObject& object : objects_) {
+            if (std::ranges::find(ids, object.id) == ids.end()) {
+                others.push_back(object);
+                continue;
             }
+            members.push_back(object);
+            members.back().group = group;
+            members.back().groupName = name;
+            at = others.size();
         }
-        if (changed.size() >= 2) {
-            Update(std::move(changed));
+        if (members.empty()) {
+            return;
         }
+        others.insert(others.begin() + static_cast<std::ptrdiff_t>(at), members.begin(), members.end());
+        Arrange_(std::move(others));
     }
 
     void GroundPaintDocument::Ungroup(const std::span<const uint32_t> ids) {
@@ -320,9 +331,68 @@ namespace Ground {
             if (const PaintObject* object = Find(id); object && object->group != 0) {
                 changed.push_back(*object);
                 changed.back().group = 0;
+                changed.back().groupName.clear();
             }
         }
         Update(std::move(changed));
+    }
+
+    void GroundPaintDocument::RenameGroup(const uint32_t group, const std::string& name) {
+        std::vector<PaintObject> changed;
+        for (const PaintObject& object : objects_) {
+            if (group != 0 && object.group == group && object.groupName != name) {
+                changed.push_back(object);
+                changed.back().groupName = name;
+            }
+        }
+        if (!changed.empty()) {
+            Update(std::move(changed));
+        }
+    }
+
+    void GroundPaintDocument::MoveNextTo(const std::span<const uint32_t> ids, const uint32_t target, const bool over,
+                                         const bool keepGroup) {
+        const PaintObject* const anchor = Find(target);
+        if (!anchor || std::ranges::find(ids, target) != ids.end()) {
+            return;
+        }
+        const uint32_t group = anchor->group;
+        const std::string groupName = anchor->groupName;
+        std::vector<PaintObject> others;
+        std::vector<PaintObject> moved;
+        for (const PaintObject& object : objects_) {
+            if (std::ranges::find(ids, object.id) == ids.end()) {
+                others.push_back(object);
+                continue;
+            }
+            moved.push_back(object);
+            if (!keepGroup) {
+                moved.back().group = group;
+                moved.back().groupName = groupName;
+            }
+        }
+        const auto at = std::ranges::find(others, target, &PaintObject::id) + (over ? 1 : 0);
+        others.insert(at, moved.begin(), moved.end());
+        Arrange_(std::move(others));
+    }
+
+    void GroundPaintDocument::Arrange_(std::vector<PaintObject> arranged) {
+        std::vector<PaintObject> before;
+        std::vector<PaintObject> after;
+        int32_t order = objects_.empty() ? 0 : objects_.front().drawOrder - 1;
+        for (size_t i = 0; i < arranged.size() && i < objects_.size(); ++i) {
+            order = std::max(objects_[i].drawOrder, order + 1);
+            arranged[i].drawOrder = order;
+            const PaintObject* const current = Find(arranged[i].id);
+            if (current && (current->drawOrder != order || current->group != arranged[i].group ||
+                            current->groupName != arranged[i].groupName)) {
+                before.push_back(*current);
+                after.push_back(arranged[i]);
+            }
+        }
+        if (!after.empty()) {
+            Commit_(std::move(before), std::move(after));
+        }
     }
 
     void GroundPaintDocument::Transform(const std::span<const uint32_t> ids, const Placement& placement) {
@@ -439,6 +509,7 @@ namespace Ground {
                 changed.patchPaintIds.clear();
                 changed.locked = false;
                 changed.group = 0;
+                changed.groupName.clear();
             }
             mirrored.push_back(std::move(changed));
         }
@@ -645,7 +716,7 @@ namespace Ground {
         return std::ranges::find(selection_, id) != selection_.end();
     }
 
-    void GroundPaintDocument::Select(const uint32_t id, const bool addToSelection) {
+    void GroundPaintDocument::Select(const uint32_t id, const bool addToSelection, const bool wholeGroup) {
         if (!addToSelection) {
             selection_.clear();
         }
@@ -654,7 +725,7 @@ namespace Ground {
             return;
         }
         for (const PaintObject& object : objects_) {
-            const bool inGroup = object.id == id || (picked->group != 0 && object.group == picked->group);
+            const bool inGroup = object.id == id || (wholeGroup && picked->group != 0 && object.group == picked->group);
             if (inGroup && !IsSelected(object.id)) {
                 selection_.push_back(object.id);
             }

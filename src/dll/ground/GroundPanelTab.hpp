@@ -82,6 +82,7 @@ private:
     void RenderPlanting_(uint32_t objectId);
     void RenderTransform_(Ground::GroundPaintDocument& document);
     void RenderLayers_(Ground::GroundPaintDocument& document);
+    void RenderLayerTree_(Ground::GroundPaintDocument& document);
     // Marks the tool settings changed; FlushSettings_ hands them to the city's tool, at most every
     // 150 ms while a control is held.
     void SettingsChanged_();
@@ -158,6 +159,8 @@ private:
     std::vector<uint32_t> recentTextures_{};
     size_t activePalette_ = 0;
     bool libraryOpen_ = false;
+    bool layersOpen_ = false;
+    char renameBuffer_[64]{};
     // The texture of a mix whose share and buttons show.
     size_t chosenTexture_ = 0;
     LookEditorState toolLook_{};

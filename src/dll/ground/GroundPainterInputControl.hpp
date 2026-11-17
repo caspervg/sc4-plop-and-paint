@@ -155,6 +155,7 @@ private:
     bool cancelPending_ = false;
     // The drawing tool that SelectPainted_ left, for Esc to go back to.
     std::optional<Ground::Tool> returnTool_{};
+    std::vector<uint32_t> shownSelection_{};
     bool moved_ = false;
     bool lookPickArmed_ = false;
     uint32_t lookPickCount_ = 0;

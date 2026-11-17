@@ -99,6 +99,7 @@ namespace Ground {
         uint32_t id = 0;
         std::string name{};
         uint32_t group = 0;  // 0: not in a group
+        std::string groupName{};
         bool hidden = false;
         bool locked = false;
         ShapeSpec shape{};

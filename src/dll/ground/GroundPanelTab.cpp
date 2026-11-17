@@ -1,6 +1,7 @@
 #include "GroundPanelTab.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <cfloat>
 #include <chrono>
 #include <cctype>
@@ -1989,9 +1990,8 @@ void GroundPanelTab::RenderTransform_(Document& document) {
 }
 
 void GroundPanelTab::RenderLayers_(Document& document) {
-    const auto& objects = document.Objects();
     char header[64];
-    std::snprintf(header, sizeof(header), "Painted in this city (%zu)", objects.size());
+    std::snprintf(header, sizeof(header), "Painted in this city (%zu)", document.Objects().size());
     ImGui::SeparatorText(header);
 
     ImGui::BeginDisabled(!document.CanUndo());
@@ -2007,18 +2007,36 @@ void GroundPanelTab::RenderLayers_(Document& document) {
     }
     ImGui::EndDisabled();
     Tooltip("Press Ctrl+Y, or the forward mouse button.");
+    ImGui::SameLine(0.0f, kGroupGap);
+    if (ToggleButton("Layers", layersOpen_)) {
+        layersOpen_ = !layersOpen_;
+    }
+    Tooltip("Show what you painted in a window of its own.\n"
+            "There you can show, hide, lock, order, name and group it.");
+    if (!layersOpen_) {
+        return;
+    }
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.3f, viewport->WorkPos.y + viewport->WorkSize.y * 0.15f),
+                            ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 24.0f, ImGui::GetFontSize() * 30.0f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Layers###PlopAndPaintGroundLayers", &layersOpen_, ImGuiWindowFlags_NoNav)) {
+        RenderLayerTree_(document);
+    }
+    ImGui::End();
+}
+
+void GroundPanelTab::RenderLayerTree_(Document& document) {
+    const auto& objects = document.Objects();
     if (objects.empty()) {
         ImGui::TextDisabled("Nothing painted yet.");
         return;
     }
+    Hint("Click to select. Double-click to change the shape. Drag to change the order, or to move it into a group. "
+         "Right-click for more.");
 
     constexpr ImGuiTableFlags kFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerH;
-    // As tall as its rows need, up to the rest of the panel; never fewer than about five rows, so
-    // a short panel scrolls instead of squeezing the list.
-    const float row = ImGui::GetTextLineHeightWithSpacing();
-    const float needed = row * (static_cast<float>(objects.size()) + 1.5f);
-    const float height = std::min(needed, std::max(ImGui::GetContentRegionAvail().y, row * 6.5f));
-    if (!ImGui::BeginTable("##layers", 4, kFlags, ImVec2(0, height))) {
+    if (!ImGui::BeginTable("##layers", 4, kFlags)) {
         return;
     }
     ImGui::TableSetupColumn("Shown", ImGuiTableColumnFlags_WidthFixed);
@@ -2028,77 +2046,221 @@ void GroundPanelTab::RenderLayers_(Document& document) {
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableHeadersRow();
 
-    // Top first, as they lie in the city. Edits are collected and applied after the loop, which
-    // reorders the list.
-    std::optional<PaintObject> changed;
-    std::optional<std::pair<uint32_t, bool>> clicked;
-    ImGuiListClipper clipper;
-    clipper.Begin(static_cast<int>(objects.size()));
-    while (clipper.Step()) {
-        for (int rowIndex = clipper.DisplayStart; rowIndex < clipper.DisplayEnd; ++rowIndex) {
-            const PaintObject& object = objects[objects.size() - 1 - static_cast<size_t>(rowIndex)];
-            ImGui::PushID(static_cast<int>(object.id));
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            bool shown = !object.hidden;
-            if (ImGui::Checkbox("##shown", &shown)) {
-                changed = object;
-                changed->hidden = !shown;
-            }
-            ImGui::TableNextColumn();
-            bool locked = object.locked;
-            if (ImGui::Checkbox("##locked", &locked)) {
-                changed = object;
-                changed->locked = locked;
-            }
-            ImGui::TableNextColumn();
-            // What it is painted with: its texture, or its colour. A click selects, as on the name.
-            const float swatch = ImGui::GetTextLineHeight();
-            bool swatchClicked;
-            if (!object.look.textures.empty()) {
-                swatchClicked = TextureTile_(object.look.textures.front().instance, swatch, false);
-            }
-            else {
-                const auto& c = object.look.color;
-                swatchClicked = ImGui::ColorButton("##color", ImVec4(c[0], c[1], c[2], 1.0f), ImGuiColorEditFlags_NoTooltip,
-                                                   ImVec2(swatch, swatch));
-            }
-            ImGui::TableNextColumn();
-            const bool selected = ImGui::Selectable(ObjectLabel(object).c_str(), document.IsSelected(object.id),
-                                                    ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap);
-            if (selected || swatchClicked) {
-                clicked = std::pair{object.id, ImGui::GetIO().KeyCtrl};
-            }
-            // What kind of shape, and its group, quietly after the name.
-            std::string detail = object.name.empty() ? "" : ShapeKindName(object.shape.kind);
-            if (object.shape.kind == ShapeKind::Marking && !object.name.empty()) {
-                detail = MarkingKindName(object.shape.marking.kind);
-            }
-            if (object.group != 0) {
-                detail += (detail.empty() ? "" : ", ") + std::string("group ") + std::to_string(object.group);
-            }
-            if (object.shape.wear > 0.0f) {
-                detail += detail.empty() ? "worn" : ", worn";
-            }
-            if (UsesPatches(object.look)) {
-                detail += detail.empty() ? "patches" : ", patches";
-            }
-            if (!detail.empty()) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", detail.c_str());
-            }
-            ImGui::PopID();
+    // Edits change the list, so they wait until it is drawn.
+    std::function<void()> deferred;
+    constexpr const char* kPayload = "PNP_GROUND_LAYERS";
+    const bool ctrl = ImGui::GetIO().KeyCtrl;
+    const auto selectedOr = [&](const uint32_t id) {
+        return document.IsSelected(id) ? document.Selection() : std::vector<uint32_t>{id};
+    };
+    // The payload: whether the moved shapes keep their group, then their ids.
+    const auto dragSource = [&](const std::vector<uint32_t>& ids, const bool keepGroup, const char* label) {
+        if (ImGui::BeginDragDropSource()) {
+            std::vector<uint32_t> payload{keepGroup ? 1u : 0u};
+            payload.insert(payload.end(), ids.begin(), ids.end());
+            ImGui::SetDragDropPayload(kPayload, payload.data(), payload.size() * sizeof(uint32_t));
+            ImGui::Text("%s", label);
+            ImGui::EndDragDropSource();
         }
+    };
+    const auto dropTarget = [&](const uint32_t target, const bool onGroup) {
+        if (!ImGui::BeginDragDropTarget()) {
+            return;
+        }
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPayload)) {
+            const auto* data = static_cast<const uint32_t*>(payload->Data);
+            const size_t count = static_cast<size_t>(payload->DataSize) / sizeof(uint32_t);
+            std::vector<uint32_t> ids(data + 1, data + count);
+            const bool keepGroup = data[0] != 0;
+            // Over the target in the upper half of its row: the list is top first.
+            const bool over = onGroup || ImGui::GetMousePos().y < (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
+            deferred = [&document, ids = std::move(ids), target, over, keepGroup] {
+                document.MoveNextTo(ids, target, over, keepGroup);
+            };
+        }
+        ImGui::EndDragDropTarget();
+    };
+    const auto setFlag = [&](const std::vector<uint32_t>& ids, const bool lockColumn, const bool value) {
+        std::vector<PaintObject> changed;
+        for (const uint32_t id : ids) {
+            changed.push_back(*document.Find(id));
+            (lockColumn ? changed.back().locked : changed.back().hidden) = value;
+        }
+        deferred = [&document, changed = std::move(changed)] { document.Update(changed); };
+    };
+    const auto actionsMenu = [&](const std::vector<uint32_t>& ids) {
+        if (ImGui::MenuItem("Copy")) {
+            deferred = [&document, ids] { document.Duplicate(ids, {4.0f, 4.0f}); };
+        }
+        if (ImGui::MenuItem("Put in a new group")) {
+            deferred = [&document, ids] { document.Group(ids); };
+        }
+        const bool grouped = std::ranges::any_of(ids, [&](const uint32_t id) { return document.Find(id)->group != 0; });
+        if (grouped && ImGui::MenuItem("Take out of the group")) {
+            deferred = [&document, ids] { document.Ungroup(ids); };
+        }
+        if (ImGui::MenuItem("Join into one shape", nullptr, false, ids.size() >= 2)) {
+            deferred = [&document, ids] { document.Merge(ids); };
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Delete")) {
+            deferred = [&document, ids] { document.Remove(ids); };
+        }
+    };
+    const auto renameField = [&](const std::string& current, const auto& apply) {
+        if (ImGui::IsWindowAppearing()) {
+            std::snprintf(renameBuffer_, sizeof(renameBuffer_), "%s", current.c_str());
+            ImGui::SetKeyboardFocusHere();
+        }
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        ImGui::InputText("##rename", renameBuffer_, sizeof(renameBuffer_));
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            deferred = [apply, name = std::string(renameBuffer_)] { apply(name); };
+        }
+        Tooltip("The name. Press Enter to keep it.");
+    };
+
+    const auto layerRow = [&](const PaintObject& object, const bool inGroup) {
+        ImGui::PushID(static_cast<int>(object.id));
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        bool shown = !object.hidden;
+        if (ImGui::Checkbox("##shown", &shown)) {
+            setFlag({object.id}, false, !shown);
+        }
+        ImGui::TableNextColumn();
+        bool locked = object.locked;
+        if (ImGui::Checkbox("##locked", &locked)) {
+            setFlag({object.id}, true, locked);
+        }
+        ImGui::TableNextColumn();
+        const float swatch = ImGui::GetTextLineHeight();
+        if (!object.look.textures.empty()) {
+            TextureTile_(object.look.textures.front().instance, swatch, false);
+        }
+        else {
+            const auto& c = object.look.color;
+            ImGui::ColorButton("##color", ImVec4(c[0], c[1], c[2], 1.0f), ImGuiColorEditFlags_NoTooltip, ImVec2(swatch, swatch));
+        }
+        ImGui::TableNextColumn();
+        if (inGroup) {
+            ImGui::Indent();
+        }
+        const std::string label = ObjectLabel(object);
+        if (ImGui::Selectable(label.c_str(), document.IsSelected(object.id),
+                              ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap |
+                                  ImGuiSelectableFlags_AllowDoubleClick)) {
+            const uint32_t id = object.id;
+            const bool edit = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+            deferred = [this, &document, id, edit, ctrl] {
+                document.Select(id, ctrl, false);
+                if (edit || !director_->IsGroundPainting()) {
+                    if (settings_.tool != Tool::Select || !director_->IsGroundPainting()) {
+                        SelectTool_(Tool::Select);
+                    }
+                }
+            };
+        }
+        dragSource(selectedOr(object.id), false, label.c_str());
+        dropTarget(object.id, false);
+        if (ImGui::BeginPopupContextItem("layerMenu")) {
+            renameField(object.name, [&document, id = object.id](const std::string& name) {
+                PaintObject renamed = *document.Find(id);
+                renamed.name = name;
+                document.Update({renamed});
+            });
+            actionsMenu(selectedOr(object.id));
+            ImGui::EndPopup();
+        }
+        std::string detail = object.name.empty() ? "" : ShapeKindName(object.shape.kind);
+        if (object.shape.kind == ShapeKind::Marking && !object.name.empty()) {
+            detail = MarkingKindName(object.shape.marking.kind);
+        }
+        if (object.shape.wear > 0.0f) {
+            detail += detail.empty() ? "worn" : ", worn";
+        }
+        if (UsesPatches(object.look)) {
+            detail += detail.empty() ? "patches" : ", patches";
+        }
+        if (!detail.empty()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", detail.c_str());
+        }
+        if (inGroup) {
+            ImGui::Unindent();
+        }
+        ImGui::PopID();
+    };
+
+    // ponytail: no list clipper with group folders; add one if cities reach thousands of shapes.
+    for (size_t row = 0; row < objects.size();) {
+        const PaintObject& first = objects[objects.size() - 1 - row];
+        if (first.group == 0) {
+            layerRow(first, false);
+            ++row;
+            continue;
+        }
+        // The members of one group lie together, top first.
+        std::vector<uint32_t> members;
+        size_t end = row;
+        while (end < objects.size() && objects[objects.size() - 1 - end].group == first.group) {
+            members.push_back(objects[objects.size() - 1 - end].id);
+            ++end;
+        }
+        const auto all = [&](const auto& test) {
+            return std::ranges::all_of(members, [&](const uint32_t id) { return test(*document.Find(id)); });
+        };
+
+        ImGui::PushID(static_cast<int>(first.group));
+        ImGui::PushID(static_cast<int>(row));
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        bool shown = !all([](const PaintObject& o) { return o.hidden; });
+        if (ImGui::Checkbox("##shown", &shown)) {
+            setFlag(members, false, !shown);
+        }
+        ImGui::TableNextColumn();
+        bool locked = all([](const PaintObject& o) { return o.locked; });
+        if (ImGui::Checkbox("##locked", &locked)) {
+            setFlag(members, true, locked);
+        }
+        ImGui::TableNextColumn();
+        ImGui::TableNextColumn();
+        const bool selected = all([&](const PaintObject& o) { return document.IsSelected(o.id); });
+        const std::string name = first.groupName.empty() ? "Group " + std::to_string(first.group) : first.groupName;
+        const bool open = ImGui::TreeNodeEx("##group", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                                           ImGuiTreeNodeFlags_OpenOnArrow | (selected ? ImGuiTreeNodeFlags_Selected : 0),
+                                            "%s (%zu)", name.c_str(), members.size());
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+            const uint32_t id = first.id;
+            deferred = [this, &document, id, ctrl] {
+                document.Select(id, ctrl);
+                if (!director_->IsGroundPainting()) {
+                    SelectTool_(Tool::Select);
+                }
+            };
+        }
+        dragSource(members, true, name.c_str());
+        dropTarget(first.id, true);
+        if (ImGui::BeginPopupContextItem("groupMenu")) {
+            renameField(name, [&document, group = first.group](const std::string& newName) {
+                document.RenameGroup(group, newName);
+            });
+            actionsMenu(members);
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+        ImGui::PopID();
+        if (open) {
+            for (size_t i = row; i < end; ++i) {
+                layerRow(objects[objects.size() - 1 - i], true);
+            }
+        }
+        row = end;
     }
     ImGui::EndTable();
 
-    if (changed) {
-        document.Update({*changed});
-    }
-    if (clicked) {
-        document.Select(clicked->first, clicked->second);
-        if (settings_.tool != Tool::Select || !director_->IsGroundPainting()) {
-            SelectTool_(Tool::Select);
-        }
+    if (deferred) {
+        deferred();
     }
 }

@@ -458,6 +458,45 @@ int main() {
         CHECK(penLoaded.Find(id)->shape.pointRadii == moved.shape.pointRadii);
     }
 
+    // Named groups lie together in the order, where their topmost member was; moves join groups.
+    {
+        GroundPaintDocument groups(kWhite);
+        std::vector<uint32_t> ids;
+        for (int i = 0; i < 4; ++i) {
+            ids.push_back(groups.Add(Square(static_cast<float>(i) * 30.0f, 0, 20)));
+        }
+        const auto order = [&] {
+            std::vector<uint32_t> bottomToTop;
+            for (const PaintObject& object : groups.Objects()) {
+                bottomToTop.push_back(object.id);
+            }
+            return bottomToTop;
+        };
+        const uint32_t members[] = {ids[0], ids[2]};
+        groups.Group(members, "Park");
+        CHECK((order() == std::vector{ids[1], ids[0], ids[2], ids[3]}));
+        CHECK(groups.Find(ids[0])->groupName == "Park" && groups.Find(ids[0])->group == groups.Find(ids[2])->group);
+        CHECK(groups.Find(ids[1])->group == 0);
+
+        groups.Select(ids[0], false, false);
+        CHECK(groups.Selection().size() == 1);
+        groups.Select(ids[0], false);
+        CHECK(groups.Selection().size() == 2);
+
+        const uint32_t loose[] = {ids[3]};
+        groups.MoveNextTo(loose, ids[0], true, false);
+        CHECK((order() == std::vector{ids[1], ids[0], ids[3], ids[2]}));
+        CHECK(groups.Find(ids[3])->groupName == "Park");
+        groups.MoveNextTo(loose, ids[1], false, false);
+        CHECK(order().front() == ids[3] && groups.Find(ids[3])->group == 0);
+
+        groups.RenameGroup(groups.Find(ids[0])->group, "Central park");
+        GroundPaintDocument loaded(kWhite);
+        CHECK(loaded.Load(groups.Save()));
+        CHECK(loaded.Find(ids[2])->groupName == "Central park");
+        CHECK(groups.Undo() && groups.Find(ids[2])->groupName == "Park");
+    }
+
     std::puts("ok");
     return 0;
 }
