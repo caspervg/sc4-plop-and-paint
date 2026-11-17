@@ -26,6 +26,16 @@ constexpr bool IsSidewalkTexture(const uint32_t instance) {
     return (instance & 0xFF0FFFF0u) == 0x08000000u && wealth >= 1 && wealth <= 4;
 }
 
+// "Sidewalk, ..." for a sidewalk, null for any other texture.
+constexpr const char* SidewalkName(const uint32_t instance) {
+    for (const SidewalkTexture& sidewalk : kSidewalkTextures) {
+        if (sidewalk.instance == instance) {
+            return sidewalk.name;
+        }
+    }
+    return nullptr;
+}
+
 // Paint and decal textures are lot textures, except the sidewalks.
 constexpr uint32_t TextureGroupOf(const uint32_t instance) {
     return IsSidewalkTexture(instance) ? kNetworkTextureGroup : kLotTextureGroup;

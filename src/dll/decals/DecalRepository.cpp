@@ -7,6 +7,7 @@
 #include <wil/resource.h>
 #include <wil/win32_helpers.h>
 
+#include "TextureGroups.hpp"
 #include "TextureKindCache.hpp"
 #include "cGZPersistResourceKey.h"
 #include "cIGZPersistResourceKeyList.h"
@@ -67,8 +68,11 @@ void DecalRepository::Populate(cIGZPersistResourceManager* pRM) {
     for (uint32_t i = 0; i < count; ++i) {
         const cGZPersistResourceKey& key = rawList->GetKey(i);
         const uint32_t zoomVariant = key.instance & kZoom4Mask;
-        if (key.group == kDecalTextureGroup &&
-            (zoomVariant == kZoom4Value || zoomVariant == 9 || zoomVariant == 0xE)) {
+        const bool lotTexture = key.group == kDecalTextureGroup &&
+                                (zoomVariant == kZoom4Value || zoomVariant == 9 || zoomVariant == 0xE);
+        const bool sidewalk = key.group == decals::kNetworkTextureGroup && decals::IsSidewalkTexture(key.instance) &&
+                              zoomVariant == kZoom4Value;
+        if (lotTexture || sidewalk) {
             instanceIds_.push_back(key.instance);
         }
     }
@@ -86,6 +90,11 @@ void DecalRepository::Populate(cIGZPersistResourceManager* pRM) {
 
     kinds_.assign(instanceIds_.size(), decals::TextureKind::Unknown);
     RestoreKinds_();
+    for (size_t i = 0; i < instanceIds_.size(); ++i) {
+        if (decals::IsSidewalkTexture(instanceIds_[i])) {
+            kinds_[i] = decals::TextureKind::Sidewalk;
+        }
+    }
     LOG_INFO("DecalRepository: found {} unique zoom-4 decal textures", instanceIds_.size());
 }
 

@@ -42,7 +42,7 @@ namespace {
     }
 
     cGZPersistResourceKey MakeDecalTextureKey(const uint32_t instanceId) {
-        return cGZPersistResourceKey{kDecalTextureType, kDecalTextureGroup, instanceId};
+        return cGZPersistResourceKey{kDecalTextureType, decals::TextureGroupOf(instanceId), instanceId};
     }
 
     float NormalizeTurns(const float turns) {
@@ -497,7 +497,9 @@ void DecalPanelTab::IndexPacks_() {
     for (const uint32_t instanceId : ids) {
         const auto rows = decals_->PackCandidates(instanceId);
         packFilter_.Count(rows);
-        searchTexts_.push_back(TextSearch::Normalize(TextSearch::HexId(instanceId) + PackSearchText(catalog, rows)));
+        const char* const sidewalk = decals::SidewalkName(instanceId);
+        searchTexts_.push_back(TextSearch::Normalize(TextSearch::HexId(instanceId) + PackSearchText(catalog, rows) +
+                                                     (sidewalk ? std::string(" ") + sidewalk : std::string())));
         suggester_.Add(searchTexts_.back());
     }
 }
@@ -528,7 +530,8 @@ void DecalPanelTab::RenderFilterBar_() {
     ImGui::Checkbox("Favorites only##decalFavoritesOnly", &favoritesOnly_);
     Tooltip("Show only the textures that you starred.");
 
-    NextInRow(3, CheckboxWidth("Base") + ImGui::GetStyle().ItemSpacing.x + CheckboxWidth("Overlay"));
+    NextInRow(3, CheckboxWidth("Base") + CheckboxWidth("Overlay") + CheckboxWidth("Sidewalk") +
+                     ImGui::GetStyle().ItemSpacing.x * 2.0f);
     if (kindFilter_.Render(*decals_)) {
         shownDirty_ = true;
     }

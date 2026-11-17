@@ -30,6 +30,7 @@ enum class TextureKind : uint8_t {
     Unknown = 0,
     Base,
     Overlay,
+    Sidewalk,  // one of the game's sidewalks, a network texture
 };
 
 // Classifies a lot texture by its alpha channel: fully opaque means base

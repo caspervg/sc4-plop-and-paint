@@ -4,13 +4,14 @@
 #include "imgui.h"
 #include "DecalRepository.hpp"
 
-// Base and Overlay checkboxes for a texture grid. Textures are sorted into the two only once one
-// is unticked, a few each frame.
+// Base, Overlay and Sidewalk checkboxes for a texture grid. Textures are sorted into base and
+// overlay only once one is unticked, a few each frame.
 struct TextureKindFilter {
     bool base = true;
     bool overlay = true;
+    bool sidewalk = true;
 
-    [[nodiscard]] bool Active() const { return !(base && overlay); }
+    [[nodiscard]] bool Active() const { return !(base && overlay && sidewalk); }
 
     // Textures not sorted yet only show while both are ticked.
     [[nodiscard]] bool Allows(const DecalRepository& decals, const uint32_t instanceId) const {
@@ -18,7 +19,16 @@ struct TextureKindFilter {
             return true;
         }
         const decals::TextureKind kind = decals.KindOf(instanceId);
-        return kind == decals::TextureKind::Base ? base : kind == decals::TextureKind::Overlay && overlay;
+        switch (kind) {
+        case decals::TextureKind::Base:
+            return base;
+        case decals::TextureKind::Overlay:
+            return overlay;
+        case decals::TextureKind::Sidewalk:
+            return sidewalk;
+        default:
+            return false;
+        }
     }
 
     // The checkboxes on the current line, then a line on the sorting while it goes on. True when
@@ -34,7 +44,12 @@ struct TextureKindFilter {
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Show textures with transparent parts. These go on top of other textures, for example markings and dirt.");
         }
-        if (Active() && !decals.ClassifySome(std::chrono::milliseconds(6))) {
+        ImGui::SameLine();
+        changed |= ImGui::Checkbox("Sidewalk", &sidewalk);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Show the sidewalks that the game puts along roads.");
+        }
+        if (!(base && overlay) && !decals.ClassifySome(std::chrono::milliseconds(6))) {
             ImGui::TextDisabled("Textures sorted into base and overlay: %zu of %zu", decals.ClassifiedCount(),
                                 decals.Count());
         }

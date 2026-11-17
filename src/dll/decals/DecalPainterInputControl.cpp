@@ -8,6 +8,7 @@
 #include "../paint/PaintOverlay.hpp"
 #include "../utils/Logger.h"
 #include "FractionalAngles.hpp"
+#include "TextureGroups.hpp"
 
 namespace {
     constexpr auto kDecalPainterControlID = 0x5D4C3B2Au;
@@ -66,7 +67,7 @@ void DecalPainterInputControl::SetDecalToPaint(const uint32_t instanceId,
                                                const std::string& name) {
     instanceId_    = instanceId;
     stateTemplate_ = settings.stateTemplate;
-    stateTemplate_.textureKey = cGZPersistResourceKey{kDecalTextureType, kDecalTextureGroup, instanceId};
+    stateTemplate_.textureKey = cGZPersistResourceKey{kDecalTextureType, decals::TextureGroupOf(instanceId), instanceId};
     frameCount_ = std::max(settings.frameCount, 1u);
     randomFrame_ = settings.randomFrame && frameCount_ > 1;
     if (randomFrame_) {
