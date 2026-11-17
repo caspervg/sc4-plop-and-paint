@@ -8,6 +8,7 @@ set(SHARED_TEST_SOURCES
     test_lot_filters.cpp
     test_seasonal_sets.cpp
     ${CMAKE_SOURCE_DIR}/src/dll/lots/LotFilterHelper.cpp
+    ${CMAKE_SOURCE_DIR}/src/dll/common/TextSearch.cpp
 )
 
 add_executable(${SHARED_TESTS_NAME} ${SHARED_TEST_SOURCES})
