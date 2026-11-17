@@ -103,8 +103,11 @@ namespace Ground {
         bool hidden = false;
         bool locked = false;
         ShapeSpec shape{};
-        // Rubbed out by the eraser, cut from the shape.
+        // Rubbed out by the eraser, cut from the shape: what older versions saved, and what is
+        // left of the holes after a merge.
         Area erased{};
+        // The holes, each as the eraser drew it (an area or a brush stroke), so they stay editable.
+        std::vector<ShapeSpec> erasers{};
         Look look{};
         // Higher draws on top.
         int32_t drawOrder = 0;
@@ -169,9 +172,13 @@ namespace Ground {
 
     // Whether the object's points can be dragged one by one, and how many it needs.
     [[nodiscard]] bool HasEditablePoints(const PaintObject& object);
+    [[nodiscard]] size_t MinimumPoints(const ShapeSpec& shape);
     [[nodiscard]] size_t MinimumPoints(const PaintObject& object);
     // Whether the points go round and back to the first.
+    [[nodiscard]] bool PointsClosed(const ShapeSpec& shape);
     [[nodiscard]] bool PointsClosed(const PaintObject& object);
+    // The ground one hole cuts away.
+    [[nodiscard]] Area EraserArea(const ShapeSpec& eraser);
 
     [[nodiscard]] const char* ShapeKindName(ShapeKind kind);
 }

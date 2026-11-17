@@ -150,16 +150,36 @@ int main() {
     CHECK(doc.Objects().back().id == b);
 
     // Erase cuts a hole; erasing everything removes the object; locked objects are left alone.
-    doc.Erase(AreaFromOutline(std::vector<Vec2>{{2, 2}, {6, 2}, {6, 6}, {2, 6}}));
-    CHECK(!doc.Find(a)->erased.empty());
+    const auto eraserSquare = [](const float x0, const float x1) {
+        return ShapeSpec{.kind = ShapeKind::Area, .points = {{x0, x0}, {x1, x0}, {x1, x1}, {x0, x1}}};
+    };
+    doc.Erase(eraserSquare(2, 6));
+    CHECK(doc.Find(a)->erasers.size() == 1);
     CHECK(doc.HitTest({4, 4}) != a && doc.HitTest({1, 1}) == a);
     CHECK(service.paints.at(doc.Find(a)->paintId).ringCount == 2);
+    // The hole stays editable: moving its points moves the hole.
+    PaintObject moved = *doc.Find(a);
+    moved.erasers.front().points = eraserSquare(12, 16).points;
+    moved.erasers.front().points[0] = {12, 12};
+    doc.Update({moved});
+    CHECK(doc.HitTest({4, 4}) == a);
+    CHECK(doc.Undo() && doc.HitTest({4, 4}) != a);
+    // Holes turn with the shape.
+    const uint32_t turned[] = {a};
+    doc.Transform(turned, {.offset = {1.0f, 0.0f}});
+    CHECK(doc.Find(a)->erasers.front().points.front().x == 3.0f);
+    CHECK(doc.Undo());
     PaintObject locked = *doc.Find(b);
     locked.locked = true;
     doc.Update({locked});
-    doc.Erase(AreaFromOutline(std::vector<Vec2>{{-5, -5}, {50, -5}, {50, 50}, {-5, 50}}));
+    doc.Erase(eraserSquare(-5, 50));
     CHECK(!doc.Find(a) && doc.Find(b));
     CHECK(doc.Undo() && doc.Find(a));
+    // Older saves kept only the cut-away area: it still cuts.
+    PaintObject old = *doc.Find(a);
+    old.erasers.clear();
+    old.erased = AreaFromOutline(std::vector<Vec2>{{2, 2}, {6, 2}, {6, 6}, {2, 6}});
+    CHECK(IsEmpty(Intersect(BuildArea(old), AreaFromOutline(std::vector<Vec2>{{3, 3}, {5, 3}, {5, 5}, {3, 5}}))));
 
     // Preview: a transient paint on top, gone when hidden.
     const size_t before = service.paints.size();
@@ -182,7 +202,7 @@ int main() {
     GroundPaintDocument loaded(kWhite);
     loaded.SetPaintService(&service);
     CHECK(loaded.Load(saved));
-    CHECK(loaded.Objects().size() == 2 && loaded.Find(b)->locked && !loaded.Find(a)->erased.empty());
+    CHECK(loaded.Objects().size() == 2 && loaded.Find(b)->locked && loaded.Find(a)->erasers.size() == 1);
     const int createsBefore = service.creates;
     loaded.Restore();
     CHECK(loaded.Find(a)->paintId == keptPaint);

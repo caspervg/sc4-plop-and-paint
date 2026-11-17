@@ -178,7 +178,8 @@ namespace Ground {
         }
     }
 
-    void GroundPaintDocument::Erase(const Area& eraser) {
+    void GroundPaintDocument::Erase(const ShapeSpec& eraserShape) {
+        const Area eraser = EraserArea(eraserShape);
         if (IsEmpty(eraser)) {
             return;
         }
@@ -192,7 +193,7 @@ namespace Ground {
             }
             before.push_back(object);
             PaintObject erased = object;
-            erased.erased = object.erased.empty() ? eraser : Unite(object.erased, eraser);
+            erased.erasers.push_back(eraserShape);
             if (IsEmpty(BuildArea(erased))) {
                 continue;  // rubbed out completely: removed below
             }
@@ -289,6 +290,7 @@ namespace Ground {
         PaintObject merged = before.back();
         merged.shape = ShapeSpec{.kind = ShapeKind::Merged, .outline = std::move(outline)};
         merged.erased.clear();
+        merged.erasers.clear();
         merged.hidden = false;
         const uint32_t id = merged.id;
         Commit_(std::move(before), {std::move(merged)});

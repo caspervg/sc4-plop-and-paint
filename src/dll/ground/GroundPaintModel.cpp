@@ -130,7 +130,21 @@ namespace Ground {
         if (!object.erased.empty() && !area.empty()) {
             area = Subtract(area, object.erased);
         }
+        Area holes;
+        for (const ShapeSpec& eraser : object.erasers) {
+            const Area hole = EraserArea(eraser);
+            holes = holes.empty() ? hole : Unite(holes, hole);
+        }
+        if (!holes.empty() && !area.empty()) {
+            area = Subtract(area, holes);
+        }
         return area;
+    }
+
+    Area EraserArea(const ShapeSpec& eraser) {
+        PaintObject cut;
+        cut.shape = eraser;
+        return BuildArea(cut);
     }
 
     std::vector<UvVertex> BuildUvMap(const PaintObject& object) {
@@ -169,7 +183,7 @@ namespace Ground {
     }
 
     bool SameShape(const PaintObject& a, const PaintObject& b) {
-        if (!(a.shape == b.shape) || a.erased != b.erased) {
+        if (!(a.shape == b.shape) || a.erased != b.erased || a.erasers != b.erasers) {
             return false;
         }
         if (a.shape.kind == ShapeKind::Line &&
@@ -184,11 +198,10 @@ namespace Ground {
         return true;
     }
 
-    void TransformObject(PaintObject& object, const Placement& placement) {
+    void TransformShape(ShapeSpec& shape, const Placement& placement) {
         const auto move = [&](const Area& area) {
             return Transformed(area, placement.pivot, placement.rotationRadians, placement.scale, placement.offset);
         };
-        ShapeSpec& shape = object.shape;
         if (!shape.points.empty()) {
             shape.points = move(Area{shape.points}).front();
         }
@@ -203,7 +216,6 @@ namespace Ground {
             radius = radius >= 0.0f ? radius * placement.scale : radius;
         }
         shape.outline = move(shape.outline);
-        object.erased = move(object.erased);
         shape.patternOrigin = move(Area{{shape.patternOrigin}}).front().front();
         shape.patternTurn += placement.rotationRadians;
 
@@ -215,13 +227,9 @@ namespace Ground {
         shape.gapLength *= scale;
         shape.roughness *= scale;
         ScaleMarking(shape.marking, scale);
-        object.look.featherMeters *= scale;
-        object.look.patchSizeMeters *= scale;
-        object.look.patchBlendMeters *= scale;
     }
 
-    void MirrorObject(PaintObject& object, const Vec2 pivot, const float axisRadians) {
-        ShapeSpec& shape = object.shape;
+    void MirrorShape(ShapeSpec& shape, const Vec2 pivot, const float axisRadians) {
         for (Vec2& p : shape.points) {
             p = MirroredPoint(p, pivot, axisRadians);
         }
@@ -231,9 +239,29 @@ namespace Ground {
             }
         }
         shape.outline = Mirrored(shape.outline, pivot, axisRadians);
-        object.erased = Mirrored(object.erased, pivot, axisRadians);
         shape.patternOrigin = MirroredPoint(shape.patternOrigin, pivot, axisRadians);
         shape.patternTurn = 2.0f * axisRadians - shape.patternTurn;
+    }
+
+    void TransformObject(PaintObject& object, const Placement& placement) {
+        TransformShape(object.shape, placement);
+        for (ShapeSpec& eraser : object.erasers) {
+            TransformShape(eraser, placement);
+        }
+        object.erased = Transformed(object.erased, placement.pivot, placement.rotationRadians, placement.scale, placement.offset);
+        const float scale = placement.scale;
+        object.look.featherMeters *= scale;
+        object.look.patchSizeMeters *= scale;
+        object.look.patchBlendMeters *= scale;
+    }
+
+    void MirrorObject(PaintObject& object, const Vec2 pivot, const float axisRadians) {
+        ShapeSpec& shape = object.shape;
+        MirrorShape(shape, pivot, axisRadians);
+        for (ShapeSpec& eraser : object.erasers) {
+            MirrorShape(eraser, pivot, axisRadians);
+        }
+        object.erased = Mirrored(object.erased, pivot, axisRadians);
 
         if (shape.kind != ShapeKind::Marking) {
             return;
@@ -317,13 +345,17 @@ namespace Ground {
     }
 
     size_t MinimumPoints(const PaintObject& object) {
-        switch (object.shape.kind) {
+        return MinimumPoints(object.shape);
+    }
+
+    size_t MinimumPoints(const ShapeSpec& shape) {
+        switch (shape.kind) {
         case ShapeKind::Area:
             return 3;
         case ShapeKind::Line:
             return 2;
         case ShapeKind::Marking:
-            return PointsFor(object.shape.marking.kind).minPoints;
+            return PointsFor(shape.marking.kind).minPoints;
         case ShapeKind::Brush:
         case ShapeKind::Merged:
             return 1;
@@ -332,11 +364,15 @@ namespace Ground {
     }
 
     bool PointsClosed(const PaintObject& object) {
-        switch (object.shape.kind) {
+        return PointsClosed(object.shape);
+    }
+
+    bool PointsClosed(const ShapeSpec& shape) {
+        switch (shape.kind) {
         case ShapeKind::Area:
             return true;
         case ShapeKind::Marking:
-            return PointsFor(object.shape.marking.kind).closed;
+            return PointsFor(shape.marking.kind).closed;
         default:
             return false;
         }

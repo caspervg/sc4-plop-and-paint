@@ -43,7 +43,8 @@ namespace Ground {
         uint32_t Add(PaintObject object);  // on top; 0 when it covers nothing
         void Update(std::vector<PaintObject> changed);
         void Remove(std::span<const uint32_t> ids);
-        void Erase(const Area& eraser);
+        // Cuts a hole in every unlocked, shown object it touches. The hole stays editable.
+        void Erase(const ShapeSpec& eraser);
         void MoveUp(uint32_t id);
         void MoveDown(uint32_t id);
         void MoveToTop(uint32_t id);
