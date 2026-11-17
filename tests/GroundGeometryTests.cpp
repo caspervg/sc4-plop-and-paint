@@ -168,6 +168,16 @@ int main() {
         CHECK(Near(AreaOf(PatchesOf(field, 10.0f, 0.5f, {}, 9, 500)) / 10000.0, 0.5, 0.1));
         CHECK(PatchesOf(field, 10.0f, 0.0f, {}, 9, 1000).empty());
         CHECK(PatchesOf(field, 10.0f, 1.0f, {}, 9, 1000) == field);
+
+        // A big field: the outlines stay light, and still cover the asked share.
+        const Area big = AreaFromOutline(Square(0, 0, 357));
+        const Area spots = PatchesOf(big, 12.0f, 0.09f, {}, 9, 60000);
+        size_t points = 0;
+        for (const Ring& ring : spots) {
+            points += ring.size();
+        }
+        CHECK(points < 2400);
+        CHECK(Near(AreaOf(spots) / (357.0 * 357.0), 0.09, 0.03));
     }
     {
         // Mirrors: a point across the x axis and across a diagonal; areas keep their size.

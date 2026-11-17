@@ -703,7 +703,7 @@ namespace Ground {
             }
         }
         // Outlines never cross, so even-odd reads them right whichever way round they go.
-        const PathsD simple = SimplifyPaths(outlines, cell * 0.05, true);
+        const PathsD simple = SimplifyPaths(outlines, std::clamp(0.3, cell * 0.05, cell * 0.4), true);
         return ToArea(Clipper2Lib::Intersect(simple, Normalized(ToPaths(area)), FillRule::EvenOdd, kPrecision));
     }
 
