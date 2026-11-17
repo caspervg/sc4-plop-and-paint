@@ -23,6 +23,8 @@ namespace Ground {
                 return TerrainPaintLayer::UnderLots;
             case PaintLayer::OverShadows:
                 return TerrainPaintLayer::OverShadows;
+            case PaintLayer::OverSidewalks:
+                return TerrainPaintLayer::OverSidewalks;
             case PaintLayer::OverLots:
             default:
                 return TerrainPaintLayer::OverLots;

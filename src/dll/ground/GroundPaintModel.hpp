@@ -78,6 +78,7 @@ namespace Ground {
         OverLots,     // over lot and network textures, under the shadows of buildings
         UnderLots,    // under lot and network textures, as if it were part of the ground
         OverShadows,  // over lot and network textures and over shadows
+        OverSidewalks,  // over lot textures and sidewalks, under the road surface
     };
 
     // What a shape is painted with.

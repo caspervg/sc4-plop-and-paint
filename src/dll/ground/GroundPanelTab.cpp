@@ -28,6 +28,9 @@ using PanelUi::NextInRow;
 using PanelUi::Tooltip;
 
 namespace {
+    // In PaintLayer order.
+    constexpr const char* kLayerItems =
+        "Over lots and networks\0Under lots and networks\0Over shadows\0Over sidewalks, under roads\0";
     constexpr float kThumbSize = 40.0f;
     constexpr float kPickerThumbSize = 56.0f;
     constexpr float kPaletteTileSize = 32.0f;
@@ -813,13 +816,14 @@ void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bo
     const float depthWidth = PanelUi::ButtonWidth("Depth...") + spacing;
     int layer = static_cast<int>(look.layer);
     ImGui::SetNextItemWidth(-depthWidth);
-    if (ImGui::Combo("##layer", &layer, "Over lots and networks\0Under lots and networks\0Over shadows\0")) {
+    if (ImGui::Combo("##layer", &layer, kLayerItems)) {
         look.layer = static_cast<PaintLayer>(layer);
         committed = true;
     }
     Tooltip("Over lots and networks: the paint covers lot and road textures, and shadows fall on it.\n"
             "Under lots and networks: lot and road textures cover the paint, as if it were the ground.\n"
             "Over shadows: the paint covers the shadows of the game as well.\n"
+            "Over sidewalks: the paint covers lot textures and sidewalks, and road surfaces cover the paint.\n"
             "Buildings, props and cars stay on top of the paint in every case.");
     ImGui::SameLine();
     if (ImGui::SmallButton(look.depthOffset < 0 ? "Depth..." : "Depth*")) {
@@ -1931,7 +1935,7 @@ void GroundPanelTab::RenderMultiPaint_(Document& document) {
 
     int layer = static_cast<int>(first->look.layer);
     ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::Combo("##allLayer", &layer, "Over lots and networks\0Under lots and networks\0Over shadows\0")) {
+    if (ImGui::Combo("##allLayer", &layer, kLayerItems)) {
         paintAll([&](PaintObject& object) { object.look.layer = static_cast<PaintLayer>(layer); });
     }
     Tooltip("Put every selected shape in this layer.");
