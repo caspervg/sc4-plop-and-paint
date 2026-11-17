@@ -86,6 +86,8 @@ private:
     void SyncEditing_(Ground::GroundPaintDocument& document, uint32_t id);
     // Border, repeat, mirror and the planting, each in a window of its own while open.
     void RenderToolWindows_(Ground::GroundPaintDocument& document);
+    // Several shapes selected: a preset, the look of the first, or a layer for all of them.
+    void RenderMultiPaint_(Ground::GroundPaintDocument& document);
     // Border, repeat and mirror for the selection.
     void RenderShapeTools_(Ground::GroundPaintDocument& document, const std::vector<uint32_t>& selection);
     // Fill the selected object with the last props or flora painted, or plant them along it.

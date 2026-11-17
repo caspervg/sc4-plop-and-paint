@@ -1863,8 +1863,74 @@ void GroundPanelTab::RenderSelection_(Document& document) {
     else {
         ImGui::SeparatorText("Shape");
         RenderTransform_(document);
+        RenderMultiPaint_(document);
     }
     RenderToolWindows_(document);
+}
+
+void GroundPanelTab::RenderMultiPaint_(Document& document) {
+    ImGui::SeparatorText("Paint");
+    const std::vector<uint32_t> selection = document.Selection();
+    const PaintObject* const first = document.Find(selection.front());
+    if (!first) {
+        return;
+    }
+    // Every unlocked one, changed by change, as one undo step.
+    const auto paintAll = [&](const auto& change) {
+        std::vector<PaintObject> changed;
+        for (const uint32_t id : selection) {
+            if (const PaintObject* const object = document.Find(id); object && !object->locked) {
+                changed.push_back(*object);
+                change(changed.back());
+            }
+        }
+        document.Update(std::move(changed));
+    };
+
+    std::vector<PaintPalette>* const presets = favorites_ ? &favorites_->GetPaintPalettes() : nullptr;
+    const float half = ShareOfLine(2);
+    ImGui::SetNextItemWidth(half);
+    if (ImGui::BeginCombo("##allPreset", "Paint all with a preset", ImGuiComboFlags_HeightLarge)) {
+        for (size_t i = 0; presets && i < presets->size(); ++i) {
+            const PaintPalette& preset = (*presets)[i];
+            ImGui::PushID(static_cast<int>(i));
+            if (ImGui::Selectable(preset.name.c_str()) && (preset.look || !preset.textures.empty())) {
+                paintAll([&](PaintObject& object) {
+                    LookEditorState state;
+                    state.wantsTexture = !object.look.textures.empty();
+                    UsePalette_(preset, object.look, object.shape.wear,
+                                object.shape.kind == ShapeKind::Marking ? nullptr : &object.shape.roughness, state);
+                });
+            }
+            ImGui::PopID();
+        }
+        if (!presets || presets->empty()) {
+            ImGui::TextDisabled("No presets yet.");
+        }
+        ImGui::EndCombo();
+    }
+    Tooltip("Give every selected shape the look of a preset. Locked shapes stay as they are.");
+    ImGui::SameLine();
+    if (ImGui::Button("Paint all like the first", ImVec2(half, 0.0f))) {
+        const Look look = first->look;
+        const float wear = first->shape.wear;
+        const float roughness = first->shape.roughness;
+        paintAll([&](PaintObject& object) {
+            object.look = look;
+            object.shape.wear = wear;
+            if (object.shape.kind != ShapeKind::Marking) {
+                object.shape.roughness = roughness;
+            }
+        });
+    }
+    Tooltip("Give every selected shape the look of the first one that you selected.");
+
+    int layer = static_cast<int>(first->look.layer);
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::Combo("##allLayer", &layer, "Over lots and networks\0Under lots and networks\0Over shadows\0")) {
+        paintAll([&](PaintObject& object) { object.look.layer = static_cast<PaintLayer>(layer); });
+    }
+    Tooltip("Put every selected shape in this layer.");
 }
 
 void GroundPanelTab::SyncEditing_(Document& document, const uint32_t id) {
