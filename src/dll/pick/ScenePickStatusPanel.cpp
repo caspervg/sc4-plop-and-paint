@@ -40,6 +40,7 @@ namespace {
         case PickedDecalSource::Decal:             return "Decal";
         case PickedDecalSource::LotBaseTexture:    return "Base texture";
         case PickedDecalSource::LotOverlayTexture: return "Overlay texture";
+        case PickedDecalSource::PaintedGround:     return "Painted ground";
         }
         return "Texture";
     }

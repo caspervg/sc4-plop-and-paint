@@ -727,8 +727,9 @@ void GroundPanelTab::RenderStatus_() {
     const bool painting = painter && director_->IsGroundPainting();
     const std::string text =
         painting          ? painter->StatusText()
-        : pickingTexture_ ? "Click a texture in the city. You can click a decal, or the base or overlay texture of a "
-                            "lot. If textures overlap, hold Alt and scroll to change between them. Press Esc to cancel."
+        : pickingTexture_ ? "Click a texture in the city. You can click ground that you painted, a decal, or the base "
+                            "or overlay texture of a lot. If textures overlap, hold Alt and scroll to change between "
+                            "them. Press Esc to cancel."
                           : "Click a tool above. Use Area, Line, Brush or Marking to paint the ground. Use Select to "
                             "change the paint. Use Erase to remove it.";
 
@@ -980,10 +981,10 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float
         pickingTexture_ = director_->StartDecalPicking([this](const uint32_t id) { pickedTexture_ = id; });
     }
     Tooltip("Click a texture in the city to paint with it.\n"
-            "You can click a decal, or the base or overlay texture of a lot.\n"
+            "You can click ground that you painted, a decal, or the base or overlay texture of a lot.\n"
             "If textures overlap, hold Alt and scroll to change between them.\n"
             "Press Esc to cancel.\n"
-            "To copy the look of ground that you painted, use Copy look.");
+            "To copy the whole look of ground that you painted, use Copy look.");
 
     if (textured && followsLine) {
         ImGui::SameLine();

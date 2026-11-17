@@ -40,6 +40,7 @@ enum class PickedDecalSource : uint8_t {
     Decal = 0,
     LotBaseTexture = 1,
     LotOverlayTexture = 2,
+    PaintedGround = 3,
 };
 
 struct PickedDecal {
