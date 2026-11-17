@@ -615,16 +615,7 @@ void GroundPanelTab::OnRender() {
         RenderShapeSettings_();
         ImGui::PopID();
         if (settings_.tool != Tool::Erase) {
-            ImGui::SeparatorText("Paint with");
-            if (GroundPainterInputControl* armable = director_->GetGroundPainter()) {
-                if (ImGui::SmallButton(armable->LookPickArmed() ? "Click painted ground..." : "Copy look")) {
-                    armable->ArmLookPick();
-                }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Copy the look of ground that you painted.\nClick this button, then click the ground in the city.\n"
-                                      "You can also Alt+click the ground in the city.");
-                }
-            }
+            ImGui::SeparatorText("Paint");
             ImGui::PushID("look");
             RenderLookEditor_(settings_.look, settings_.tool == Tool::Line, settings_.wear,
                               settings_.tool == Tool::Marking ? nullptr : &settings_.roughness, toolLook_, changed, committed);
@@ -987,6 +978,7 @@ void GroundPanelTab::RenderShapeSettings_() {
 void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float& wear, float* roughness,
                                        LookEditorState& state, bool& changed,
                                        bool& committed) {
+    RenderPalettes_(look, wear, roughness, state, committed);
     const bool textured = state.wantsTexture || !look.textures.empty();
     if (ImGui::RadioButton("Color", !textured) && textured) {
         look.textures.clear();
@@ -1016,6 +1008,16 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float
             "If textures overlap, hold Alt and scroll to change between them.\n"
             "Press Esc to cancel.\n"
             "To copy the whole look of ground that you painted, use Copy look.");
+    if (&look != &editing_.look) {
+        if (GroundPainterInputControl* const armable = director_->GetGroundPainter()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton(armable->LookPickArmed() ? "Click painted ground..." : "Copy look")) {
+                armable->ArmLookPick();
+            }
+            Tooltip("Copy the whole look of ground that you painted.\nClick this button, then click the ground in the city.\n"
+                    "You can also Alt+click the ground in the city.");
+        }
+    }
 
     if (textured && followsLine) {
         ImGui::SameLine();
@@ -1023,8 +1025,6 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float
         Track(changed, committed);
         Tooltip("The texture goes along the line and fills its width. Use this for a track or a kerb.");
     }
-
-    RenderPalettes_(look, wear, roughness, state, committed);
 
     if (!textured) {
         for (size_t i = 0; i < std::size(kSwatches); ++i) {
@@ -1114,7 +1114,7 @@ void GroundPanelTab::RenderLibraryWindow_(Look& look, LookEditorState& state, bo
 
 void GroundPanelTab::RenderPalettes_(Look& look, float& wear, float* roughness, LookEditorState& state,
                                      bool& committed) {
-    if (!favorites_ || !ImGui::CollapsingHeader("Presets###palettes")) {
+    if (!favorites_) {
         return;
     }
     ImGui::PushID("palettes");
@@ -1238,7 +1238,10 @@ void GroundPanelTab::RenderPalettes_(Look& look, float& wear, float* roughness, 
     const float tileHeight = kPaletteTileSize + tileStyle.FramePadding.y * 2.0f + tileStyle.ItemSpacing.y;
     ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, tileHeight * 2.0f));
     const bool hasTiles = !palette.colours.empty() || !palette.textures.empty();
-    const bool tilesOpen = hasTiles && ImGui::BeginChild("##paletteTiles", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY);
+    char tilesLabel[48];
+    std::snprintf(tilesLabel, sizeof(tilesLabel), "In this preset (%zu)###presetTiles", palette.colours.size() + palette.textures.size());
+    const bool showTiles = hasTiles && ImGui::TreeNode(tilesLabel);
+    const bool tilesOpen = showTiles && ImGui::BeginChild("##paletteTiles", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY);
 
     // Tiles on one line until they reach the side of the panel.
     float tileRight = 0.0f;
@@ -1300,8 +1303,9 @@ void GroundPanelTab::RenderPalettes_(Look& look, float& wear, float* roughness, 
         ImGui::PopID();
     }
 
-    if (hasTiles) {
+    if (showTiles) {
         ImGui::EndChild();
+        ImGui::TreePop();
     }
 
     if (removeColour) {
@@ -1979,7 +1983,7 @@ void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) 
     case ShapeKind::Merged:
         break;
     }
-    ImGui::SeparatorText("Paint with");
+    ImGui::SeparatorText("Paint");
     ImGui::PushID("look");
     RenderLookEditor_(editing_.look, shape.kind == ShapeKind::Line, shape.wear,
                       shape.kind == ShapeKind::Marking ? nullptr : &shape.roughness, selectionLook_, changed, committed);
