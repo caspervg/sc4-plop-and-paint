@@ -1,6 +1,7 @@
 #include "GroundPaintDocument.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <numbers>
 #include <string>
@@ -8,6 +9,7 @@
 #include "public/cIGZTerrainPaintService.h"
 #include "rfl/cbor/read.hpp"
 #include "rfl/cbor/write.hpp"
+#include "../utils/Logger.h"
 
 namespace Ground {
     namespace {
@@ -626,12 +628,16 @@ namespace Ground {
     }
 
     void GroundPaintDocument::Sync_(PaintObject& object) {
+        using Clock = std::chrono::steady_clock;
+        const auto start = Clock::now();
         shownShape_.erase(object.id);
         shownStyle_.erase(object.id);
         Built& built = built_[object.id];
         built.area = BuildArea(object);
         built.bounds = Ground::BoundsOf(built.area);
+        const auto areaDone = Clock::now();
         built.patches = BuildPatches(object, built.area, kPatchCells);
+        const auto patchesDone = Clock::now();
         if (!service_) {
             return;
         }
@@ -641,6 +647,12 @@ namespace Ground {
         }
         ShowParts_(object.paintId, object.patchPaintIds, object, built.area, built.patches, BuildUvMap(object),
                    object.drawOrder, object.hidden, false);
+        const auto ms = [](const Clock::duration d) { return std::chrono::duration<double, std::milli>(d).count(); };
+        if (const double total = ms(Clock::now() - start); total >= 30.0) {
+            LOG_INFO("Ground: rebuilding {} took {:.0f} ms (area {:.0f}, {} patch layers {:.0f}, terrain paints {:.0f})",
+                     object.id, total, ms(areaDone - start), built.patches.size(), ms(patchesDone - areaDone),
+                     ms(Clock::now() - patchesDone));
+        }
     }
 
     void GroundPaintDocument::ShowParts_(uint32_t& paintId, std::vector<uint32_t>& patchIds, const PaintObject& object,

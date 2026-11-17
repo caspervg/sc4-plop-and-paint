@@ -2068,9 +2068,12 @@ void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) 
     else if (changed) {
         // Shown while the control is held: a new style at once, a new cut every so often.
         const auto now = std::chrono::steady_clock::now();
-        if (CheapChange(editing_, *object) || now - lastLivePreview_ >= std::chrono::milliseconds(60)) {
+        const auto wait = std::max<std::chrono::steady_clock::duration>(
+            CheapChange(editing_, *object) ? std::chrono::milliseconds(0) : std::chrono::milliseconds(60), lastPreviewCost_ * 3);
+        if (now - lastLivePreview_ >= wait) {
             lastLivePreview_ = now;
             document.ShowChanged(editing_);
+            lastPreviewCost_ = std::chrono::steady_clock::now() - now;
         }
     }
 }

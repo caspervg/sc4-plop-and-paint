@@ -123,6 +123,8 @@ private:
     std::chrono::steady_clock::time_point lastSettingsPush_{};
     // When the selection's edit was last shown in the city with a new cut.
     std::chrono::steady_clock::time_point lastLivePreview_{};
+    // How long the last one took: a slow preview waits three times as long before the next.
+    std::chrono::steady_clock::duration lastPreviewCost_{};
     TextureHoverPreview hoverPreview_{};
 
     // The selected object being edited, applied when a control is let go.
