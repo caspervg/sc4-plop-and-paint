@@ -180,7 +180,7 @@ private:
     [[nodiscard]] const Exemplar::Property* findPropertyRecursive(
         const Exemplar::Record& exemplar,
         uint32_t propertyId,
-        std::unordered_set<uint32_t>& visitedCohorts
+        std::unordered_set<DBPF::Tgi, DBPF::TgiHash>& visitedCohorts
     ) const;
     [[nodiscard]] std::string resolveLTextTags_(std::string_view text,
                                                 const Exemplar::Record& exemplar) const;
