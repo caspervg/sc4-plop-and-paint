@@ -106,28 +106,34 @@ namespace {
 
 PluginLocator::PluginLocator(PluginConfiguration config) : config_(std::move(config)) {}
 
-auto PluginLocator::ListDbpfFiles() const -> std::vector<std::filesystem::path> {
+auto PluginLocator::ListDbpfFiles(PluginScanReport* report) const -> std::vector<std::filesystem::path> {
     std::vector<std::filesystem::path> files;
-    CollectTreeSorted_(config_.gameRoot, false, files);
+    CollectTreeSorted_("Game folder", config_.gameRoot, false, files, report);
     if (!config_.localeDir.empty()) {
-        CollectTreeSorted_(config_.gameRoot / config_.localeDir, false, files);
+        CollectTreeSorted_("Game language folder", config_.gameRoot / config_.localeDir, false, files, report);
     }
-    CollectTreeSorted_(config_.gamePluginsRoot, true, files);
-    CollectTreeSorted_(config_.userPluginsRoot, true, files);
+    CollectTreeSorted_("Game Plugins folder", config_.gamePluginsRoot, true, files, report);
+    CollectTreeSorted_("User Plugins folder", config_.userPluginsRoot, true, files, report);
 
     return files;
 }
 
-auto PluginLocator::CollectTreeSorted_(const std::filesystem::path& root, bool recursive,
-                                       std::vector<std::filesystem::path>& out) -> void {
+auto PluginLocator::CollectTreeSorted_(std::string label, const std::filesystem::path& root, bool recursive,
+                                       std::vector<std::filesystem::path>& out, PluginScanReport* report) -> void {
+    if (report) {
+        report->roots.push_back(PluginScanReport::Root{std::move(label), root, recursive, out.size(), 0});
+    }
     std::vector<std::filesystem::path> tree;
-    CollectFiles_(root, recursive, tree);
+    CollectFiles_(root, recursive, tree, report);
     SortByGameLoadOrder(root, tree);
+    if (report) {
+        report->roots.back().fileCount = tree.size();
+    }
     out.insert(out.end(), std::make_move_iterator(tree.begin()), std::make_move_iterator(tree.end()));
 }
 
 auto PluginLocator::CollectFiles_(const std::filesystem::path& root, bool recursive,
-                                  std::vector<std::filesystem::path>& out) -> void {
+                                  std::vector<std::filesystem::path>& out, PluginScanReport* report) -> void {
     if (root.empty())
         return;
     std::error_code ec;
@@ -163,12 +169,20 @@ auto PluginLocator::CollectFiles_(const std::filesystem::path& root, bool recurs
                     pending.push_back(entry.path());
                 }
             }
-            else if (entry.is_regular_file(typeEc) && IsPluginFile(entry.path())) {
-                out.push_back(entry.path());
+            else if (entry.is_regular_file(typeEc)) {
+                if (IsPluginFile(entry.path())) {
+                    out.push_back(entry.path());
+                }
+                else if (report) {
+                    report->skippedFiles.push_back({report->roots.size() - 1, entry.path()});
+                }
             }
         }
         if (iterEc) {
             spdlog::warn("Could not read plugin folder {}: {}", PathToUtf8(directory), iterEc.message());
+            if (report) {
+                report->unreadableFolders.push_back({directory, iterEc.message()});
+            }
         }
     }
 }

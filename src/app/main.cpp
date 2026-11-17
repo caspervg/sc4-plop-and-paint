@@ -36,6 +36,7 @@
 #include "PathDetection.hpp"
 #include "PluginLocator.hpp"
 #include "PropertyMapper.hpp"
+#include "ScanReport.hpp"
 #include "PathText.hpp"
 #include "Utils.hpp"
 
@@ -552,6 +553,7 @@ namespace {
 
             size_t filesProcessed = 0;
             size_t unreadableRecords = 0;
+            std::unordered_map<fs::path, FileItemCounts> itemCountsByFile; // for the scanned files report
 
             struct LoadedRecord {
                 Exemplar::Record record;
@@ -583,6 +585,7 @@ namespace {
                     }
                 }
                 ++unreadableRecords;
+                ++itemCountsByFile[winningFile].unreadableRecords;
                 return std::nullopt;
             };
 
@@ -649,6 +652,7 @@ namespace {
                                     encodeThumbnail(built, buildingThumbnails);
                                     builtBuildings.insert_or_assign(tgi.instance, std::move(built));
                                     buildingsFound++;
+                                    ++itemCountsByFile[loaded->file].buildings;
                                     logger.trace("  Building: {} (0x{:08X})", building->name, tgi.instance);
                                 }
                             }
@@ -670,6 +674,7 @@ namespace {
                                     encodeThumbnail(allProps.back(), propThumbnails);
                                     propSourceFiles.push_back(fileOrderIndex);
                                     seenPropKeys.insert(MakeGIKey(tgi.group, tgi.instance));
+                                    ++itemCountsByFile[loaded->file].props;
                                 }
                             }
                             else if (*exemplarType == ExemplarType::Flora) {
@@ -683,6 +688,7 @@ namespace {
                                     allFlora.emplace_back(parser.floraFromParsed(*flora));
                                     encodeThumbnail(allFlora.back(), floraThumbnails);
                                     seenFloraKeys.insert(MakeGIKey(tgi.group, tgi.instance));
+                                    ++itemCountsByFile[loaded->file].flora;
                                 }
                             }
                         }
@@ -734,6 +740,7 @@ namespace {
                         logger.warn("Could not read lot {} from {}: {}", tgi.ToString(), PathToUtf8(filePath),
                                     exemplarResult.error().message);
                         ++unreadableRecords;
+                        ++itemCountsByFile[filePath].unreadableRecords;
                         continue;
                     }
 
@@ -756,6 +763,7 @@ namespace {
                             if (seenLotKeys.insert(lotKey).second) {
                                 buildingIt->second.lots.push_back(lot);
                                 lotsFound++;
+                                ++itemCountsByFile[filePath].lots;
                             }
                             else {
                                 logger.warn("Duplicate lot skipped: {} (group=0x{:08X}, instance=0x{:08X})",
@@ -852,6 +860,18 @@ namespace {
                 if (dirEc) {
                     logger.error("Failed to create output directory {}: {}",
                                  PathToUtf8(config.userPluginsRoot), dirEc.message());
+                }
+            }
+
+            {
+                // Lets users check which files were read and what each one added to the cache.
+                const auto reportPath = config.userPluginsRoot / "SC4PlopAndPaint_scanned_files.txt";
+                if (WriteScanReport(reportPath, SC4_PLOP_AND_PAINT_VERSION, filesInLoadOrder,
+                                    indexService.fileResults(), indexService.scanReport(), itemCountsByFile)) {
+                    logger.info("Wrote the list of scanned files to {}", PathToUtf8(reportPath));
+                }
+                else {
+                    logger.warn("Could not write the list of scanned files to {}", PathToUtf8(reportPath));
                 }
             }
 
