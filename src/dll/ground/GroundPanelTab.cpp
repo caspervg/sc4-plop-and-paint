@@ -390,6 +390,7 @@ namespace {
             .patchBlendMeters = look.patchBlendMeters,
             .wear = wear,
             .roughness = roughness ? *roughness : 0.0f,
+            .layer = look.layer != PaintLayer{} ? std::optional{static_cast<uint8_t>(look.layer)} : std::nullopt,
         };
         if (look.textures.empty() && std::ranges::find(palette.colours, look.color) == palette.colours.end()) {
             palette.colours.push_back(look.color);
@@ -427,6 +428,7 @@ void GroundPanelTab::UsePalette_(const PaintPalette& palette, Look& look, float&
         look.mix = saved->mix == static_cast<uint8_t>(TextureMix::Patches) ? TextureMix::Patches : TextureMix::Squares;
         look.patchSizeMeters = saved->patchSizeMeters;
         look.patchBlendMeters = saved->patchBlendMeters;
+        look.layer = static_cast<PaintLayer>(std::min<uint8_t>(saved->layer.value_or(0), 2));
         wear = saved->wear;
         if (roughness) {
             *roughness = saved->roughness;
@@ -796,6 +798,18 @@ void GroundPanelTab::RenderFinish_(Look& look, float& wear, float* roughness, bo
             ImGui::SetTooltip("Make the outline uneven and natural, for example for grass, dirt or gravel.\n"
                               "Drag to the right to set how far the edge moves in and out.");
         }
+    }
+    int layer = static_cast<int>(look.layer);
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::Combo("##layer", &layer, "Over lots and networks\0Under lots and networks\0Over shadows\0")) {
+        look.layer = static_cast<PaintLayer>(layer);
+        committed = true;
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Over lots and networks: the paint covers lot and road textures, and shadows fall on it.\n"
+                          "Under lots and networks: lot and road textures cover the paint, as if it were the ground.\n"
+                          "Over shadows: the paint covers the shadows of the game as well.\n"
+                          "Buildings, props and cars stay on top of the paint in every case.");
     }
     // Rarely needed, but a value that is set still shows while this is closed.
     char advanced[48];

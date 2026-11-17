@@ -253,6 +253,7 @@ struct PaintPaletteLook {
     float patchBlendMeters = 2.0f;
     float wear = 0.0f;
     float roughness = 0.0f;
+    std::optional<uint8_t> layer;  // over lots when empty
 };
 
 struct PaintPalette {
