@@ -937,14 +937,16 @@ std::vector<std::byte> NetworkDiscovery::LayoutPicture(const std::vector<std::ve
     for (const auto& row : layout) {
         columns = std::max(columns, row.size());
     }
-    if (columns == 0 || size < 16) {
+    const size_t cells = std::max(columns, layout.size());
+    const size_t margin = size / 12;
+    // Too many cells to give each one at least 2 pixels: no picture.
+    if (columns == 0 || size < 16 || cells * 2 > size) {
         return {};
     }
-    const uint32_t margin = size / 12;
-    const uint32_t cellSize = std::max<uint32_t>(2, (size - 2 * margin) / static_cast<uint32_t>(std::max(columns, layout.size())));
-    const uint32_t left = (size - cellSize * static_cast<uint32_t>(columns)) / 2;
-    const uint32_t top = (size - cellSize * static_cast<uint32_t>(layout.size())) / 2;
-    const uint32_t gap = cellSize >= 8 ? 1 : 0;
+    const size_t cellSize = std::max<size_t>(2, (size - 2 * margin) / cells);
+    const size_t left = (size - cellSize * columns) / 2;
+    const size_t top = (size - cellSize * layout.size()) / 2;
+    const size_t gap = cellSize >= 8 ? 1 : 0;
 
     std::vector<std::byte> pixels(static_cast<size_t>(size) * size * 4, std::byte{0});
     for (size_t z = 0; z < layout.size(); ++z) {
@@ -964,11 +966,10 @@ std::vector<std::byte> NetworkDiscovery::LayoutPicture(const std::vector<std::ve
             if (count < 2) {
                 networks[1] = networks[0];
             }
-            for (uint32_t dz = gap; dz + gap < cellSize; ++dz) {
+            for (size_t dz = gap; dz + gap < cellSize; ++dz) {
                 const auto& color = kColors[networks[dz * 2 < cellSize ? 0 : 1]];
-                for (uint32_t dx = gap; dx + gap < cellSize; ++dx) {
-                    const size_t at = (static_cast<size_t>(top + static_cast<uint32_t>(z) * cellSize + dz) * size +
-                                       left + static_cast<uint32_t>(x) * cellSize + dx) * 4;
+                for (size_t dx = gap; dx + gap < cellSize; ++dx) {
+                    const size_t at = ((top + z * cellSize + dz) * size + left + x * cellSize + dx) * 4;
                     pixels[at] = std::byte{color[0]};
                     pixels[at + 1] = std::byte{color[1]};
                     pixels[at + 2] = std::byte{color[2]};
