@@ -1,4 +1,5 @@
 #pragma once
+#include <random>
 #include <string>
 #include <vector>
 
@@ -68,6 +69,9 @@ private:
     cIGZTerrainDecalService* decalService_{nullptr};
     uint32_t                 instanceId_{0};
     TerrainDecalState        stateTemplate_{};
+    uint32_t                 frameCount_{1};
+    bool                     randomFrame_{false};
+    std::minstd_rand         frameRandom_{std::random_device{}()};
     TerrainDecalId           previewDecalId_{};
 
     std::vector<DecalUndoGroup> undoStack_{};

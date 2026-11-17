@@ -224,6 +224,7 @@ namespace {
         preset.uvWindow.v2 = state.uvWindow.v2;
         preset.uvWindow.mode = static_cast<uint32_t>(state.uvWindow.mode);
         preset.depthOffset = state.depthOffset;
+        preset.frame = state.frame != 0 ? std::optional{state.frame} : std::nullopt;
         return preset;
     }
 
@@ -248,6 +249,7 @@ namespace {
         state.uvWindow.v2 = preset.uvWindow.v2;
         state.uvWindow.mode = static_cast<TerrainDecalUvMode>(preset.uvWindow.mode);
         state.depthOffset = preset.depthOffset;
+        state.frame = preset.frame.value_or(0u);
     }
 }
 
@@ -439,6 +441,7 @@ void DecalPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
         thumbnailCache_.Clear();
         hoverPreview_.Clear();
         ClearUvPickerTexture_();
+        frameTextures_.clear();
         lastDeviceGeneration_ = deviceGeneration;
     }
 }
@@ -715,6 +718,7 @@ void DecalPanelTab::RenderSettingsModal_() {
     }
     ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     ImGui::ColorEdit3("Color tint##decalColor", &state.color.fX);
+    RenderVariant_(state);
 
     // Rare settings, closed by default. Their state shows on the closed header.
     char header[48];
@@ -752,6 +756,43 @@ void DecalPanelTab::RenderSettingsModal_() {
     }
 
     ImGui::EndPopup();
+}
+
+void DecalPanelTab::RenderVariant_(TerrainDecalState& state) {
+    const uint32_t count = std::min(pendingPaint_.settings.frameCount, 32u);
+    if (count <= 1) {
+        return;
+    }
+    ImGui::SeparatorText("Variant");
+    ImGui::Checkbox("A random variant for each stamp##decalRandomFrame", &pendingPaint_.settings.randomFrame);
+    Tooltip("This texture has more than one variant. Each stamp takes one of them by chance.");
+    ImGui::BeginDisabled(pendingPaint_.settings.randomFrame);
+    frameTextures_.resize(count);
+    constexpr float kFrameSize = 40.0f;
+    for (uint32_t frame = 0; frame < count; ++frame) {
+        ImGui::PushID(static_cast<int>(frame));
+        if (frame % 8 != 0) {
+            ImGui::SameLine();
+        }
+        if (!frameTextures_[frame]) {
+            frameTextures_[frame] = std::make_unique<ImGuiTexture>();
+            ImVec2 size{};
+            decals::LoadDecalTexture(pRM_, imguiService_, pendingPaint_.instanceId, *frameTextures_[frame], size, frame);
+        }
+        ImGuiTexture& texture = *frameTextures_[frame];
+        const bool clicked = texture.IsValid()
+                                 ? ImGui::ImageButton("##frame", reinterpret_cast<ImTextureID>(texture.GetID()), ImVec2(kFrameSize, kFrameSize))
+                                 : ImGui::Button("##frame", ImVec2(kFrameSize, kFrameSize));
+        if (clicked) {
+            state.frame = frame;
+        }
+        if (!pendingPaint_.settings.randomFrame && state.frame == frame) {
+            ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                                                ImGui::GetColorU32(ImGuiCol_CheckMark), 3.0f, 0, 3.0f);
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndDisabled();
 }
 
 void DecalPanelTab::RenderUvSection_(TerrainDecalState& state) {
@@ -1034,6 +1075,11 @@ void DecalPanelTab::QueuePaintForDecal_(const uint32_t instanceId) {
 
     pendingPaint_.instanceId = instanceId;
     UseLastPaintState_(instanceId);
+    pendingPaint_.settings.frameCount = decals::CountDecalFrames(pRM_, instanceId);
+    if (pendingPaint_.settings.stateTemplate.frame >= pendingPaint_.settings.frameCount) {
+        pendingPaint_.settings.stateTemplate.frame = 0;
+    }
+    frameTextures_.clear();
     pendingPaint_.open = true;
 }
 

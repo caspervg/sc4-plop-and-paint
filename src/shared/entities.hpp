@@ -198,6 +198,7 @@ struct SavedDecalPreset {
     bool hasUvWindow = false;
     SavedDecalUvWindow uvWindow{};
     int depthOffset = -1;
+    std::optional<uint32_t> frame;  // the multi-FSH frame; empty: the first
 };
 
 struct NamedDecalPreset {

@@ -67,6 +67,11 @@ void DecalPainterInputControl::SetDecalToPaint(const uint32_t instanceId,
     instanceId_    = instanceId;
     stateTemplate_ = settings.stateTemplate;
     stateTemplate_.textureKey = cGZPersistResourceKey{kDecalTextureType, kDecalTextureGroup, instanceId};
+    frameCount_ = std::max(settings.frameCount, 1u);
+    randomFrame_ = settings.randomFrame && frameCount_ > 1;
+    if (randomFrame_) {
+        stateTemplate_.frame = frameRandom_() % frameCount_;
+    }
 
     // Configure base-class state machine for Direct-mode-only painting.
     PropPaintSettings propSettings = settings.placementSettings;
@@ -102,6 +107,11 @@ bool DecalPainterInputControl::PlaceAtWorld_(const cS3DVector3& pos,
 
     AddDecalToUndo_(decalId, committedDrawMode);
     LOG_DEBUG("DecalPainterInputControl: placed decal 0x{:08X} id={}", typeID, decalId.value);
+    if (randomFrame_) {
+        // The preview shows what the next stamp gets.
+        stateTemplate_.frame = frameRandom_() % frameCount_;
+        RefreshPreviewDecal_();
+    }
     return true;
 }
 
