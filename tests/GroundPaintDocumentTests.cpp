@@ -547,6 +547,27 @@ int main() {
         CHECK(groups.Undo() && groups.Find(ids[2])->groupName == "Park");
     }
 
+    // Patch layers are kept when only a texture changes; a new share makes them again.
+    {
+        FakePaintService patchService;
+        GroundPaintDocument patchDoc(kWhite);
+        patchDoc.SetPaintService(&patchService);
+        PaintObject field = Square(0, 0, 200);
+        field.look.mix = TextureMix::Patches;
+        field.look.textures = {{0x1000, 1.0f}, {0x2000, 1.0f}, {0x3000, 1.0f}};
+        const uint32_t id = patchDoc.Add(field);
+        CHECK(id != 0 && patchDoc.Find(id)->patchPaintIds.size() == 2);
+        const int before = patchService.shapeSets;
+        PaintObject swapped = *patchDoc.Find(id);
+        swapped.look.textures[1].instance = 0x4000;
+        patchDoc.Update({swapped});
+        CHECK(patchService.shapeSets == before);
+        PaintObject shares = *patchDoc.Find(id);
+        shares.look.textures[2].weight = 3.0f;
+        patchDoc.Update({shares});
+        CHECK(patchService.shapeSets > before);
+    }
+
     std::puts("ok");
     return 0;
 }

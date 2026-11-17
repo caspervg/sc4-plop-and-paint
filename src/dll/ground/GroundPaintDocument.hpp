@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -129,9 +130,14 @@ namespace Ground {
         void Sync_(PaintObject& object);
         // Makes or updates the terrain paints of an area and its patches: one id per part. All
         // are made again when one has to be, so the patches stay on top of the area.
+        // reshape: which parts have a new outline (the area, then each patch); the others only get the style.
         void ShowParts_(uint32_t& paintId, std::vector<uint32_t>& patchIds, const PaintObject& object,
                         const Area& area, const std::vector<Area>& patches, const std::vector<UvVertex>& uvMap,
-                        int32_t drawOrder, bool hidden, bool transient);
+                        int32_t drawOrder, bool hidden, bool transient, bool reshapeArea = true,
+                        bool reshapePatches = true);
+        // The patch layers of an object, worked out again only when what they come from changed: its
+        // area, the shares of its textures, the patch size, the seed and the pattern frame.
+        const std::vector<Area>& PatchesOf_(uint32_t id, const PaintObject& object, const Area& area, size_t maxCells);
         // Restyles the terrain paints of an object without touching their shapes.
         void Restyle_(const PaintObject& object, const Area& area, uint32_t paintId,
                       const std::vector<uint32_t>& patchIds, int32_t drawOrder, bool hidden, bool transient);
@@ -148,6 +154,17 @@ namespace Ground {
         cIGZTerrainPaintService* service_ = nullptr;
         std::vector<PaintObject> objects_{};
         std::unordered_map<uint32_t, Built> built_{};
+        struct PatchMemo {
+            Area area;
+            std::vector<float> weights;
+            float patchSize = 0.0f;
+            uint32_t seed = 0;
+            Vec2 origin{};
+            float turn = 0.0f;
+            std::vector<Area> patches;
+        };
+        // By object id and noise grid size; id 0 is the shape being drawn.
+        std::map<std::pair<uint32_t, size_t>, PatchMemo> patchMemo_{};
         // Objects whose terrain paints show a change that is still being made: a moved or
         // reshaped cut, or only a new style. ShowSelectionMoved({}) puts back just these.
         std::unordered_set<uint32_t> shownShape_{};
