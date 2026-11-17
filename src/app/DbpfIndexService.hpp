@@ -14,6 +14,13 @@
 #include "PluginLocator.hpp"
 #include "TGI.h"
 
+// How indexing went for one file, parallel to dbpfFiles().
+struct IndexedFileResult {
+    enum class State { NotRead, Indexed, Failed };
+    State state = State::NotRead;
+    size_t entryCount = 0;
+};
+
 struct ScanProgress {
     size_t totalFiles = 0;
     size_t processedFiles = 0;
@@ -40,6 +47,9 @@ public:
     [[nodiscard]] auto typeIndex(uint32_t type) const -> std::span<const DBPF::Tgi>;
     [[nodiscard]] auto dbpfFiles() const -> const std::vector<std::filesystem::path>&;
     [[nodiscard]] auto pluginLocator() const -> const PluginLocator&;
+    // Per-file results and what the locator saw; complete once indexing is done.
+    [[nodiscard]] auto fileResults() const -> std::vector<IndexedFileResult>;
+    [[nodiscard]] auto scanReport() const -> PluginScanReport;
 
     // Load an exemplar by TGI using cached readers
     // Returns a pointer to the cached exemplar (stays valid until shutdown)
@@ -70,6 +80,8 @@ private:
 
     std::string currentFile_;
     std::vector<std::filesystem::path> files_;
+    std::vector<IndexedFileResult> fileResults_;
+    PluginScanReport scanReport_;
     std::unordered_map<DBPF::Tgi, std::vector<uint32_t>, DBPF::TgiHash> tgiToFileIndices_;
     std::unordered_map<std::filesystem::path, uint32_t> pathToIndex_;
     std::unordered_map<uint32_t, std::vector<DBPF::Tgi>> typeToTgis_;

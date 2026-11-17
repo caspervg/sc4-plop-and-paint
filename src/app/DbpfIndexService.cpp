@@ -8,6 +8,7 @@
 
 #include "DBPFReader.h"
 #include "ParseTypes.h"
+#include "PathText.hpp"
 
 DbpfIndexService::DbpfIndexService(PluginLocator locator) : locator_(std::move(locator)) {}
 
@@ -29,6 +30,8 @@ void DbpfIndexService::start() {
         std::unique_lock lock(mutex_);
         currentFile_.clear();
         files_.clear();
+        fileResults_.clear();
+        scanReport_ = {};
         tgiToFileIndices_.clear();
         pathToIndex_.clear();
     }
@@ -100,6 +103,16 @@ auto DbpfIndexService::dbpfFiles() const -> const std::vector<std::filesystem::p
 
 auto DbpfIndexService::pluginLocator() const -> const PluginLocator& {
     return locator_;
+}
+
+auto DbpfIndexService::fileResults() const -> std::vector<IndexedFileResult> {
+    std::shared_lock lock(mutex_);
+    return fileResults_;
+}
+
+auto DbpfIndexService::scanReport() const -> PluginScanReport {
+    std::shared_lock lock(mutex_);
+    return scanReport_;
 }
 
 ParseExpected<const Exemplar::Record*> DbpfIndexService::loadExemplar(const DBPF::Tgi& tgi) const {
@@ -200,39 +213,47 @@ DBPF::Reader* DbpfIndexService::getReader(const std::filesystem::path& filePath)
 
 void DbpfIndexService::worker_() {
     try {
-        const auto pluginFiles = locator_.ListDbpfFiles();
+        PluginScanReport report;
+        const auto pluginFiles = locator_.ListDbpfFiles(&report);
 
         {
             std::unique_lock lock(mutex_);
             files_ = pluginFiles;
+            fileResults_.assign(pluginFiles.size(), {});
+            scanReport_ = std::move(report);
             totalFiles_ = pluginFiles.size();
             for (uint32_t i = 0; i < pluginFiles.size(); ++i) {
                 pathToIndex_[pluginFiles[i]] = i;
             }
         }
 
-        for (const auto& filePath : pluginFiles) {
+        for (size_t fileIndex = 0; fileIndex < pluginFiles.size(); ++fileIndex) {
+            const auto& filePath = pluginFiles[fileIndex];
             if (stop_) {
                 break;
             }
 
-            {
-                std::unique_lock lock(mutex_);
-                currentFile_ = filePath.filename().string();
-            }
-
             try {
+                {
+                    std::unique_lock lock(mutex_);
+                    currentFile_ = PathToUtf8(filePath.filename());
+                }
+
                 auto reader = std::make_unique<DBPF::Reader>();
                 if (!reader->LoadFile(filePath)) {
+                    {
+                        std::unique_lock lock(mutex_);
+                        fileResults_[fileIndex].state = IndexedFileResult::State::Failed;
+                    }
                     // The game skips a file that has no DBPF header, such as an installer's unins000.dat in the
                     // game folder. Only a package that does have one and still fails to load is an error.
                     char magic[4] = {};
                     std::ifstream(filePath, std::ios::binary).read(magic, sizeof(magic));
                     if (std::string_view(magic, sizeof(magic)) != "DBPF") {
-                        spdlog::debug("Skipped {}: not a DBPF file", filePath.string());
+                        spdlog::debug("Skipped {}: not a DBPF file", PathToUtf8(filePath));
                     }
                     else {
-                        spdlog::warn("Failed to load {}, a broken DBPF file?", filePath.string());
+                        spdlog::warn("Failed to load {}, a broken DBPF file?", PathToUtf8(filePath));
                         ++errorCount_;
                     }
                     ++processedFiles_;
@@ -259,6 +280,7 @@ void DbpfIndexService::worker_() {
                         dest.insert(dest.end(), tgis.begin(), tgis.end());
                     }
                     auto fileIdx = pathToIndex_.at(filePath);
+                    fileResults_[fileIndex] = {IndexedFileResult::State::Indexed, localTgis.size()};
                     for (const auto& tgi : localTgis) {
                         tgiToFileIndices_[tgi].push_back(fileIdx);
                     }
@@ -267,8 +289,12 @@ void DbpfIndexService::worker_() {
                     ++processedFiles_;
                 }
 
-            } catch ([[maybe_unused]] const std::exception& error) {
-                spdlog::error("Error loading {}", currentFile_);
+            } catch (const std::exception& error) {
+                spdlog::error("Error loading {}: {}", PathToUtf8(filePath), error.what());
+                {
+                    std::unique_lock lock(mutex_);
+                    fileResults_[fileIndex].state = IndexedFileResult::State::Failed;
+                }
                 ++errorCount_;
                 ++processedFiles_;
             }
@@ -281,8 +307,11 @@ void DbpfIndexService::worker_() {
         }
 
     } catch (const std::exception& error) {
+        spdlog::error("Plugin indexing stopped early: {}", error.what());
         ++errorCount_;
+        std::unique_lock lock(mutex_);
         done_ = true;
+        currentFile_.clear();
     }
 }
 

@@ -83,6 +83,7 @@ endif()
 set(LIBSQUISH_USE_OPENMP OFF)
 
 find_package(spdlog CONFIG REQUIRED)
+find_package(fmt CONFIG REQUIRED)
 find_package(args CONFIG REQUIRED)
 find_package(reflectcpp CONFIG REQUIRED)
 find_package(pugixml CONFIG REQUIRED)

@@ -32,6 +32,7 @@ target_include_directories(${APP_NAME} PRIVATE
 
 target_link_libraries(${APP_NAME} PRIVATE
     spdlog::spdlog
+    fmt::fmt
     SC4PlopAndPaintCore
     taywee::args
     DBPFKitLib

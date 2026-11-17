@@ -333,6 +333,25 @@ auto GetExecutableDirectory(const char* argv0) -> fs::path {
     return {};
 }
 
+auto NormalizeRootPath(const fs::path& path) -> fs::path {
+    if (path.empty()) {
+        return path;
+    }
+    // Use native separators first so a UNC root written with mixed separators is still recognized.
+    auto preferred = path;
+    preferred.make_preferred();
+    std::error_code ec;
+    auto absolute = fs::absolute(preferred, ec);
+    if (ec) {
+        absolute = preferred;
+    }
+    auto normal = absolute.lexically_normal();
+    if (!normal.has_filename() && normal.has_relative_path()) {
+        normal = normal.parent_path();
+    }
+    return normal;
+}
+
 auto ResolvePathCaseInsensitive(const fs::path& path) -> fs::path {
 #ifdef _WIN32
     return path;

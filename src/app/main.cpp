@@ -33,9 +33,12 @@
 #include "DbpfIndexService.hpp"
 #include "ExemplarParser.hpp"
 #include "BuiltinPropFamilyNames.hpp"
+#include "Console.hpp"
 #include "PathDetection.hpp"
 #include "PluginLocator.hpp"
 #include "PropertyMapper.hpp"
+#include "ScanReport.hpp"
+#include "PathText.hpp"
 #include "Utils.hpp"
 
 #include <rfl/cbor.hpp>
@@ -279,6 +282,8 @@ namespace {
             resolved.userPluginsSource = detected.userPluginsRoot->source;
         }
 
+        config.gameRoot = NormalizeRootPath(config.gameRoot);
+        config.userPluginsRoot = NormalizeRootPath(config.userPluginsRoot);
         if (!config.gameRoot.empty()) {
             config.gameRoot = ResolvePathCaseInsensitive(config.gameRoot);
             config.gamePluginsRoot = ResolvePathCaseInsensitive(config.gameRoot / "Plugins");
@@ -297,10 +302,10 @@ namespace {
         if (resolved.winePrefix) {
             logger.info("  Wine Prefix: {}", resolved.winePrefix->string());
         }
-        logger.info("  Game Root: {} ({})", config.gameRoot.string(), resolved.gameRootSource);
-        logger.info("  Game Locale: {}", (config.gameRoot / config.localeDir).string());
-        logger.info("  Game Plugins: {}", config.gamePluginsRoot.string());
-        logger.info("  User Plugins: {} ({})", config.userPluginsRoot.string(), resolved.userPluginsSource);
+        logger.info("  Game Root: {} ({})", PathToUtf8(config.gameRoot), resolved.gameRootSource);
+        logger.info("  Game Locale: {}", PathToUtf8(config.gameRoot / config.localeDir));
+        logger.info("  Game Plugins: {}", PathToUtf8(config.gamePluginsRoot));
+        logger.info("  User Plugins: {} ({})", PathToUtf8(config.userPluginsRoot), resolved.userPluginsSource);
     }
 
     bool IsDirectoryEmpty(const fs::path& directory) {
@@ -330,13 +335,13 @@ namespace {
             {
                 std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
                 if (!file) {
-                    logger.error("Failed to open file for writing: {}", tempPath.string());
+                    logger.error("Failed to open file for writing: {}", PathToUtf8(tempPath));
                     return false;
                 }
                 rfl::cbor::write(data, file);
                 file.flush();
                 if (!file.good()) {
-                    logger.error("Failed to write cache data to {}", tempPath.string());
+                    logger.error("Failed to write cache data to {}", PathToUtf8(tempPath));
                     file.close();
                     std::error_code removeEc;
                     fs::remove(tempPath, removeEc);
@@ -346,7 +351,7 @@ namespace {
             std::error_code renameEc;
             fs::rename(tempPath, cborPath, renameEc);
             if (renameEc) {
-                logger.error("Failed to move {} into place: {}", tempPath.string(), renameEc.message());
+                logger.error("Failed to move {} into place: {}", PathToUtf8(tempPath), renameEc.message());
                 std::error_code removeEc;
                 fs::remove(tempPath, removeEc);
                 return false;
@@ -354,7 +359,7 @@ namespace {
             return true;
         }
         catch (const std::exception& error) {
-            logger.error("Error writing {}: {}", cborPath.string(), error.what());
+            logger.error("Error writing {}: {}", PathToUtf8(cborPath), error.what());
             std::error_code removeEc;
             fs::remove(tempPath, removeEc);
             return false;
@@ -367,7 +372,11 @@ namespace {
         std::optional<PackCatalog> current;
         std::error_code existsEc;
         if (fs::exists(path, existsEc)) {
-            if (auto loaded = rfl::cbor::load<PackCatalog, rfl::DefaultIfMissing>(path.string())) {
+            // Read through the path itself: rfl::cbor::load takes a narrow string, which cannot hold every
+            // Windows path.
+            std::ifstream file(path, std::ios::binary);
+            const std::vector<char> bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+            if (auto loaded = rfl::cbor::read<PackCatalog, rfl::DefaultIfMissing>(bytes)) {
                 current = std::move(*loaded);
             }
         }
@@ -379,7 +388,7 @@ namespace {
         if (!WriteCborAtomic(logger, path, *catalog)) {
             return false;
         }
-        logger.info("Wrote {}", path.string());
+        logger.info("Wrote {}", PathToUtf8(path));
         return true;
     }
 
@@ -392,7 +401,7 @@ namespace {
             logger.info("Initializing plugin scanner...");
 
             if (IsDirectoryEmpty(config.userPluginsRoot)) {
-                logger.warn("User Plugins folder is empty: {}", config.userPluginsRoot.string());
+                logger.warn("User Plugins folder is empty: {}", PathToUtf8(config.userPluginsRoot));
             }
 
             // Create locator to discover plugin files
@@ -420,7 +429,7 @@ namespace {
                 std::error_code existsEc;
                 if (fs::exists(loc, existsEc)) {
                     if (propertyMapper.loadFromXml(loc)) {
-                        logger.info("Loaded property mapper from: {}", loc.string());
+                        logger.info("Loaded property mapper from: {}", PathToUtf8(loc));
                         mapperLoaded = true;
                         break;
                     }
@@ -431,7 +440,7 @@ namespace {
                 logger.error("Could not load PropertyMapper XML - aborting scan, exemplars cannot be "
                              "classified without property definitions");
                 for (const auto& loc : mapperLocations) {
-                    logger.error("  Looked for: {}", loc.string());
+                    logger.error("  Looked for: {}", PathToUtf8(loc));
                 }
                 indexService.shutdown();
                 return false;
@@ -460,8 +469,13 @@ namespace {
 
             // Log final indexing results
             auto finalProgress = indexService.snapshot();
-            logger.info("Indexing complete: {} files processed, {} entries indexed, {} errors",
-                        finalProgress.processedFiles, finalProgress.totalFiles, finalProgress.errorCount);
+            logger.info("Indexing complete: {}/{} files processed, {} entries indexed, {} errors",
+                        finalProgress.processedFiles, finalProgress.totalFiles, finalProgress.entriesIndexed,
+                        finalProgress.errorCount);
+            if (finalProgress.processedFiles < finalProgress.totalFiles) {
+                logger.warn("Indexing stopped before the end: {} plugin files were not read",
+                            finalProgress.totalFiles - finalProgress.processedFiles);
+            }
 
             uint32_t buildingsFound = 0;
             uint32_t lotsFound = 0;
@@ -539,7 +553,7 @@ namespace {
                     // The last file in load order wins, matching the game's override rules.
                     const auto indexIt = loadOrderIndices.find(files.back());
                     if (indexIt == loadOrderIndices.end()) {
-                        logger.warn("Indexed file {} missing from load order list", files.back().string());
+                        logger.warn("Indexed file {} missing from load order list", PathToUtf8(files.back()));
                         continue;
                     }
                     fileToExemplarTgis[indexIt->second].push_back(tgi);
@@ -547,6 +561,42 @@ namespace {
             }
 
             size_t filesProcessed = 0;
+            size_t unreadableRecords = 0;
+            std::unordered_map<fs::path, FileItemCounts> itemCountsByFile; // for the scanned files report
+
+            struct LoadedRecord {
+                Exemplar::Record record;
+                fs::path file;
+            };
+            // Loads a record from the file that wins in load order. When that copy cannot be read, an
+            // earlier copy is used instead, since an older version of an item is better than none.
+            const auto loadRecord = [&](const fs::path& winningFile, const DBPF::Reader& winningReader,
+                                        const DBPF::Tgi& tgi) -> std::optional<LoadedRecord> {
+                auto result = winningReader.LoadExemplar(tgi);
+                if (result.has_value()) {
+                    return LoadedRecord{std::move(*result), winningFile};
+                }
+                logger.warn("Could not read {} from {}: {}", tgi.ToString(), PathToUtf8(winningFile),
+                            result.error().message);
+
+                const auto files = indexService.lookupFiles(tgi);
+                for (auto it = files.rbegin(); it != files.rend(); ++it) {
+                    if (*it == winningFile) {
+                        continue;
+                    }
+                    const auto* reader = indexService.getReader(*it);
+                    if (!reader) {
+                        continue;
+                    }
+                    if (auto earlier = reader->LoadExemplar(tgi); earlier.has_value()) {
+                        logger.warn("  Using the earlier copy of {} from {}", tgi.ToString(), PathToUtf8(*it));
+                        return LoadedRecord{std::move(*earlier), *it};
+                    }
+                }
+                ++unreadableRecords;
+                ++itemCountsByFile[winningFile].unreadableRecords;
+                return std::nullopt;
+            };
 
             // Store lot config TGIs for second pass
             std::vector<std::pair<fs::path, DBPF::Tgi>> lotConfigTgis;
@@ -557,22 +607,23 @@ namespace {
                     // Get cached reader from index service
                     auto* reader = indexService.getReader(filePath);
                     if (!reader) {
-                        logger.warn("Failed to get reader for file: {}", filePath.string());
+                        logger.warn("Failed to get reader for file: {}", PathToUtf8(filePath));
                         continue;
                     }
 
-                    logger.debug("Processing {} exemplars from {}", tgis.size(), filePath.filename().string());
+                    logger.debug("Processing {} exemplars from {}", tgis.size(), PathToUtf8(filePath.filename()));
 
                     // Process all exemplars in this file
                     for (const auto& tgi : tgis) {
                         try {
-                            auto exemplarResult = reader->LoadExemplar(tgi);
-                            if (!exemplarResult.has_value()) {
+                            auto loaded = loadRecord(filePath, *reader, tgi);
+                            if (!loaded) {
                                 continue;
                             }
+                            const auto& exemplar = loaded->record;
 
                             if (tgi.type == kTypeIdCohort) {
-                                if (auto parsedFamily = parser.parsePropFamilyFromCohort(*exemplarResult)) {
+                                if (auto parsedFamily = parser.parsePropFamilyFromCohort(exemplar)) {
                                     const uint32_t familyId = parsedFamily->familyId.value();
                                     auto [it, inserted] = propFamilyNamesById.try_emplace(
                                         familyId, parsedFamily->displayName);
@@ -587,7 +638,7 @@ namespace {
                                 continue;
                             }
 
-                            auto exemplarType = parser.getExemplarType(*exemplarResult);
+                            auto exemplarType = parser.getExemplarType(exemplar);
                             if (!exemplarType) {
                                 continue;
                             }
@@ -597,7 +648,7 @@ namespace {
                             }
 
                             if (*exemplarType == ExemplarType::Building) {
-                                auto building = parser.parseBuilding(*exemplarResult, tgi);
+                                auto building = parser.parseBuilding(exemplar, tgi);
                                 if (building) {
                                     if (const auto existing = buildingMap.find(tgi.instance);
                                         existing != buildingMap.end()) {
@@ -610,12 +661,13 @@ namespace {
                                     encodeThumbnail(built, buildingThumbnails);
                                     builtBuildings.insert_or_assign(tgi.instance, std::move(built));
                                     buildingsFound++;
+                                    ++itemCountsByFile[loaded->file].buildings;
                                     logger.trace("  Building: {} (0x{:08X})", building->name, tgi.instance);
                                 }
                             }
                             else if (*exemplarType == ExemplarType::LotConfig) {
                                 // Queue for second pass
-                                lotConfigTgis.emplace_back(filePath, tgi);
+                                lotConfigTgis.emplace_back(loaded->file, tgi);
                             }
                             else if (*exemplarType == ExemplarType::Prop) {
                                 if (seenPropKeys.contains(MakeGIKey(tgi.group, tgi.instance))) {
@@ -623,7 +675,7 @@ namespace {
                                                 tgi.group, tgi.instance);
                                     continue;
                                 }
-                                if (auto prop = parser.parseProp(*exemplarResult, tgi)) {
+                                if (auto prop = parser.parseProp(exemplar, tgi)) {
                                     logger.trace("  Prop: {} (0x{:08X})", prop->visibleName, tgi.instance);
                                     allProps.emplace_back(
                                         parser.propFromParsed(*prop)
@@ -631,6 +683,7 @@ namespace {
                                     encodeThumbnail(allProps.back(), propThumbnails);
                                     propSourceFiles.push_back(fileOrderIndex);
                                     seenPropKeys.insert(MakeGIKey(tgi.group, tgi.instance));
+                                    ++itemCountsByFile[loaded->file].props;
                                 }
                             }
                             else if (*exemplarType == ExemplarType::Flora) {
@@ -639,11 +692,12 @@ namespace {
                                                 tgi.group, tgi.instance);
                                     continue;
                                 }
-                                if (auto flora = parser.parseFlora(*exemplarResult, tgi)) {
+                                if (auto flora = parser.parseFlora(exemplar, tgi)) {
                                     logger.trace("  Flora: {} (0x{:08X})", flora->visibleName, tgi.instance);
                                     allFlora.emplace_back(parser.floraFromParsed(*flora));
                                     encodeThumbnail(allFlora.back(), floraThumbnails);
                                     seenFloraKeys.insert(MakeGIKey(tgi.group, tgi.instance));
+                                    ++itemCountsByFile[loaded->file].flora;
                                 }
                             }
                         }
@@ -663,7 +717,7 @@ namespace {
                     }
                 }
                 catch (const std::exception& error) {
-                    logger.warn("Error processing file {}: {}", filePath.filename().string(), error.what());
+                    logger.warn("Error processing file {}: {}", PathToUtf8(filePath.filename()), error.what());
                 }
             }
 
@@ -692,6 +746,10 @@ namespace {
 
                     auto exemplarResult = reader->LoadExemplar(tgi);
                     if (!exemplarResult.has_value()) {
+                        logger.warn("Could not read lot {} from {}: {}", tgi.ToString(), PathToUtf8(filePath),
+                                    exemplarResult.error().message);
+                        ++unreadableRecords;
+                        ++itemCountsByFile[filePath].unreadableRecords;
                         continue;
                     }
 
@@ -714,6 +772,7 @@ namespace {
                             if (seenLotKeys.insert(lotKey).second) {
                                 buildingIt->second.lots.push_back(lot);
                                 lotsFound++;
+                                ++itemCountsByFile[filePath].lots;
                             }
                             else {
                                 logger.warn("Duplicate lot skipped: {} (group=0x{:08X}, instance=0x{:08X})",
@@ -762,8 +821,8 @@ namespace {
                        MakeGIKey(b.groupId.value(), b.instanceId.value());
             });
 
-            logger.info("Scan complete: {} buildings with lots, {} lots, {} parse errors",
-                        allBuildings.size(), lotsFound, parseErrors);
+            logger.info("Scan complete: {} buildings with lots, {} lots, {} parse errors, {} unreadable records",
+                        allBuildings.size(), lotsFound, parseErrors, unreadableRecords);
 
             SanitizeStrings(allBuildings, allProps);
 
@@ -809,7 +868,19 @@ namespace {
                 fs::create_directories(config.userPluginsRoot, dirEc);
                 if (dirEc) {
                     logger.error("Failed to create output directory {}: {}",
-                                 config.userPluginsRoot.string(), dirEc.message());
+                                 PathToUtf8(config.userPluginsRoot), dirEc.message());
+                }
+            }
+
+            {
+                // Lets users check which files were read and what each one added to the cache.
+                const auto reportPath = config.userPluginsRoot / "SC4PlopAndPaint_scanned_files.txt";
+                if (WriteScanReport(reportPath, SC4_PLOP_AND_PAINT_VERSION, filesInLoadOrder,
+                                    indexService.fileResults(), indexService.scanReport(), itemCountsByFile)) {
+                    logger.info("Wrote the list of scanned files to {}", PathToUtf8(reportPath));
+                }
+                else {
+                    logger.warn("Could not write the list of scanned files to {}", PathToUtf8(reportPath));
                 }
             }
 
@@ -821,14 +892,14 @@ namespace {
                 try {
                     const auto size = static_cast<uint16_t>(storedSize != 0 ? storedSize : thumbnailSize);
                     if (ThumbnailBin::WriteEncoded(binPath, std::move(entries), size, size)) {
-                        logger.info("Exported {} {} thumbnails to {}", count, label, binPath.string());
+                        logger.info("Exported {} {} thumbnails to {}", count, label, PathToUtf8(binPath));
                     }
                     else {
-                        logger.error("Failed to write {} thumbnails to {}", label, binPath.string());
+                        logger.error("Failed to write {} thumbnails to {}", label, PathToUtf8(binPath));
                     }
                 }
                 catch (const std::exception& error) {
-                    logger.error("Error writing {} thumbnails to {}: {}", label, binPath.string(), error.what());
+                    logger.error("Error writing {} thumbnails to {}: {}", label, PathToUtf8(binPath), error.what());
                 }
             };
 
@@ -923,7 +994,7 @@ namespace {
             if (!allBuildings.empty()) {
                 const auto cborPath = config.userPluginsRoot / "lots.cbor";
                 logger.info("Exporting {} buildings ({} lots) to {}", allBuildings.size(), lotsFound,
-                            cborPath.string());
+                            PathToUtf8(cborPath));
                 if (writeCborAtomic(cborPath, allBuildings)) {
                     logger.info("Successfully exported lot configs");
                 }
@@ -970,7 +1041,7 @@ namespace {
 
                 logger.info("Exporting {} props, {} prop families and {} seasonal sets to {}",
                             propsCache.props.size(), propsCache.propFamilies.size(),
-                            propsCache.seasonalSets.size(), cborPath.string());
+                            propsCache.seasonalSets.size(), PathToUtf8(cborPath));
                 if (writeCborAtomic(cborPath, propsCache)) {
                     logger.info("Successfully exported props");
                 }
@@ -987,7 +1058,7 @@ namespace {
                 FloraCache floraCache;
                 floraCache.floraItems = std::move(allFlora);
 
-                logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), cborPath.string());
+                logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), PathToUtf8(cborPath));
                 if (writeCborAtomic(cborPath, floraCache)) {
                     logger.info("Successfully exported flora");
                 }
@@ -996,7 +1067,7 @@ namespace {
             if (!networksCache.networks.empty() || !networksCache.buttons.empty()) {
                 const auto cborPath = config.userPluginsRoot / "networks.cbor";
                 logger.info("Exporting {} override networks and {} menu buttons with pieces to {}",
-                            networksCache.networks.size(), networksCache.buttons.size(), cborPath.string());
+                            networksCache.networks.size(), networksCache.buttons.size(), PathToUtf8(cborPath));
                 writeCborAtomic(cborPath, networksCache);
                 if (!networkThumbnails.empty()) {
                     writeThumbnailBin(config.userPluginsRoot / "network_thumbnails.bin",
@@ -1017,6 +1088,7 @@ namespace {
 
 int main(int argc, char* argv[]) {
     try {
+        UseUtf8Console();
         auto logger = spdlog::stdout_color_mt("lotplop-cli");
         spdlog::set_default_logger(logger);
         logger->set_level(spdlog::level::debug);

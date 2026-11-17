@@ -2,9 +2,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
+#include <fstream>
 #include <cwctype>
 #include <iterator>
+#include <set>
 #include <vector>
+
+#include <spdlog/spdlog.h>
+
+#include "PathText.hpp"
 
 namespace fs = std::filesystem;
 
@@ -25,8 +32,22 @@ namespace {
         return upper;
     }
 
+    auto HasDbpfSignature(const fs::path& file) -> bool {
+        std::ifstream stream(file, std::ios::binary);
+        char signature[4] = {};
+        return stream.read(signature, sizeof(signature)) && std::memcmp(signature, "DBPF", sizeof(signature)) == 0;
+    }
+
+    // The game loads every DBPF file in a plugin folder, whatever its extension. The usual extensions
+    // skip the signature check; the reader reports those if they turn out not to be DBPF files.
+    auto IsPluginFile(const fs::path& file) -> bool {
+        auto ext = PathToUtf8(file.extension());
+        std::ranges::transform(ext, ext.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return kDbpfFileExtensions.contains(ext) || HasDbpfSignature(file);
+    }
+
     auto IsDatFile(const fs::path& file) -> bool {
-        auto ext = file.extension().string();
+        auto ext = PathToUtf8(file.extension());
         std::ranges::transform(ext, ext.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
         return ext == ".dat";
     }
@@ -85,40 +106,83 @@ namespace {
 
 PluginLocator::PluginLocator(PluginConfiguration config) : config_(std::move(config)) {}
 
-auto PluginLocator::ListDbpfFiles() const -> std::vector<std::filesystem::path> {
+auto PluginLocator::ListDbpfFiles(PluginScanReport* report) const -> std::vector<std::filesystem::path> {
     std::vector<std::filesystem::path> files;
-    CollectTreeSorted_(config_.gameRoot, false, files);
+    CollectTreeSorted_("Game folder", config_.gameRoot, false, files, report);
     if (!config_.localeDir.empty()) {
-        CollectTreeSorted_(config_.gameRoot / config_.localeDir, false, files);
+        CollectTreeSorted_("Game language folder", config_.gameRoot / config_.localeDir, false, files, report);
     }
-    CollectTreeSorted_(config_.gamePluginsRoot, true, files);
-    CollectTreeSorted_(config_.userPluginsRoot, true, files);
+    CollectTreeSorted_("Game Plugins folder", config_.gamePluginsRoot, true, files, report);
+    CollectTreeSorted_("User Plugins folder", config_.userPluginsRoot, true, files, report);
 
     return files;
 }
 
-auto PluginLocator::CollectTreeSorted_(const std::filesystem::path& root, bool recursive,
-                                       std::vector<std::filesystem::path>& out) -> void {
+auto PluginLocator::CollectTreeSorted_(std::string label, const std::filesystem::path& root, bool recursive,
+                                       std::vector<std::filesystem::path>& out, PluginScanReport* report) -> void {
+    if (report) {
+        report->roots.push_back(PluginScanReport::Root{std::move(label), root, recursive, out.size(), 0});
+    }
     std::vector<std::filesystem::path> tree;
-    CollectFiles_(root, recursive, tree);
+    CollectFiles_(root, recursive, tree, report);
     SortByGameLoadOrder(root, tree);
+    if (report) {
+        report->roots.back().fileCount = tree.size();
+    }
     out.insert(out.end(), std::make_move_iterator(tree.begin()), std::make_move_iterator(tree.end()));
 }
 
 auto PluginLocator::CollectFiles_(const std::filesystem::path& root, bool recursive,
-                                  std::vector<std::filesystem::path>& out) -> void {
+                                  std::vector<std::filesystem::path>& out, PluginScanReport* report) -> void {
     if (root.empty())
         return;
     std::error_code ec;
 
-    if (!std::filesystem::exists(root, ec))
+    if (!fs::is_directory(root, ec))
         return;
 
-    if (recursive) {
-        FindPlugins(std::filesystem::recursive_directory_iterator(root, kDirectoryOptions, ec),
-             std::filesystem::recursive_directory_iterator(), out);
-    }
-    else {
-        FindPlugins(std::filesystem::directory_iterator(root, ec), std::filesystem::directory_iterator(), out);
+    // Walk the folders by hand rather than with recursive_directory_iterator: the game also loads
+    // folders that are symlinks or junctions, and a folder that cannot be read should only lose
+    // its own files, not end the whole walk.
+    std::vector<fs::path> pending{root};
+    std::set<fs::path> visited;
+    while (!pending.empty()) {
+        const fs::path directory = std::move(pending.back());
+        pending.pop_back();
+
+        // A link back to a folder already walked would otherwise loop forever.
+        std::error_code canonicalEc;
+        if (const auto canonical = fs::canonical(directory, canonicalEc); !canonicalEc) {
+            if (!visited.insert(canonical).second) {
+                continue;
+            }
+        }
+
+        std::error_code iterEc;
+        fs::directory_iterator it(directory, fs::directory_options::skip_permission_denied, iterEc);
+        for (; !iterEc && it != fs::directory_iterator(); it.increment(iterEc)) {
+            const auto& entry = *it;
+            std::error_code typeEc;
+            // is_directory and is_regular_file follow symlinks and junctions.
+            if (entry.is_directory(typeEc)) {
+                if (recursive) {
+                    pending.push_back(entry.path());
+                }
+            }
+            else if (entry.is_regular_file(typeEc)) {
+                if (IsPluginFile(entry.path())) {
+                    out.push_back(entry.path());
+                }
+                else if (report) {
+                    report->skippedFiles.push_back({report->roots.size() - 1, entry.path()});
+                }
+            }
+        }
+        if (iterEc) {
+            spdlog::warn("Could not read plugin folder {}: {}", PathToUtf8(directory), iterEc.message());
+            if (report) {
+                report->unreadableFolders.push_back({directory, iterEc.message()});
+            }
+        }
     }
 }
