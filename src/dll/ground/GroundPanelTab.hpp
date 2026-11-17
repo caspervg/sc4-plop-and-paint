@@ -49,9 +49,14 @@ private:
     };
 
     // followsLine: the shape is a line, whose texture can follow it.
-    void RenderLookEditor_(Ground::Look& look, bool followsLine, LookEditorState& state, bool& changed, bool& committed);
+    // wear and roughness go with the look into presets; roughness is null for markings.
+    void RenderLookEditor_(Ground::Look& look, bool followsLine, float& wear, float* roughness, LookEditorState& state,
+                           bool& changed, bool& committed);
     void RenderChosenTextures_(Ground::Look& look, bool& changed, bool& committed);
-    void RenderPalettes_(Ground::Look& look, LookEditorState& state, bool& committed);
+    void RenderPalettes_(Ground::Look& look, float& wear, float* roughness, LookEditorState& state, bool& committed);
+    // Paints with a preset: its saved look, or only its textures when it has none.
+    static void UsePalette_(const PaintPalette& palette, Ground::Look& look, float& wear, float* roughness,
+                            LookEditorState& state);
     // Tint, size, turn and shift on one line. Only the repeat length when the texture follows a line.
     void RenderTextureLayout_(Ground::Look& look, bool following, bool& changed, bool& committed);
     void RenderTextureLibrary_(Ground::Look& look, bool& committed);

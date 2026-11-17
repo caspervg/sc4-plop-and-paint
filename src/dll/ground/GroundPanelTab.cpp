@@ -341,6 +341,82 @@ namespace {
                a.look.patchBlendMeters == b.look.patchBlendMeters && a.shape.wear == b.shape.wear;
     }
 
+    std::vector<PaintPaletteTexture> PaletteTextures(const std::vector<TextureChoice>& textures) {
+        std::vector<PaintPaletteTexture> saved;
+        for (const TextureChoice& choice : textures) {
+            saved.push_back({rfl::Hex<uint32_t>(choice.instance), choice.weight});
+        }
+        return saved;
+    }
+
+    void SaveToPalette(PaintPalette& palette, const Look& look, const float wear, const float* roughness) {
+        palette.look = PaintPaletteLook{
+            .textures = PaletteTextures(look.textures),
+            .color = look.color,
+            .opacity = look.opacity,
+            .featherMeters = look.featherMeters,
+            .textureSizeMeters = look.textureSizeMeters,
+            .textureRotationDegrees = look.textureRotationDegrees,
+            .variationSeed = look.variationSeed,
+            .followPath = look.followPath,
+            .textureOffset = look.textureOffset,
+            .depthOffset = look.depthOffset,
+            .mix = static_cast<uint8_t>(look.mix),
+            .patchSizeMeters = look.patchSizeMeters,
+            .patchBlendMeters = look.patchBlendMeters,
+            .wear = wear,
+            .roughness = roughness ? *roughness : 0.0f,
+        };
+        if (look.textures.empty() && std::ranges::find(palette.colours, look.color) == palette.colours.end()) {
+            palette.colours.push_back(look.color);
+        }
+        for (const TextureChoice& choice : look.textures) {
+            if (std::ranges::none_of(palette.textures, [&](const PaintPaletteTexture& entry) {
+                    return entry.instanceId.value() == choice.instance;
+                })) {
+                palette.textures.push_back({rfl::Hex<uint32_t>(choice.instance), choice.weight});
+            }
+        }
+    }
+}
+
+void GroundPanelTab::UsePalette_(const PaintPalette& palette, Look& look, float& wear, float* roughness,
+                                 LookEditorState& state) {
+    const bool wasTextured = !look.textures.empty();
+    const std::vector<PaintPaletteTexture>& textures = palette.look ? palette.look->textures : palette.textures;
+    look.textures.clear();
+    for (const PaintPaletteTexture& entry : textures) {
+        if (look.textures.size() < kTerrainPaintMaxTextures) {
+            look.textures.push_back(TextureChoice{entry.instanceId.value(), entry.weight});
+        }
+    }
+    if (const auto& saved = palette.look) {
+        look.color = saved->color;
+        look.opacity = saved->opacity;
+        look.featherMeters = saved->featherMeters;
+        look.textureSizeMeters = saved->textureSizeMeters;
+        look.textureRotationDegrees = saved->textureRotationDegrees;
+        look.variationSeed = saved->variationSeed;
+        look.followPath = saved->followPath;
+        look.textureOffset = saved->textureOffset;
+        look.depthOffset = saved->depthOffset;
+        look.mix = saved->mix == static_cast<uint8_t>(TextureMix::Patches) ? TextureMix::Patches : TextureMix::Squares;
+        look.patchSizeMeters = saved->patchSizeMeters;
+        look.patchBlendMeters = saved->patchBlendMeters;
+        wear = saved->wear;
+        if (roughness) {
+            *roughness = saved->roughness;
+        }
+    }
+    else if (!wasTextured) {
+        // The colour was the paint, not a tint.
+        state.plainColour = look.color;
+        look.color = {1.0f, 1.0f, 1.0f};
+    }
+    state.wantsTexture = !look.textures.empty();
+    if (!state.wantsTexture) {
+        state.plainColour = look.color;
+    }
 }
 
 GroundPanelTab::GroundPanelTab(SC4PlopAndPaintDirector* director,
@@ -541,7 +617,8 @@ void GroundPanelTab::OnRender() {
                 }
             }
             ImGui::PushID("look");
-            RenderLookEditor_(settings_.look, settings_.tool == Tool::Line, toolLook_, changed, committed);
+            RenderLookEditor_(settings_.look, settings_.tool == Tool::Line, settings_.wear,
+                              settings_.tool == Tool::Marking ? nullptr : &settings_.roughness, toolLook_, changed, committed);
             ImGui::PopID();
         }
         if (settings_.tool != Tool::Erase) {
@@ -841,7 +918,8 @@ void GroundPanelTab::RenderShapeSettings_() {
     }
 }
 
-void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookEditorState& state, bool& changed,
+void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float& wear, float* roughness,
+                                       LookEditorState& state, bool& changed,
                                        bool& committed) {
     const bool textured = state.wantsTexture || !look.textures.empty();
     if (ImGui::RadioButton("Color", !textured) && textured) {
@@ -879,7 +957,7 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
         Tooltip("The texture goes along the line and fills its width. Use this for a track or a kerb.");
     }
 
-    RenderPalettes_(look, state, committed);
+    RenderPalettes_(look, wear, roughness, state, committed);
 
     if (!textured) {
         for (size_t i = 0; i < std::size(kSwatches); ++i) {
@@ -939,105 +1017,102 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, LookE
     RenderTextureLibrary_(look, committed);
 }
 
-void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& committed) {
-    if (!favorites_ || !ImGui::CollapsingHeader("Palettes")) {
+void GroundPanelTab::RenderPalettes_(Look& look, float& wear, float* roughness, LookEditorState& state,
+                                     bool& committed) {
+    if (!favorites_ || !ImGui::CollapsingHeader("Presets###palettes")) {
         return;
     }
     ImGui::PushID("palettes");
     std::vector<PaintPalette>& palettes = favorites_->GetPaintPalettes();
     activePalette_ = palettes.empty() ? 0 : std::min(activePalette_, palettes.size() - 1);
 
-    // Not a name that is already there: deleting palettes leaves gaps in the numbers.
+    // Not a name that is already there: deleting presets leaves gaps in the numbers.
     const auto makePalette = [&] {
         std::string newName;
         for (size_t number = palettes.size() + 1;; ++number) {
-            newName = "Palette " + std::to_string(number);
+            newName = "Preset " + std::to_string(number);
             if (std::ranges::none_of(palettes, [&](const PaintPalette& other) { return other.name == newName; })) {
                 break;
             }
         }
         palettes.push_back({.name = std::move(newName)});
+        SaveToPalette(palettes.back(), look, wear, roughness);
         activePalette_ = palettes.size() - 1;
         favorites_->Save();
     };
 
-    // One line: choose a palette and use it. What is done less often is behind "...".
+    // One line: choose a preset and use it. What is done less often is behind "...".
     const float buttonGap = ImGui::GetStyle().ItemSpacing.x;
     const float buttonsWidth = palettes.empty()
-        ? PanelUi::ButtonWidth("New") + buttonGap
-        : PanelUi::ButtonWidth("Add this look") + PanelUi::ButtonWidth("Mix all") + PanelUi::ButtonWidth("...") + buttonGap * 3.0f;
+        ? PanelUi::ButtonWidth("Save as preset") + buttonGap
+        : PanelUi::ButtonWidth("Use") + PanelUi::ButtonWidth("Save") + PanelUi::ButtonWidth("...") + buttonGap * 3.0f;
     ImGui::SetNextItemWidth(-buttonsWidth);
-    if (ImGui::BeginCombo("##palette", palettes.empty() ? "No palettes yet" : palettes[activePalette_].name.c_str())) {
+    if (ImGui::BeginCombo("##palette", palettes.empty() ? "No presets yet" : palettes[activePalette_].name.c_str())) {
         for (size_t i = 0; i < palettes.size(); ++i) {
             ImGui::PushID(static_cast<int>(i));
             if (ImGui::Selectable(palettes[i].name.c_str(), i == activePalette_)) {
                 activePalette_ = i;
+                if (palettes[i].look || !palettes[i].textures.empty()) {
+                    UsePalette_(palettes[i], look, wear, roughness, state);
+                    chosenTexture_ = 0;
+                    committed = true;
+                }
             }
             ImGui::PopID();
         }
         ImGui::EndCombo();
     }
+    Tooltip("Choose a preset to paint with its look.");
     if (palettes.empty()) {
         ImGui::SameLine();
-        if (ImGui::SmallButton("New")) {
+        ImGui::BeginDisabled(look.textures.empty() && state.wantsTexture);
+        if (ImGui::SmallButton("Save as preset")) {
             makePalette();
         }
-        Tooltip("Make a palette. Palettes are the same in all your cities.");
+        ImGui::EndDisabled();
+        Tooltip("Keep the look that you paint with now as a preset.\nPresets are the same in all your cities.");
         ImGui::PopID();
         return;
     }
 
     PaintPalette& palette = palettes[activePalette_];
     ImGui::SameLine();
-    // Texture is chosen but no texture is picked yet: there is nothing to add.
-    const bool nothingToAdd = look.textures.empty() && state.wantsTexture;
-    ImGui::BeginDisabled(nothingToAdd);
-    if (ImGui::SmallButton("Add this look")) {
-        if (look.textures.empty() && std::ranges::find(palette.colours, look.color) == palette.colours.end()) {
-            palette.colours.push_back(look.color);
-        }
-        for (const TextureChoice& choice : look.textures) {
-            if (std::ranges::none_of(palette.textures, [&](const PaintPaletteTexture& entry) {
-                    return entry.instanceId.value() == choice.instance;
-                })) {
-                palette.textures.push_back({rfl::Hex<uint32_t>(choice.instance), choice.weight});
-            }
-        }
-        favorites_->Save();
-    }
-    ImGui::EndDisabled();
-    Tooltip(nothingToAdd ? "First pick a texture." : "Add the color or the textures that you paint with now to this palette.");
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(palette.textures.size() < 2);
-    if (ImGui::SmallButton("Mix all")) {
-        if (look.textures.empty()) {
-            state.plainColour = look.color;
-            look.color = {1.0f, 1.0f, 1.0f};
-        }
-        look.textures.clear();
-        for (const PaintPaletteTexture& entry : palette.textures) {
-            if (look.textures.size() < kTerrainPaintMaxTextures) {
-                look.textures.push_back(TextureChoice{entry.instanceId.value(), entry.weight});
-            }
-        }
+    const bool canUse = palette.look || !palette.textures.empty();
+    ImGui::BeginDisabled(!canUse);
+    if (ImGui::SmallButton("Use")) {
+        UsePalette_(palette, look, wear, roughness, state);
         chosenTexture_ = 0;
-        state.wantsTexture = true;
         committed = true;
     }
     ImGui::EndDisabled();
-    Tooltip(palette.textures.size() < 2 ? "This palette needs two or more textures."
-                                        : "Paint with all textures of this palette as a mix, up to 8 textures.");
+    Tooltip(!canUse          ? "This preset is empty. Click Save to keep the look that you paint with now."
+            : palette.look ? "Paint with the look of this preset: its textures, mix, size, turn, shift, tint, edges and wear."
+                           : "Paint with all textures of this preset as a mix, up to 8 textures.\n"
+                             "Click Save to keep the rest of the look in this preset too.");
+
+    // Texture is chosen but no texture is picked yet: there is nothing to save.
+    const bool nothingToSave = look.textures.empty() && state.wantsTexture;
+    ImGui::SameLine();
+    ImGui::BeginDisabled(nothingToSave);
+    if (ImGui::SmallButton("Save")) {
+        SaveToPalette(palette, look, wear, roughness);
+        favorites_->Save();
+    }
+    ImGui::EndDisabled();
+    Tooltip(nothingToSave ? "First pick a texture."
+                          : "Keep the look that you paint with now in this preset.\n"
+                            "The textures of the look are added to the preset.\n"
+                            "When you change painted ground later, the preset does not change.");
 
     ImGui::SameLine();
     if (ImGui::SmallButton("...")) {
         ImGui::OpenPopup("paletteMenu");
     }
-    Tooltip("Make a palette, or rename or delete this one.");
+    Tooltip("Make a preset, or rename or delete this one.");
     bool newRequested = false;
     bool deleteConfirmed = false;
     if (ImGui::BeginPopup("paletteMenu")) {
-        newRequested = ImGui::Selectable("New palette");
+        newRequested = ImGui::Selectable("New preset from this look", false, nothingToSave ? ImGuiSelectableFlags_Disabled : 0);
         ImGui::Separator();
         char name[64];
         std::snprintf(name, sizeof(name), "%s", palette.name.c_str());
@@ -1046,8 +1121,8 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
             palette.name = name;
             favorites_->Save();
         }
-        Tooltip("The name of this palette. Click to change it.");
-        if (ImGui::SmallButton("Delete this palette")) {
+        Tooltip("The name of this preset. Click to change it.");
+        if (ImGui::SmallButton("Delete this preset")) {
             ImGui::OpenPopup("deletePalette");
         }
         deleteConfirmed = PanelUi::ConfirmDeletePopup("deletePalette", palette.name.c_str());
@@ -1058,7 +1133,7 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
     }
 
     if (palette.colours.empty() && palette.textures.empty()) {
-        Hint("This palette is empty. Choose a color or a texture, then click Add this look.");
+        Hint("This preset is empty. Choose a color or a texture, then click Save.");
     }
 
     // At most two rows of tiles, which scroll: a big palette does not push the rest down.
@@ -1094,7 +1169,7 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
         tileRight = ImGui::GetItemRectMax().x;
         Tooltip("Click to paint with this color. Right-click for more.");
         if (ImGui::BeginPopupContextItem("tileMenu")) {
-            if (ImGui::MenuItem("Remove from palette")) {
+            if (ImGui::MenuItem("Remove from preset")) {
                 removeColour = i;
             }
             ImGui::EndPopup();
@@ -1120,7 +1195,7 @@ void GroundPanelTab::RenderPalettes_(Look& look, LookEditorState& state, bool& c
         Tooltip("Click to paint with this texture. Ctrl+click to add it to the mix or remove it from the mix. "
                 "Right-click for more.");
         if (ImGui::BeginPopupContextItem("tileMenu")) {
-            if (ImGui::MenuItem("Remove from palette")) {
+            if (ImGui::MenuItem("Remove from preset")) {
                 removeTexture = i;
             }
             ImGui::EndPopup();
@@ -1680,7 +1755,8 @@ void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) 
     }
     ImGui::SeparatorText("Paint with");
     ImGui::PushID("look");
-    RenderLookEditor_(editing_.look, shape.kind == ShapeKind::Line, selectionLook_, changed, committed);
+    RenderLookEditor_(editing_.look, shape.kind == ShapeKind::Line, shape.wear,
+                      shape.kind == ShapeKind::Marking ? nullptr : &shape.roughness, selectionLook_, changed, committed);
     ImGui::PopID();
     RenderFinish_(editing_.look, shape.wear, shape.kind == ShapeKind::Marking ? nullptr : &shape.roughness, changed,
                   committed);

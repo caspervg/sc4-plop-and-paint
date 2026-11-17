@@ -234,10 +234,30 @@ struct PaintPaletteTexture {
     float weight = 1.0f;
 };
 
+// A whole look saved with a palette, as the Terrain Paint tab paints it.
+struct PaintPaletteLook {
+    std::vector<PaintPaletteTexture> textures;  // the mix; none paints a plain colour
+    std::array<float, 3> color{1.0f, 1.0f, 1.0f};
+    float opacity = 1.0f;
+    float featherMeters = 0.0f;
+    float textureSizeMeters = 16.0f;
+    float textureRotationDegrees = 0.0f;
+    uint32_t variationSeed = 0;
+    bool followPath = false;
+    std::array<float, 2> textureOffset{0.0f, 0.0f};
+    int32_t depthOffset = -1;
+    uint8_t mix = 0;
+    float patchSizeMeters = 12.0f;
+    float patchBlendMeters = 2.0f;
+    float wear = 0.0f;
+    float roughness = 0.0f;
+};
+
 struct PaintPalette {
     std::string name;
     std::vector<PaintPaletteTexture> textures;
     std::vector<std::array<float, 3>> colours;
+    std::optional<PaintPaletteLook> look;
 };
 
 // The grid size last chosen for each kind of painter. Empty: not chosen yet.
