@@ -10,6 +10,7 @@
 #include "rfl/cbor/read.hpp"
 #include "rfl/cbor/write.hpp"
 #include "../utils/Logger.h"
+#include "../decals/TextureGroups.hpp"
 
 namespace Ground {
     namespace {
@@ -42,7 +43,8 @@ namespace Ground {
             const size_t count = patches ? 1 : std::min<size_t>(look.textures.size(), kTerrainPaintMaxTextures);
             for (size_t i = 0; i < count; ++i) {
                 const TextureChoice& choice = look.textures[patches ? part : i];
-                style.textures[i].key = cGZPersistResourceKey(kDecalTextureType, kDecalTextureGroup, choice.instance);
+                style.textures[i].key =
+                    cGZPersistResourceKey(kDecalTextureType, decals::TextureGroupOf(choice.instance), choice.instance);
                 style.textures[i].weight = choice.weight;
                 style.textureFrameMasks[i] = choice.frames;
             }

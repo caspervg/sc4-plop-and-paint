@@ -3,6 +3,7 @@
 
 #include "imgui.h"
 #include "public/ImGuiTexture.h"
+#include "TextureGroups.hpp"
 
 class cIGZImGuiService;
 class cIGZPersistResourceManager;

@@ -26,7 +26,7 @@ namespace {
             return false;
         }
 
-        const cGZPersistResourceKey key{decals::kDecalTextureType, decals::kDecalTextureGroup, instanceId};
+        const cGZPersistResourceKey key{decals::kDecalTextureType, decals::TextureGroupOf(instanceId), instanceId};
 
         cRZAutoRefCount<cIGZPersistDBSegment> segment;
         if (!pRM->FindDBSegment(key, segment.AsPPObj()) || !segment) {

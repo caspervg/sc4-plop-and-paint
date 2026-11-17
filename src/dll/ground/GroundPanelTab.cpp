@@ -1679,6 +1679,13 @@ void GroundPanelTab::TextureTooltip_(const uint32_t instanceId) {
     const std::string* file = decals_->OriginalFile(instanceId);
     const TexturePack* pack = decals_->PackOf(instanceId);
     ImGui::BeginTooltip();
+    if (decals::IsSidewalkTexture(instanceId)) {
+        for (const decals::SidewalkTexture& sidewalk : decals::kSidewalkTextures) {
+            if (sidewalk.instance == instanceId) {
+                ImGui::TextUnformatted(sidewalk.name);
+            }
+        }
+    }
     if (showPreview) {
         hoverPreview_.Render(pRM_, imguiService_, instanceId);
         if (const uint32_t frames = FrameCount_(instanceId); frames > 1) {
@@ -1774,6 +1781,23 @@ void GroundPanelTab::RenderTextureLibrary_(Look& look, bool& committed) {
                 break;
             }
         }
+    }
+
+    // Not lot textures, so not in the list below: the sidewalks that the game draws under roads.
+    if (ImGui::TreeNode("Sidewalks")) {
+        for (size_t i = 0; i < decals::kSidewalkTextures.size(); ++i) {
+            const uint32_t id = decals::kSidewalkTextures[i].instance;
+            ImGui::PushID(static_cast<int>(id));
+            NextInRow(i, kThumbSize + ImGui::GetStyle().FramePadding.x * 2.0f);
+            const bool clicked = TextureTile_(id, kThumbSize, inUse(id));
+            const bool ctrl = tileClicked(id);
+            ImGui::PopID();
+            if (clicked) {
+                LibraryClick_(look, id, ctrl, committed);
+                break;
+            }
+        }
+        ImGui::TreePop();
     }
 
     RenderPackFilter_();
