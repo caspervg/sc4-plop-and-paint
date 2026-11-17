@@ -26,3 +26,7 @@ auto DetectPluginPaths(const std::optional<std::filesystem::path>& winePrefix) -
 // Matches path components case-insensitively where the exact spelling does not exist, like Windows and Wine do.
 // Returns the path unchanged when it already exists, cannot be resolved, or on Windows.
 auto ResolvePathCaseInsensitive(const std::filesystem::path& path) -> std::filesystem::path;
+
+// Makes a plugin root absolute, removes "." and ".." parts, uses the native separator and drops a trailing one.
+// Plugin files are opened with the \\?\ long path prefix on Windows, which takes "/" and ".." literally.
+auto NormalizeRootPath(const std::filesystem::path& path) -> std::filesystem::path;

@@ -277,6 +277,8 @@ namespace {
             resolved.userPluginsSource = detected.userPluginsRoot->source;
         }
 
+        config.gameRoot = NormalizeRootPath(config.gameRoot);
+        config.userPluginsRoot = NormalizeRootPath(config.userPluginsRoot);
         if (!config.gameRoot.empty()) {
             config.gameRoot = ResolvePathCaseInsensitive(config.gameRoot);
             config.gamePluginsRoot = ResolvePathCaseInsensitive(config.gameRoot / "Plugins");
