@@ -4,7 +4,12 @@
 #include <cctype>
 #include <cwctype>
 #include <iterator>
+#include <set>
 #include <vector>
+
+#include <spdlog/spdlog.h>
+
+#include "PathText.hpp"
 
 namespace fs = std::filesystem;
 
@@ -23,6 +28,12 @@ namespace {
             }
         });
         return upper;
+    }
+
+    auto IsPluginFile(const fs::path& file) -> bool {
+        auto ext = PathToUtf8(file.extension());
+        std::ranges::transform(ext, ext.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return kDbpfFileExtensions.contains(ext);
     }
 
     auto IsDatFile(const fs::path& file) -> bool {
@@ -111,14 +122,43 @@ auto PluginLocator::CollectFiles_(const std::filesystem::path& root, bool recurs
         return;
     std::error_code ec;
 
-    if (!std::filesystem::exists(root, ec))
+    if (!fs::is_directory(root, ec))
         return;
 
-    if (recursive) {
-        FindPlugins(std::filesystem::recursive_directory_iterator(root, kDirectoryOptions, ec),
-             std::filesystem::recursive_directory_iterator(), out);
-    }
-    else {
-        FindPlugins(std::filesystem::directory_iterator(root, ec), std::filesystem::directory_iterator(), out);
+    // Walk the folders by hand rather than with recursive_directory_iterator: the game also loads
+    // folders that are symlinks or junctions, and a folder that cannot be read should only lose
+    // its own files, not end the whole walk.
+    std::vector<fs::path> pending{root};
+    std::set<fs::path> visited;
+    while (!pending.empty()) {
+        const fs::path directory = std::move(pending.back());
+        pending.pop_back();
+
+        // A link back to a folder already walked would otherwise loop forever.
+        std::error_code canonicalEc;
+        if (const auto canonical = fs::canonical(directory, canonicalEc); !canonicalEc) {
+            if (!visited.insert(canonical).second) {
+                continue;
+            }
+        }
+
+        std::error_code iterEc;
+        fs::directory_iterator it(directory, fs::directory_options::skip_permission_denied, iterEc);
+        for (; !iterEc && it != fs::directory_iterator(); it.increment(iterEc)) {
+            const auto& entry = *it;
+            std::error_code typeEc;
+            // is_directory and is_regular_file follow symlinks and junctions.
+            if (entry.is_directory(typeEc)) {
+                if (recursive) {
+                    pending.push_back(entry.path());
+                }
+            }
+            else if (entry.is_regular_file(typeEc) && IsPluginFile(entry.path())) {
+                out.push_back(entry.path());
+            }
+        }
+        if (iterEc) {
+            spdlog::warn("Could not read plugin folder {}: {}", PathToUtf8(directory), iterEc.message());
+        }
     }
 }
