@@ -553,8 +553,8 @@ bool GroundPainterInputControl::OnMouseMove(const int32_t x, const int32_t z, co
         const Vec2 anchor = shape.points[editPoint_];
         const Vec2 aim = KeyHeld(VK_SHIFT) ? SnapToAngle(anchor, cursor_, kAngleStep) : cursor_;
         Vec2 pulled{aim.x - anchor.x, aim.z - anchor.z};
-        if (handleSplit_ && std::hypot(pulled.x, pulled.z) < snapReach_ * 0.5f) {
-            pulled = {};  // back on the point: this side has no handle any more
+        if (std::hypot(pulled.x, pulled.z) < snapReach_ * 0.5f) {
+            pulled = {};  // back on the point: no handle
         }
         Vec2 handle = shape.handles[editPoint_];
         Vec2 inHandle = InHandleOf(shape, editPoint_);
@@ -1129,22 +1129,28 @@ bool GroundPainterInputControl::StartPointEdit_(const bool insert, const bool re
         }
     }
     if (remove) {
+        // Alt on a point, as Illustrator's Convert Anchor Point: a drag pulls out new handles, a
+        // click leaves a corner.
         if (!nearest) {
             return false;
         }
-        // Alt+click takes a point out. A hole with no point to spare goes as a whole.
         ShapeSpec& shape = ShapeOf(pointEdit_, nearest->first);
-        if (shape.points.size() > MinimumPoints(shape)) {
-            EraseShapePoint(shape, nearest->second);
-        }
-        else if (nearest->first >= 0) {
-            pointEdit_.erasers.erase(pointEdit_.erasers.begin() + nearest->first);
-        }
-        else {
+        if (shape.kind != ShapeKind::Area && shape.kind != ShapeKind::Line) {
             return true;
         }
-        pickedObject_ = 0;
-        document_->Update({pointEdit_});
+        if (shape.pathStyle != PathStyle::Straight) {
+            // The same curve, with a handle on every point.
+            const bool closed = PointsClosed(shape);
+            shape.pathStyle = PathStyle::Straight;
+            for (size_t i = 0; i < shape.points.size(); ++i) {
+                const Vec2 smooth = SmoothHandle(shape.points, i, closed);
+                SetPointHandles(shape, i, smooth, {-smooth.x, -smooth.z});
+            }
+        }
+        SetPointHandles(shape, nearest->second, {}, {});
+        handleSign_ = 1.0f;
+        handleSplit_ = false;
+        BeginPointGesture_(Gesture::MoveHandle, *nearest);
         return true;
     }
     if (!nearest) {
@@ -1429,10 +1435,11 @@ void GroundPainterInputControl::RefreshPreview_() {
         guides.push_back({{{centre.x - b, centre.z + a}, {centre.x + b, centre.z - a}}, false, color});
     };
     if (hoverPoint) {
-        const auto [point, removes] = *hoverPoint;
-        guides.push_back({circleAt(point, cueSize), true, removes ? kEraserColor : kSnapPointColor});
-        if (removes) {
-            crossAt(point, cueSize, true, kEraserColor);
+        const auto [point, converts] = *hoverPoint;
+        guides.push_back({circleAt(point, cueSize), true, kSnapPointColor});
+        if (converts) {
+            // A handle bar: Alt+drag pulls out handles.
+            guides.push_back({{{point.x - cueSize * 2.5f, point.z}, {point.x + cueSize * 2.5f, point.z}}, false, kSnapGuideColor});
         }
     }
     if (addSpot) {
@@ -1695,7 +1702,7 @@ std::string GroundPainterInputControl::StatusText() const {
             if (Picked_()) {
                 return "Drag a point or a curve handle to move it. Press Delete to remove the picked point. Press Esc to let go of it." + holes + back;
             }
-            return "Drag a point or a curve handle to move it. Click the outline to add a point. Alt+click a point to remove it. Alt+drag a curve handle to bend one side only. "
+            return "Drag a point or a curve handle to move it. Click the outline to add a point. Alt+drag a point to pull out curve handles. Alt+click a curved point to make it a corner. Alt+drag a curve handle to bend one side only. Click a point and press Delete to remove it. "
                    "Drag inside the shape to move it. Shift+drag to move its texture. Press Delete to remove the shape." + holes + back;
         }
         return "Drag to move. Shift+drag to move the texture. Press , or . to turn. Press - or = to scale. Press Ctrl+D to copy. Press Delete to remove." + back;

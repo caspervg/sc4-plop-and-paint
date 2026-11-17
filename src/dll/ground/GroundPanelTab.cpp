@@ -1837,7 +1837,8 @@ void GroundPanelTab::RenderInspector_(Document& document, const uint32_t first) 
             committed = true;
         }
         Tooltip(curve ? "Change the point that you clicked last to a sharp corner."
-                      : "Change the point that you clicked last to a smooth curve. Then drag its handles in the city.");
+                      : "Change the point that you clicked last to a smooth curve. Then drag its handles in the city.\n"
+                        "You can also hold Alt and drag a point in the city.");
         if (curve && !(inHandle == Vec2{-handle.x, -handle.z})) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Join handles")) {
