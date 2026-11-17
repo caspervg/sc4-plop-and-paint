@@ -2319,7 +2319,7 @@ void GroundPanelTab::RenderLayerTree_(Document& document) {
         ImGui::PopID();
     };
 
-    // ponytail: no list clipper with group folders; add one if cities reach thousands of shapes.
+    // No list clipper with group folders: add one if cities reach thousands of shapes.
     for (size_t row = 0; row < objects.size();) {
         const PaintObject& first = objects[objects.size() - 1 - row];
         if (first.group == 0) {

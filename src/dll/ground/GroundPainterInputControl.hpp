@@ -179,7 +179,7 @@ private:
     // Pen: the handle of each anchor, and pulling out the handle of the last one.
     std::vector<Ground::Vec2> anchorHandles_{};
     std::vector<Ground::Vec2> anchorInHandles_{};
-    // What a held mouse button does. One at a time: a press while one runs is ignored.
+    // What a held mouse button does. One at a time: a new press ends one whose release was lost.
     enum class Gesture : uint8_t {
         None,
         Stroke,         // freehand lines, brush and eraser strokes
