@@ -550,6 +550,40 @@ namespace {
             }
 
             size_t filesProcessed = 0;
+            size_t unreadableRecords = 0;
+
+            struct LoadedRecord {
+                Exemplar::Record record;
+                fs::path file;
+            };
+            // Loads a record from the file that wins in load order. When that copy cannot be read, an
+            // earlier copy is used instead, since an older version of an item is better than none.
+            const auto loadRecord = [&](const fs::path& winningFile, const DBPF::Reader& winningReader,
+                                        const DBPF::Tgi& tgi) -> std::optional<LoadedRecord> {
+                auto result = winningReader.LoadExemplar(tgi);
+                if (result.has_value()) {
+                    return LoadedRecord{std::move(*result), winningFile};
+                }
+                logger.warn("Could not read {} from {}: {}", tgi.ToString(), PathToUtf8(winningFile),
+                            result.error().message);
+
+                const auto files = indexService.lookupFiles(tgi);
+                for (auto it = files.rbegin(); it != files.rend(); ++it) {
+                    if (*it == winningFile) {
+                        continue;
+                    }
+                    const auto* reader = indexService.getReader(*it);
+                    if (!reader) {
+                        continue;
+                    }
+                    if (auto earlier = reader->LoadExemplar(tgi); earlier.has_value()) {
+                        logger.warn("  Using the earlier copy of {} from {}", tgi.ToString(), PathToUtf8(*it));
+                        return LoadedRecord{std::move(*earlier), *it};
+                    }
+                }
+                ++unreadableRecords;
+                return std::nullopt;
+            };
 
             // Store lot config TGIs for second pass
             std::vector<std::pair<fs::path, DBPF::Tgi>> lotConfigTgis;
@@ -569,13 +603,14 @@ namespace {
                     // Process all exemplars in this file
                     for (const auto& tgi : tgis) {
                         try {
-                            auto exemplarResult = reader->LoadExemplar(tgi);
-                            if (!exemplarResult.has_value()) {
+                            auto loaded = loadRecord(filePath, *reader, tgi);
+                            if (!loaded) {
                                 continue;
                             }
+                            const auto& exemplar = loaded->record;
 
                             if (tgi.type == kTypeIdCohort) {
-                                if (auto parsedFamily = parser.parsePropFamilyFromCohort(*exemplarResult)) {
+                                if (auto parsedFamily = parser.parsePropFamilyFromCohort(exemplar)) {
                                     const uint32_t familyId = parsedFamily->familyId.value();
                                     auto [it, inserted] = propFamilyNamesById.try_emplace(
                                         familyId, parsedFamily->displayName);
@@ -590,7 +625,7 @@ namespace {
                                 continue;
                             }
 
-                            auto exemplarType = parser.getExemplarType(*exemplarResult);
+                            auto exemplarType = parser.getExemplarType(exemplar);
                             if (!exemplarType) {
                                 continue;
                             }
@@ -600,7 +635,7 @@ namespace {
                             }
 
                             if (*exemplarType == ExemplarType::Building) {
-                                auto building = parser.parseBuilding(*exemplarResult, tgi);
+                                auto building = parser.parseBuilding(exemplar, tgi);
                                 if (building) {
                                     if (const auto existing = buildingMap.find(tgi.instance);
                                         existing != buildingMap.end()) {
@@ -618,7 +653,7 @@ namespace {
                             }
                             else if (*exemplarType == ExemplarType::LotConfig) {
                                 // Queue for second pass
-                                lotConfigTgis.emplace_back(filePath, tgi);
+                                lotConfigTgis.emplace_back(loaded->file, tgi);
                             }
                             else if (*exemplarType == ExemplarType::Prop) {
                                 if (seenPropKeys.contains(MakeGIKey(tgi.group, tgi.instance))) {
@@ -626,7 +661,7 @@ namespace {
                                                 tgi.group, tgi.instance);
                                     continue;
                                 }
-                                if (auto prop = parser.parseProp(*exemplarResult, tgi)) {
+                                if (auto prop = parser.parseProp(exemplar, tgi)) {
                                     logger.trace("  Prop: {} (0x{:08X})", prop->visibleName, tgi.instance);
                                     allProps.emplace_back(
                                         parser.propFromParsed(*prop)
@@ -642,7 +677,7 @@ namespace {
                                                 tgi.group, tgi.instance);
                                     continue;
                                 }
-                                if (auto flora = parser.parseFlora(*exemplarResult, tgi)) {
+                                if (auto flora = parser.parseFlora(exemplar, tgi)) {
                                     logger.trace("  Flora: {} (0x{:08X})", flora->visibleName, tgi.instance);
                                     allFlora.emplace_back(parser.floraFromParsed(*flora));
                                     encodeThumbnail(allFlora.back(), floraThumbnails);
@@ -695,6 +730,9 @@ namespace {
 
                     auto exemplarResult = reader->LoadExemplar(tgi);
                     if (!exemplarResult.has_value()) {
+                        logger.warn("Could not read lot {} from {}: {}", tgi.ToString(), PathToUtf8(filePath),
+                                    exemplarResult.error().message);
+                        ++unreadableRecords;
                         continue;
                     }
 
@@ -765,8 +803,8 @@ namespace {
                        MakeGIKey(b.groupId.value(), b.instanceId.value());
             });
 
-            logger.info("Scan complete: {} buildings with lots, {} lots, {} parse errors",
-                        allBuildings.size(), lotsFound, parseErrors);
+            logger.info("Scan complete: {} buildings with lots, {} lots, {} parse errors, {} unreadable records",
+                        allBuildings.size(), lotsFound, parseErrors, unreadableRecords);
 
             SanitizeStrings(allBuildings, allProps);
 
