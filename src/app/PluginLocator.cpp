@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
+#include <fstream>
 #include <cwctype>
 #include <iterator>
 #include <set>
@@ -30,10 +32,18 @@ namespace {
         return upper;
     }
 
+    auto HasDbpfSignature(const fs::path& file) -> bool {
+        std::ifstream stream(file, std::ios::binary);
+        char signature[4] = {};
+        return stream.read(signature, sizeof(signature)) && std::memcmp(signature, "DBPF", sizeof(signature)) == 0;
+    }
+
+    // The game loads every DBPF file in a plugin folder, whatever its extension. The usual extensions
+    // skip the signature check; the reader reports those if they turn out not to be DBPF files.
     auto IsPluginFile(const fs::path& file) -> bool {
         auto ext = PathToUtf8(file.extension());
         std::ranges::transform(ext, ext.begin(), [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return kDbpfFileExtensions.contains(ext);
+        return kDbpfFileExtensions.contains(ext) || HasDbpfSignature(file);
     }
 
     auto IsDatFile(const fs::path& file) -> bool {
