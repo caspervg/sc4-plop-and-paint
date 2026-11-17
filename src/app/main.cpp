@@ -462,8 +462,13 @@ namespace {
 
             // Log final indexing results
             auto finalProgress = indexService.snapshot();
-            logger.info("Indexing complete: {} files processed, {} entries indexed, {} errors",
-                        finalProgress.processedFiles, finalProgress.totalFiles, finalProgress.errorCount);
+            logger.info("Indexing complete: {}/{} files processed, {} entries indexed, {} errors",
+                        finalProgress.processedFiles, finalProgress.totalFiles, finalProgress.entriesIndexed,
+                        finalProgress.errorCount);
+            if (finalProgress.processedFiles < finalProgress.totalFiles) {
+                logger.warn("Indexing stopped before the end: {} plugin files were not read",
+                            finalProgress.totalFiles - finalProgress.processedFiles);
+            }
 
             uint32_t buildingsFound = 0;
             uint32_t lotsFound = 0;
