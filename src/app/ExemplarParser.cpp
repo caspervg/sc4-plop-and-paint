@@ -1147,6 +1147,16 @@ std::string ExemplarParser::resolveLTextTags_(std::string_view text,
 
 std::optional<DBPF::Tgi> ExemplarParser::resolveModelTgi_(const Exemplar::Record& exemplar,
                                                           const DBPF::Tgi& exemplarTgi) const {
+    auto tgi = findModelTgi_(exemplar, exemplarTgi);
+    // The low three hex digits are the zoom, rotation and frame.
+    if (tgi && (tgi->instance & 0xFFFFF000u) == 0) {
+        return std::nullopt;
+    }
+    return tgi;
+}
+
+std::optional<DBPF::Tgi> ExemplarParser::findModelTgi_(const Exemplar::Record& exemplar,
+                                                       const DBPF::Tgi& exemplarTgi) const {
     constexpr auto kDesiredZoomLevel = 5;
     constexpr auto kDesiredRotation = 0; // South
     constexpr auto kDesiredZoomOffset = static_cast<uint32_t>(kDesiredZoomLevel - 1) * 0x100u;

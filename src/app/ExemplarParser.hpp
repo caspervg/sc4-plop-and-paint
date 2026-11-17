@@ -184,7 +184,11 @@ private:
     ) const;
     [[nodiscard]] std::string resolveLTextTags_(std::string_view text,
                                                 const Exemplar::Record& exemplar) const;
+    // The model the exemplar shows, if any. Instance 0 (in any zoom or rotation) is no model:
+    // creators use it for props that are meant to be invisible.
     [[nodiscard]] std::optional<DBPF::Tgi> resolveModelTgi_(const Exemplar::Record& exemplar,
+                                                            const DBPF::Tgi& exemplarTgi) const;
+    [[nodiscard]] std::optional<DBPF::Tgi> findModelTgi_(const Exemplar::Record& exemplar,
                                                             const DBPF::Tgi& exemplarTgi) const;
     [[nodiscard]] std::optional<std::array<float, 6>> loadModelBounds_(const DBPF::Tgi& modelTgi) const;
 
