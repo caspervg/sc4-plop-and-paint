@@ -138,6 +138,7 @@ void GroundPainterInputControl::SetSettings(const ToolSettings& settings) {
     const bool toolChanged = settings.tool != settings_.tool || settings.drawStyle != settings_.drawStyle;
     settings_ = settings;
     if (toolChanged) {
+        returnTool_.reset();
         CancelShape_();
     }
     RefreshPreview_();
@@ -570,6 +571,12 @@ bool GroundPainterInputControl::OnKeyDown(const int32_t vkCode, const uint32_t m
         if (IsDrawing()) {
             CancelShape_();
         }
+        else if (settings_.tool == Tool::Select && returnTool_) {
+            // Back to the tool the selected shape was drawn with.
+            settings_.tool = *std::exchange(returnTool_, std::nullopt);
+            document_->ClearSelection();
+            RefreshPreview_();
+        }
         else {
             cancelPending_ = true;
         }
@@ -873,12 +880,23 @@ void GroundPainterInputControl::Commit_() {
         document_->Erase(BuildArea(object));
     }
     else if (anchors_.size() >= MinimumPoints(object)) {
-        LogAdded_(object, document_->Add(object));
+        const uint32_t id = document_->Add(object);
+        LogAdded_(object, id);
+        SelectPainted_(id);
     }
     else {
         LOG_INFO("Ground: not painted, the shape has {} of the {} points it needs", anchors_.size(), MinimumPoints(object));
     }
     CancelShape_();
+}
+
+void GroundPainterInputControl::SelectPainted_(const uint32_t id) {
+    if (id == 0 || settings_.keepDrawing || (settings_.tool != Tool::Area && settings_.tool != Tool::Line)) {
+        return;
+    }
+    returnTool_ = settings_.tool;
+    settings_.tool = Tool::Select;
+    document_->Select(id, false);
 }
 
 void GroundPainterInputControl::LogAdded_(const PaintObject& object, const uint32_t id) const {
@@ -1440,11 +1458,12 @@ std::string GroundPainterInputControl::StatusText() const {
         if (textureDrag_) {
             return "Release the button to keep the texture here.";
         }
+        const std::string back = returnTool_ ? " Press Esc to draw another shape." : "";
         if (PointEditTarget_()) {
             return "Drag the shape, its points or their curve handles to move them. Ctrl+click its outline to add a point. Alt+click a point to remove it. Alt+drag a curve handle to bend one side only. "
-                   "Shift+drag to move its texture. Press Delete to remove the shape.";
+                   "Shift+drag to move its texture. Press Delete to remove the shape." + back;
         }
-        return "Drag to move. Shift+drag to move the texture. Press , or . to turn. Press - or = to scale. Press Ctrl+D to copy. Press Delete to remove.";
+        return "Drag to move. Shift+drag to move the texture. Press , or . to turn. Press - or = to scale. Press Ctrl+D to copy. Press Delete to remove." + back;
     }
     }
     return {};

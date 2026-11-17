@@ -82,6 +82,8 @@ private:
     void UpdateSnapIndex_();
     void UpdateMeasure_();
     void Commit_();
+    // Selects a shape that was just painted and switches to Select, unless the tool keeps drawing.
+    void SelectPainted_(uint32_t id);
     void CancelShape_();
     void FinishStroke_();
     // Says in the log what a finished shape became, so "nothing shows" can be told apart from
@@ -147,6 +149,8 @@ private:
 
     bool active_ = false;
     bool cancelPending_ = false;
+    // The drawing tool that SelectPainted_ left, for Esc to go back to.
+    std::optional<Ground::Tool> returnTool_{};
     bool moved_ = false;
     bool lookPickArmed_ = false;
     uint32_t lookPickCount_ = 0;

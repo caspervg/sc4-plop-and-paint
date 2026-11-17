@@ -451,6 +451,11 @@ void GroundPanelTab::FinishTexturePick_() {
 
 void GroundPanelTab::OnRender() {
     const GroundPainterInputControl* painter = director_->GetGroundPainter();
+    if (painter && director_->IsGroundPainting()) {
+        // The painter goes to Select after a shape is drawn, and back with Esc. The panel sends every
+        // tool change of its own at once, so the painter's tool is always the current one.
+        settings_.tool = pushedSettings_.tool = painter->Settings().tool;
+    }
     if (painter && director_->IsGroundPainting() && !settingsDirty_) {
         // Keys and the middle mouse button in the city may have changed the grid and the brush.
         const ToolSettings& current = painter->Settings();
@@ -773,6 +778,13 @@ void GroundPanelTab::RenderShapeSettings_() {
         if (tool == Tool::Erase) {
             changed |= ImGui::Checkbox("Brush", &settings_.eraseWithBrush);
             Tooltip("Remove paint with a round brush, not with a shape.");
+            ImGui::SameLine();
+        }
+        if (tool == Tool::Area || tool == Tool::Line) {
+            changed |= ImGui::Checkbox("Keep drawing", &settings_.keepDrawing);
+            Tooltip("On: draw one shape after the other.\n"
+                    "Off: a finished shape is selected, so you can change its points and its look at once.\n"
+                    "Press Esc to draw the next shape.");
             ImGui::SameLine();
         }
         if (tool == Tool::Brush) {

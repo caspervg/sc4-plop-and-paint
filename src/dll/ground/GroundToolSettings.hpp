@@ -39,6 +39,9 @@ namespace Ground {
         // A brush stroke that overlaps one painted the same way becomes part of it.
         bool joinBrushStrokes = true;
         bool eraseWithBrush = true;
+        // Area and line: go on drawing after a shape is finished. Off: the new shape is selected,
+        // ready to change its points and look, and Esc goes back to drawing.
+        bool keepDrawing = false;
         MarkingSpec marking{.lineWidth = 0.3f};
         float wear = 0.0f;
         float roughness = 0.0f;
