@@ -357,8 +357,9 @@ protected:
 
     // "Grid" toggle and tile size, on the current line. Returns true when either changed, which
     // means cached thumbnails have the wrong size and the caller should clear its cache.
-    bool RenderViewControls_() {
-        static constexpr float kTileSizes[] = {44.0f, 66.0f, 88.0f};
+    // gridOnly: the tab has no list, so only the tile size shows.
+    bool RenderViewControls_(const bool gridOnly = false) {
+        const float* kTileSizes = tileSizes_;
         static constexpr const char* kTileLabels[] = {"Small", "Medium", "Large"};
 
         if (!viewLoaded_) {
@@ -374,13 +375,18 @@ protected:
         }
 
         bool changed = false;
-        PanelUi::NextInRow(1, PanelUi::CheckboxWidth("Grid"), PanelUi::kGroupGap);
-        changed |= ImGui::Checkbox("Grid", &gridView_);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Show only the thumbnails.\nMove the mouse over a thumbnail to see its details.\nDouble-click a thumbnail to paint with it.\nRight-click a thumbnail for more options.");
+        if (gridOnly) {
+            gridView_ = true;
+        }
+        else {
+            PanelUi::NextInRow(1, PanelUi::CheckboxWidth("Grid"), PanelUi::kGroupGap);
+            changed |= ImGui::Checkbox("Grid", &gridView_);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Show only the thumbnails.\nMove the mouse over a thumbnail to see its details.\nDouble-click a thumbnail to paint with it.\nRight-click a thumbnail for more options.");
+            }
         }
         if (gridView_) {
-            PanelUi::NextInRow(1, 6.0f * ImGui::GetFontSize());
+            PanelUi::NextInRow(1, 6.0f * ImGui::GetFontSize(), gridOnly ? PanelUi::kGroupGap : -1.0f);
             ImGui::SetNextItemWidth(6.0f * ImGui::GetFontSize());
             if (ImGui::BeginCombo("##TileSize", kTileLabels[gridTileSizeIndex_])) {
                 for (int i = 0; i < 3; ++i) {
@@ -401,7 +407,7 @@ protected:
 
     // Size that thumbnails are shown at in the current view.
     [[nodiscard]] float ShownThumbnailSize_() const {
-        return gridView_ ? gridTileSize_ : UI::kIconSize;
+        return gridView_ ? gridTileSize_ * gridTileScale_ : UI::kIconSize;
     }
 
     // Whether the cache stores this thumbnail noticeably larger than it is shown now.
@@ -431,7 +437,10 @@ protected:
     bool viewLoaded_ = false;  // view settings read from favorites on first use
     bool gridView_ = false;
     int gridTileSizeIndex_ = 1;
+    // The tile sizes of Small, Medium and Large. A tab whose tiles carry badges can make them larger.
+    float tileSizes_[3] = {44.0f, 66.0f, 88.0f};
     float gridTileSize_ = 66.0f;
+    float gridTileScale_ = 1.0f;  // tiles with a name on them are drawn larger
     ThumbnailCache<uint64_t> previewCache_{4, 1};
 
     SC4PlopAndPaintDirector* director_;  // game actions only

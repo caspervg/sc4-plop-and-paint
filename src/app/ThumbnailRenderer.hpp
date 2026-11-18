@@ -29,7 +29,8 @@ namespace thumb {
         explicit ThumbnailRenderer(const DbpfIndexService& indexService);
         ~ThumbnailRenderer();
 
-        ParseExpected<RenderedImage> renderModel(const DBPF::Tgi& tgi, uint32_t size);
+        // tileGrid: faint lines on the tile edges at ground level, for pictures of network pieces.
+        ParseExpected<RenderedImage> renderModel(const DBPF::Tgi& tgi, uint32_t size, bool tileGrid = false);
 
         // False once creating the OpenGL window has failed. Anything else that needs raylib's GPU state
         // (such as loading fonts) must be skipped then, or it calls into a missing OpenGL context.

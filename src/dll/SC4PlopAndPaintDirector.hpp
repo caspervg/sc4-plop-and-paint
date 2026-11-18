@@ -65,6 +65,8 @@ static constexpr uint32_t kSC4MessageLoad = 0x26C63341;
 static constexpr uint32_t kSC4MessageSave = 0x26C63344;
 static constexpr uint32_t kToolTickServiceID = 0xCA5000F1;
 
+struct OverrideNetwork;
+
 class SC4PlopAndPaintDirector final : public cRZMessage2COMDirector
 {
 public:
@@ -88,6 +90,26 @@ public:
     // Whether a plop started from the panel is still going on. Plopping is the game's own tool, so
     // this follows the view control that took over after the plop started. Call it every frame.
     bool IsLotPlopping();
+    // Starts the game's drag tool for the network's base network. Until the player leaves that tool,
+    // the NAM DLL turns each drag into the override network.
+    bool StartOverrideNetworkDrag(const OverrideNetwork& network);
+    // Starts the game's plain drag tool for a network (a cISC4NetworkOccupant::eNetworkType).
+    bool StartBaseNetworkDrag(uint32_t network);
+    // Starts the game's own tool on a puzzle piece. buttonPiece is the first piece of the menu button
+    // that the piece is under. variant: another ID of the piece's row to go to, as Home and End would,
+    // or 0 for the piece itself.
+    bool StartNetworkPiece(uint32_t buttonPiece, uint32_t piece, uint32_t variant = 0);
+    // Leaves the network tool that one of the three functions above started.
+    void StopNetworkTool();
+    // The starter piece of the override network that drags make now, or 0.
+    [[nodiscard]] uint32_t ActiveOverrideNetwork() const { return overrideNetworkPiece_; }
+    // The puzzle piece of the tool that StartNetworkPiece started, or 0 once that tool is gone. It
+    // follows TAB, Home and End in the game.
+    [[nodiscard]] uint32_t ActiveNetworkPiece() const;
+    // The network that StartBaseNetworkDrag started and that is still in use, or -1.
+    [[nodiscard]] int ActiveBaseNetwork() const { return baseNetwork_; }
+    // Whether the installed NAM DLL can drag override networks without a starter piece.
+    [[nodiscard]] static bool CanDragOverrideNetworks();
     bool StartPropPainting(uint32_t propId, const PropPaintSettings& settings, const std::string& name,
                            const std::optional<RecentPaintSource>& source = std::nullopt);
     bool SwitchPropPaintingTarget(uint32_t propId, const std::string& name,
@@ -219,6 +241,12 @@ private:
     const cISC4ViewInputControl* controlBeforePlop_ = nullptr;
     const cISC4ViewInputControl* plopControl_ = nullptr;
     int plopWatchFrames_ = 0;
+    uint32_t overrideNetworkPiece_ = 0;
+    uint32_t networkPiece_ = 0;
+    int baseNetwork_ = -1;
+    const cISC4ViewInputControl* networkToolControl_ = nullptr;  // the game's tool that the three above use
+    bool StartNetworkTool_(uint32_t catalogItem);
+    void ForgetNetworkTool_();
     cRZAutoRefCount<cIGZMessageServer2> pMS2_;
 
     std::unique_ptr<LotRepository>       lotRepository_;

@@ -778,6 +778,43 @@ std::optional<ParsedFloraExemplar> ExemplarParser::parseFlora(const Exemplar::Re
     return parsed;
 }
 
+std::optional<Thumbnail> ExemplarParser::loadItemIcon(const uint32_t iconInstance) const {
+    if (!indexService_ || iconInstance == 0) {
+        return std::nullopt;
+    }
+    const auto pngData = indexService_->loadEntryData(DBPF::Tgi{kTypeIdPNG, kLotIconGroup, iconInstance});
+    if (!pngData.has_value() || pngData->empty()) {
+        spdlog::debug("loadItemIcon: no PNG for icon 0x{:08X}", iconInstance);
+        return std::nullopt;
+    }
+    auto decoded = decodePngToRgba32(*pngData);
+    if (decoded.pixels.empty()) {
+        return std::nullopt;
+    }
+    Icon icon;
+    icon.data = rfl::Bytestring(std::move(decoded.pixels));
+    icon.width = decoded.width;
+    icon.height = decoded.height;
+    return Thumbnail{std::move(icon)};
+}
+
+std::optional<Thumbnail> ExemplarParser::renderModelThumbnail(const DBPF::Tgi& modelTgi, const uint32_t size) const {
+    if (!thumbnailRenderer_) {
+        return std::nullopt;
+    }
+    auto rendered = thumbnailRenderer_->renderModel(modelTgi, size, true);
+    if (!rendered.has_value() || rendered->pixels.empty()) {
+        spdlog::debug("Thumbnail render failed for model {}: {}", modelTgi.ToString(),
+                      rendered.has_value() ? "rendered image was empty" : rendered.error().message);
+        return std::nullopt;
+    }
+    PreRendered preview;
+    preview.data = rfl::Bytestring(std::move(rendered->pixels));
+    preview.width = rendered->width;
+    preview.height = rendered->height;
+    return preview;
+}
+
 Flora ExemplarParser::floraFromParsed(const ParsedFloraExemplar& parsed) const {
     Flora flora;
     flora.instanceId = parsed.tgi.instance;
