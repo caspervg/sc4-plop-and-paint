@@ -86,8 +86,9 @@ namespace thumb {
             const float yLift = center.y - record.bbMin.y;
             const auto preserveSpace = previewMode;
             if (!MeshBuilder::buildMeshFromSource(meshSource, center, yLift, mesh, preserveSpace)) {
-                cleanup();
-                return nullptr;
+                // Some models have an empty mesh group, with no indices or primitives. The other groups
+                // are the model, so leave only this one out.
+                continue;
             }
 
             model.meshes[builtCount] = mesh;
@@ -133,6 +134,10 @@ namespace thumb {
             ++builtCount;
         }
 
+        if (builtCount == 0) {
+            cleanup();
+            return nullptr;
+        }
         model.meshCount = builtCount;
         model.materialCount = builtCount;
 

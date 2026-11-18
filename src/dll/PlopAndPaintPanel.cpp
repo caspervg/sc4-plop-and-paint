@@ -1,12 +1,14 @@
 #include "PlopAndPaintPanel.hpp"
 
 #include "cIGZPersistResourceManager.h"
+#include "decals/DecalPanelTab.hpp"
 #include "ground/GroundPanelTab.hpp"
 #include "decals/DecalRepository.hpp"
 #include "flora/FloraCollectionsPanelTab.hpp"
 #include "flora/FloraPanelTab.hpp"
 #include "lots/BuildingsPanelTab.hpp"
 #include "lots/OccupantGroups.hpp"
+#include "network/NetworksPanelTab.hpp"
 #include "props/FamiliesPanelTab.hpp"
 #include "props/PropPanelTab.hpp"
 
@@ -23,12 +25,14 @@ PlopAndPaintPanel::PlopAndPaintPanel(SC4PlopAndPaintDirector* director,
     : director_(director), imguiService_(imguiService) {
     tabs_.push_back(std::make_unique<BuildingsPanelTab>(
         director_, lots, props, favorites, buildingStyleService, imguiService_));
+    tabs_.push_back(std::make_unique<NetworksPanelTab>(director_, favorites, imguiService_));
     tabs_.push_back(std::make_unique<PropPanelTab>(director_, lots, props, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FamiliesPanelTab>(director_, lots, props, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FloraPanelTab>(director_, flora, favorites, imguiService_));
     tabs_.push_back(std::make_unique<FloraCollectionsPanelTab>(director_, flora, favorites, imguiService_));
     if (decals) {
         tabs_.push_back(std::make_unique<GroundPanelTab>(director_, decals, favorites, pRM, imguiService_));
+        tabs_.push_back(std::make_unique<DecalPanelTab>(director_, decals, favorites, pRM, imguiService_));
     }
 }
 

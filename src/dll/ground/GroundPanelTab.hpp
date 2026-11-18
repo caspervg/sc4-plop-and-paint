@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 
 #include "../common/PanelTab.hpp"
 #include "../decals/DecalPanelTab.hpp"
@@ -34,7 +35,7 @@ public:
     void OnShutdown() override;
 
 private:
-    void RenderToolRow_();
+    void RenderToolbar_(Ground::GroundPaintDocument* document);
     // What to do next with the tool in use, from the city's input control.
     void RenderStatus_();
     // Opacity, soft edge, wear, rough edge (when roughness is given) and depth.
@@ -49,12 +50,21 @@ private:
     };
 
     // followsLine: the shape is a line, whose texture can follow it.
-    void RenderLookEditor_(Ground::Look& look, bool followsLine, LookEditorState& state, bool& changed, bool& committed);
+    // wear and roughness go with the look into presets; roughness is null for markings.
+    void RenderLookEditor_(Ground::Look& look, bool followsLine, float& wear, float* roughness, LookEditorState& state,
+                           bool& changed, bool& committed);
     void RenderChosenTextures_(Ground::Look& look, bool& changed, bool& committed);
-    void RenderPalettes_(Ground::Look& look, LookEditorState& state, bool& committed);
+    void RenderPalettes_(Ground::Look& look, float& wear, float* roughness, LookEditorState& state, bool& committed);
+    // Paints with a preset: its saved look, or only its textures when it has none.
+    static void UsePalette_(const PaintPalette& palette, Ground::Look& look, float& wear, float* roughness,
+                            LookEditorState& state);
     // Tint, size, turn and shift on one line. Only the repeat length when the texture follows a line.
     void RenderTextureLayout_(Ground::Look& look, bool following, bool& changed, bool& committed);
     void RenderTextureLibrary_(Ground::Look& look, bool& committed);
+    // The library window, painting into look. Drawn once a frame, with or without a look editor.
+    void RenderLibraryWindow_(Ground::Look& look, LookEditorState& state, bool& committed);
+    // Click: paint with it. Ctrl: add it to the mix or take it out. Shift: add it to the preset.
+    void LibraryClick_(Ground::Look& look, uint32_t instanceId, bool ctrl, bool& committed);
     // A texture tile: its thumbnail, outlined when in use. True when clicked.
     bool TextureTile_(uint32_t instanceId, float size, bool inUse);
     void UseTexture_(Ground::Look& look, uint32_t instanceId, bool addToMix, bool& committed);
@@ -70,13 +80,21 @@ private:
     void RenderSelection_(Ground::GroundPaintDocument& document);
     // The name, shape and look of the one selected object.
     void RenderInspector_(Ground::GroundPaintDocument& document, uint32_t first);
-    void RenderSelectionActions_(Ground::GroundPaintDocument& document);
+    // Name or count, size, Copy, Delete and a menu with the rest.
+    void RenderSelectionHeader_(Ground::GroundPaintDocument& document);
+    // Takes the selected object into editing_ when it is new or changed elsewhere.
+    void SyncEditing_(Ground::GroundPaintDocument& document, uint32_t id);
+    // Border, repeat, mirror and the planting, each in a window of its own while open.
+    void RenderToolWindows_(Ground::GroundPaintDocument& document);
+    // Several shapes selected: a preset, the look of the first, or a layer for all of them.
+    void RenderMultiPaint_(Ground::GroundPaintDocument& document);
     // Border, repeat and mirror for the selection.
     void RenderShapeTools_(Ground::GroundPaintDocument& document, const std::vector<uint32_t>& selection);
     // Fill the selected object with the last props or flora painted, or plant them along it.
     void RenderPlanting_(uint32_t objectId);
     void RenderTransform_(Ground::GroundPaintDocument& document);
     void RenderLayers_(Ground::GroundPaintDocument& document);
+    void RenderLayerTree_(Ground::GroundPaintDocument& document);
     // Marks the tool settings changed; FlushSettings_ hands them to the city's tool, at most every
     // 150 ms while a control is held.
     void SettingsChanged_();
@@ -88,8 +106,15 @@ private:
 
     DecalRepository* decals_;
     cIGZPersistResourceManager* pRM_;
-    std::unique_ptr<DecalPanelTab> stampTab_;
     ThumbnailCache<uint32_t> thumbnails_{};
+    // Multi-FSH frames: how many each texture has (known once its thumbnail loads), and their
+    // thumbnails by frame << 32 | instance.
+    std::unordered_map<uint32_t, uint32_t> frameCounts_{};
+    ThumbnailCache<uint64_t> frameThumbnails_{};
+    [[nodiscard]] uint32_t FrameCount_(uint32_t instanceId) const;
+    bool FrameTile_(uint32_t instanceId, uint32_t frame, float size, bool inUse);
+    // The frames of one chosen texture to mix, as a popup.
+    void RenderFramePicker_(Ground::TextureChoice& choice, bool& committed);
 
     Ground::ToolSettings settings_{};
     // As the city's tool last got them.
@@ -98,8 +123,8 @@ private:
     std::chrono::steady_clock::time_point lastSettingsPush_{};
     // When the selection's edit was last shown in the city with a new cut.
     std::chrono::steady_clock::time_point lastLivePreview_{};
-    bool stamping_ = false;
-    bool shownStamping_ = false;
+    // How long the last one took: a slow preview waits three times as long before the next.
+    std::chrono::steady_clock::duration lastPreviewCost_{};
     TextureHoverPreview hoverPreview_{};
 
     // The selected object being edited, applied when a control is let go.
@@ -152,9 +177,22 @@ private:
     // Newest first, this session.
     std::vector<uint32_t> recentTextures_{};
     size_t activePalette_ = 0;
+    bool libraryOpen_ = false;
+    bool libraryShown_ = false;
+    std::string libraryNotice_{};
+    std::chrono::steady_clock::time_point libraryNoticeAt_{};
+    bool layersOpen_ = false;
+    bool shapeToolsOpen_ = false;
+    bool plantingOpen_ = false;
+    char renameBuffer_[64]{};
     // The texture of a mix whose share and buttons show.
     size_t chosenTexture_ = 0;
     LookEditorState toolLook_{};
+    LookEditorState pathLook_{.wantsTexture = true};
+    // The draw style not in use: the path tool's while another tool draws, and the reverse.
+    Ground::DrawStyle otherDrawStyle_ = Ground::DrawStyle::Curve;
+    bool pathDrawStyleActive_ = false;
+    LookEditorState& ToolLookState_() { return settings_.tool == Ground::Tool::Path ? pathLook_ : toolLook_; }
     uint32_t lookPickCount_ = 0;
     LookEditorState selectionLook_{};
 

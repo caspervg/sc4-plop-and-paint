@@ -16,7 +16,11 @@ namespace Ground {
         Marking,
         Erase,
         Select,
+        Path,  // a line whose texture, a straight road or path piece, bends along it
     };
+
+    // The tools that draw a line shape.
+    constexpr bool DrawsLine(const Tool tool) { return tool == Tool::Line || tool == Tool::Path; }
 
     enum class DrawStyle : uint8_t {
         Clicks,    // straight lines between clicked points
@@ -39,10 +43,17 @@ namespace Ground {
         // A brush stroke that overlaps one painted the same way becomes part of it.
         bool joinBrushStrokes = true;
         bool eraseWithBrush = true;
+        // Area and line: go on drawing after a shape is finished. Off: the new shape is selected,
+        // ready to change its points and look, and Esc goes back to drawing.
+        bool keepDrawing = false;
         MarkingSpec marking{.lineWidth = 0.3f};
         float wear = 0.0f;
         float roughness = 0.0f;
         Look look{};
+        // The path tool's own look and width: one tile wide, the texture turned so the road or
+        // path in it runs along the line.
+        Look pathLook{.textureSizeMeters = 16.0f, .textureRotationDegrees = 90.0f, .followPath = true};
+        float pathWidth = 16.0f;
         // Snap points to what is already painted: its corners, the middles of its sides, its
         // edges, and lines parallel or square to them (M).
         bool snapToPaint = true;
@@ -50,6 +61,11 @@ namespace Ground {
         bool showGrid = true;
         bool snapPointsToGrid = false;
         float gridStepMeters = 16.0f;
+
+        Look& ActiveLook() { return tool == Tool::Path ? pathLook : look; }
+        [[nodiscard]] const Look& ActiveLook() const { return tool == Tool::Path ? pathLook : look; }
+        float& ActiveLineWidth() { return tool == Tool::Path ? pathWidth : lineWidth; }
+        [[nodiscard]] float ActiveLineWidth() const { return tool == Tool::Path ? pathWidth : lineWidth; }
 
         bool operator==(const ToolSettings&) const = default;
     };

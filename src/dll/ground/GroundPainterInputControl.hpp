@@ -32,6 +32,7 @@ public:
     bool OnMouseDownL(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseUpL(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseMove(int32_t x, int32_t z, uint32_t modifiers) override;
+    bool OnMouseWheel(int32_t x, int32_t z, uint32_t modifiers, int32_t wheelDelta) override;
     bool OnKeyDown(int32_t vkCode, uint32_t modifiers) override;
     bool OnMouseDownM(int32_t x, int32_t z, uint32_t modifiers) override;
     bool OnMouseUpM(int32_t x, int32_t z, uint32_t modifiers) override;
@@ -53,9 +54,11 @@ public:
     // Pushed onto the view and not shut down since; it may be below a vanilla tool.
     [[nodiscard]] bool IsActive() const { return active_; }
 
-    [[nodiscard]] bool IsDrawing() const { return !anchors_.empty() || strokeActive_; }
+    [[nodiscard]] bool IsDrawing() const { return !anchors_.empty() || gesture_ == Gesture::Stroke; }
     // What to do next with the current tool, for the panel: one or two short sentences.
     [[nodiscard]] std::string StatusText() const;
+    // The one thing to do next, in a few words. StatusText has every gesture.
+    [[nodiscard]] std::string ShortStatus() const;
     // Lengths, turns and areas of what is being drawn or is selected; empty when there are none.
     [[nodiscard]] const std::string& MeasureText() const;
 
@@ -82,6 +85,8 @@ private:
     void UpdateSnapIndex_();
     void UpdateMeasure_();
     void Commit_();
+    // Selects a shape that was just painted and switches to Select, unless the tool keeps drawing.
+    void SelectPainted_(uint32_t id);
     void CancelShape_();
     void FinishStroke_();
     // Says in the log what a finished shape became, so "nothing shows" can be told apart from
@@ -91,6 +96,17 @@ private:
     // The selected object whose points can be dragged, if exactly one is selected.
     [[nodiscard]] const Ground::PaintObject* PointEditTarget_() const;
     bool StartPointEdit_(bool insert, bool remove);
+    // Points are (shape, index): shape -1 is the object's own, 0 and up its holes.
+    [[nodiscard]] std::optional<std::pair<int, size_t>> PointNear_(const Ground::PaintObject& object) const;
+    // Where a click on an outline adds a point: the shape, the index the point gets, and the spot.
+    struct InsertSpot {
+        int shape = -1;
+        size_t index = 0;
+        Ground::Vec2 at{};
+    };
+    [[nodiscard]] std::optional<InsertSpot> InsertSpot_(const Ground::PaintObject& object) const;
+    [[nodiscard]] std::optional<std::pair<int, size_t>> Picked_() const;
+    bool RemovePickedPoint_();
     void FinishPointDrag_();
     // Shift+drag in Select: moves the flat textures of the selection, not the shapes.
     bool StartTextureDrag_();
@@ -112,6 +128,8 @@ private:
     [[nodiscard]] bool UsesPen_() const;
     // How near the cursor must be to take a point: a few pixels on screen at any zoom.
     [[nodiscard]] float PickDistance_() const;
+    // A line much wider than the pick distance: a click on its middle moves it, Ctrl+click adds a point.
+    [[nodiscard]] bool WideLine_(const Ground::PaintObject& object) const;
     [[nodiscard]] float CloseDistance_() const;
     [[nodiscard]] bool DrawsCurve_() const;
     // The path of the shape being drawn, up to the cursor.
@@ -147,42 +165,62 @@ private:
 
     bool active_ = false;
     bool cancelPending_ = false;
+    // The drawing tool that SelectPainted_ left, for Esc to go back to.
+    std::optional<Ground::Tool> returnTool_{};
+    std::vector<uint32_t> shownSelection_{};
     bool moved_ = false;
     bool lookPickArmed_ = false;
     uint32_t lookPickCount_ = 0;
     // Copies the look of the painted ground under the cursor; false when there is none.
     bool PickLook_();
+    // What the eyedropper copies: one of the shapes under the cursor, as Alt+scroll chose.
+    [[nodiscard]] std::optional<uint32_t> LookPickTarget_() const;
+    int32_t lookPickCycle_ = 0;
+    std::vector<uint32_t> lookPickUnder_{};
     bool cursorValid_ = false;
     Ground::Vec2 cursor_{};
     std::vector<Ground::Vec2> anchors_{};
     // Pen: the handle of each anchor, and pulling out the handle of the last one.
     std::vector<Ground::Vec2> anchorHandles_{};
     std::vector<Ground::Vec2> anchorInHandles_{};
-    bool penDrag_ = false;
+    // What a held mouse button does. One at a time: a new press ends one whose release was lost.
+    enum class Gesture : uint8_t {
+        None,
+        Stroke,         // freehand lines, brush and eraser strokes
+        PenHandle,      // pulling out the curve handle of the point just placed
+        MoveSelection,
+        MoveTexture,    // Shift+drag in Select
+        MovePoint,      // one point of the selected object or of a hole in it
+        MoveHandle,     // one end of such a point's curve handle
+        MiddleBrush,    // sizing the brush
+        MiddleTurn,
+        MiddleScale,
+    };
+    Gesture gesture_ = Gesture::None;
+    [[nodiscard]] bool Is_(const Gesture gesture) const { return gesture_ == gesture; }
+    [[nodiscard]] bool EditingPoints_() const { return Is_(Gesture::MovePoint) || Is_(Gesture::MoveHandle); }
+    [[nodiscard]] bool IsMiddle_() const {
+        return Is_(Gesture::MiddleBrush) || Is_(Gesture::MiddleTurn) || Is_(Gesture::MiddleScale);
+    }
+    void BeginPointGesture_(Gesture gesture, std::pair<int, size_t> point);
+
     Ground::Vec2 penHandleBefore_{};
     Ground::Vec2 penInHandleBefore_{};
     int32_t penPressX_ = 0;
     int32_t penPressZ_ = 0;
-    // Freehand lines, brush and eraser strokes while the left button is down.
-    bool strokeActive_ = false;
     std::vector<Ground::Vec2> stroke_{};
-    // Moving the selection, or its textures.
-    bool dragging_ = false;
-    bool textureDrag_ = false;
     Ground::Vec2 dragStart_{};
-    // Dragging one point of the selected object: which, and the object as it is being changed.
-    std::optional<size_t> pointDrag_{};
-    // Or one end of a point's curve handle: the point, and which end.
-    std::optional<size_t> handleDrag_{};
+    // MovePoint and MoveHandle: the object as it is being changed, and which point of which shape.
+    Ground::PaintObject pointEdit_{};
+    int editShape_ = -1;
+    size_t editPoint_ = 0;
     float handleSign_ = 1.0f;
     // The two ends of the handle move apart, not together.
     bool handleSplit_ = false;
+    // The point clicked last, for the corner radius and Delete.
     uint32_t pickedObject_ = 0;
+    int pickedShape_ = -1;
     size_t pickedIndex_ = 0;
-    Ground::PaintObject pointEdit_{};
-    // Middle-button drags: changing the brush radius, or turning (Shift: scaling) the selection.
-    enum class MiddleDrag : uint8_t { None, Brush, Turn, Scale };
-    MiddleDrag middleDrag_ = MiddleDrag::None;
     int32_t middleStartX_ = 0;
     float middleStartRadius_ = 0.0f;
     Ground::Vec2 middlePivot_{};

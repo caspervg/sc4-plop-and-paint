@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -22,7 +23,7 @@ public:
                   cIGZPersistResourceManager* pRM,
                   cIGZImGuiService* imguiService);
 
-    [[nodiscard]] const char* GetTabName() const override { return "Terrain Decals"; }
+    [[nodiscard]] const char* GetTabName() const override { return "Decals"; }
     void OnRender() override;
     void OnDeviceReset(uint32_t deviceGeneration) override;
     void OnShutdown() override;
@@ -70,6 +71,9 @@ private:
     uint32_t                   lastDeviceGeneration_{0};
 
     ImGuiTexture uvPickerTexture_{};
+    // The frames of the texture in the dialog, loaded as they are first shown.
+    std::vector<std::unique_ptr<ImGuiTexture>> frameTextures_{};
+    void RenderVariant_(TerrainDecalState& state);
     ImVec2       uvPickerSourceSize_{0.0f, 0.0f};
     uint32_t     uvPickerTextureInstanceId_{0};
     bool         uvPickerDragging_{false};

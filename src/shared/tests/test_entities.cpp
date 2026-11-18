@@ -664,3 +664,30 @@ TEST_CASE("AllFavorites CBOR empty favorites", "[cbor][favorites][edge-case]") {
     REQUIRE(!deserialized->decals.has_value());
     REQUIRE(!deserialized->families.has_value());
 }
+
+namespace {
+    // A palette as favorites.cbor held it before presets kept a look.
+    struct PaletteBeforeLooks {
+        std::string name;
+        std::vector<PaintPaletteTexture> textures;
+        std::vector<std::array<float, 3>> colours;
+    };
+}
+
+TEST_CASE("Paint palettes saved before presets still load", "[cbor][palette]") {
+    const PaletteBeforeLooks old{.name = "Fields", .textures = {{rfl::Hex<uint32_t>(0x12345674u), 2.0f}}, .colours = {}};
+    const auto loaded = rfl::cbor::read<PaintPalette>(rfl::cbor::write(old));
+    REQUIRE(loaded);
+    REQUIRE(loaded->name == "Fields");
+    REQUIRE(loaded->textures.size() == 1);
+    REQUIRE(!loaded->look);
+
+    PaintPalette preset = *loaded;
+    preset.look = PaintPaletteLook{.textures = preset.textures, .textureSizeMeters = 32.0f, .mix = 1, .wear = 0.25f};
+    const auto again = rfl::cbor::read<PaintPalette>(rfl::cbor::write(preset));
+    REQUIRE(again);
+    REQUIRE(again->look);
+    REQUIRE(again->look->textureSizeMeters == 32.0f);
+    REQUIRE(again->look->mix == 1);
+    REQUIRE(again->look->wear == 0.25f);
+}

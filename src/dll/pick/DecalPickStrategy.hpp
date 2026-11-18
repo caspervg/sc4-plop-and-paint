@@ -10,12 +10,17 @@
 #include "public/cIGZTerrainDecalService.h"
 
 class DecalRepository;
+namespace Ground {
+    class GroundPaintDocument;
+}
 
 class DecalPickStrategy final : public ScenePickStrategy {
 public:
     // `decalRepository` may be null; it is used to verify that picked lot
-    // texture IDs resolve to a known zoom-4 texture.
-    DecalPickStrategy(cIGZTerrainDecalService* decalService, const DecalRepository* decalRepository);
+    // texture IDs resolve to a known zoom-4 texture. `groundDocument` may be
+    // null; with it, the textures of painted ground are candidates too.
+    DecalPickStrategy(cIGZTerrainDecalService* decalService, const DecalRepository* decalRepository,
+                      const Ground::GroundPaintDocument* groundDocument = nullptr);
     ~DecalPickStrategy() override;
 
     [[nodiscard]] ScenePickMode Mode() const override;
@@ -39,12 +44,14 @@ private:
     [[nodiscard]] std::vector<Candidate> CollectCandidates_(const ScenePickContext& context) const;
     void AppendDecalCandidates_(const ScenePickContext& context, std::vector<Candidate>& candidates) const;
     void AppendLotTextureCandidates_(const ScenePickContext& context, std::vector<Candidate>& candidates) const;
+    void AppendPaintedGroundCandidates_(const ScenePickContext& context, std::vector<Candidate>& candidates) const;
     void SetHoveredDecal_(TerrainDecalId id);
     [[nodiscard]] uint32_t ResolveTextureInstance_(uint32_t rawInstanceId) const;
     [[nodiscard]] decals::TextureKind ClassifyTexture_(uint32_t instanceId) const;
 
     cIGZTerrainDecalService* decalService_{nullptr};
     const DecalRepository* decalRepository_{nullptr};
+    const Ground::GroundPaintDocument* groundDocument_{nullptr};
     // FSH alpha classification is expensive; memoize per texture instance.
     mutable std::unordered_map<uint32_t, decals::TextureKind> textureKindCache_{};
     TerrainDecalId hoveredDecalId_{};

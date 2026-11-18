@@ -18,4 +18,7 @@ struct DecalPaintSettings {
     // come from the user's settings modal.
     TerrainDecalState stateTemplate{};
     PropPaintSettings placementSettings{MakeDefaultDecalPlacementSettings()};
+    // Multi-FSH: how many frames the texture has, and whether each stamp takes a random one.
+    uint32_t frameCount = 1;
+    bool randomFrame = false;
 };

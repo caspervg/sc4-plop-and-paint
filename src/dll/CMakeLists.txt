@@ -206,10 +206,11 @@ add_executable(GroundPaintDocumentTests
     ${CMAKE_CURRENT_SOURCE_DIR}/ground/HersheyFont.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundPaintModel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ground/GroundPaintDocument.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/Logger.cpp
 )
 target_include_directories(GroundPaintDocumentTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SC4RS_ROOT}/src)
 target_link_libraries(GroundPaintDocumentTests PRIVATE
-    Clipper2::Clipper2 tinysplinecxx::tinysplinecxx reflectcpp::reflectcpp gzcom2)
+    Clipper2::Clipper2 tinysplinecxx::tinysplinecxx reflectcpp::reflectcpp gzcom2 spdlog::spdlog)
 add_test(NAME GroundPaintDocumentTests COMMAND GroundPaintDocumentTests)
 
 # Thumbnail cache round trip: the cache builder's writer against the plugin's reader.

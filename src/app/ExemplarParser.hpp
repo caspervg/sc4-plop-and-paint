@@ -168,6 +168,16 @@ public:
     [[nodiscard]] Lot lotFromParsed(const ParsedLotConfigExemplar& parsed) const;
     [[nodiscard]] Prop propFromParsed(const ParsedPropExemplar& parsed) const;
     [[nodiscard]] Flora floraFromParsed(const ParsedFloraExemplar& parsed) const;
+    // Renders a model that belongs to no exemplar, such as the preview model of a network piece.
+    // Empty without --render-thumbnails, or when the model does not render.
+    // With a faint tile grid, so that the angle of a network shows. Only network pieces use these
+    // models, so the renderer's cache never mixes pictures with and without the grid.
+    [[nodiscard]] std::optional<Thumbnail> renderModelThumbnail(const DBPF::Tgi& modelTgi, uint32_t size) const;
+    // The colour picture of an Item Icon (a PNG in the lot icon group), as the menu buttons show it.
+    // Empty when the icon is missing or does not decode. Needs no renderer.
+    [[nodiscard]] std::optional<Thumbnail> loadItemIcon(uint32_t iconInstance) const;
+    // Whether thumbnails are rendered at all (--render-thumbnails).
+    [[nodiscard]] bool rendersThumbnails() const { return thumbnailRenderer_ != nullptr; }
 
     // Cohort-aware property lookup - searches exemplar and parent cohorts recursively
     [[nodiscard]] const Exemplar::Property* findProperty(
@@ -184,7 +194,11 @@ private:
     ) const;
     [[nodiscard]] std::string resolveLTextTags_(std::string_view text,
                                                 const Exemplar::Record& exemplar) const;
+    // The model the exemplar shows, if any. Instance 0 (in any zoom or rotation) is no model:
+    // creators use it for props that are meant to be invisible.
     [[nodiscard]] std::optional<DBPF::Tgi> resolveModelTgi_(const Exemplar::Record& exemplar,
+                                                            const DBPF::Tgi& exemplarTgi) const;
+    [[nodiscard]] std::optional<DBPF::Tgi> findModelTgi_(const Exemplar::Record& exemplar,
                                                             const DBPF::Tgi& exemplarTgi) const;
     [[nodiscard]] std::optional<std::array<float, 6>> loadModelBounds_(const DBPF::Tgi& modelTgi) const;
 
