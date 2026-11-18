@@ -124,7 +124,10 @@ jobs:
       - name: Build CLI
         run: |
           cmake --preset vs2022-x64-release
-          cmake --build --preset vs2022-x64-release-build --target SC4PlopAndPaintCli --parallel
+          cmake --build --preset vs2022-x64-release-build --target SC4PlopAndPaintCli SC4PlopAndPaintCore_Tests --parallel
+
+      - name: Run tests
+        run: ./cmake-build-release-visual-studio-x64/src/shared/tests/Release/SC4PlopAndPaintCore_Tests.exe
 
       - name: Smoke test CLI --version
         shell: powershell
