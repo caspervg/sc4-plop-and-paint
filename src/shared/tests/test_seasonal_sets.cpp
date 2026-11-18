@@ -61,6 +61,21 @@ TEST_CASE("Four-season CP-style set is detected via name stems", "[seasonal]") {
     REQUIRE(sets[0].members[3].value() == 0x13);
 }
 
+TEST_CASE("Mixed separators within one set do not split it", "[seasonal]") {
+    // Real CP apple tree names: two members use "14_Prop", two use "14Prop".
+    const std::vector<Prop> props = {
+        MakeTimedProp(0xA, 0x20, "CP_Seas_Apple1_14_Prop_Spring", 2, 15, 89),
+        MakeTimedProp(0xA, 0x21, "CP_Seas_Apple1_14Prop_Summer", 5, 15, 123),
+        MakeTimedProp(0xA, 0x22, "CP_Seas_Apple1_14_Prop_Fall", 9, 15, 61),
+        MakeTimedProp(0xA, 0x23, "CP_Seas_Apple1_14Prop_Winter", 11, 15, 92),
+    };
+
+    const auto sets = Detect(props);
+    REQUIRE(sets.size() == 1);
+    REQUIRE(sets[0].members.size() == 4);
+    REQUIRE(sets[0].confidence == 0);
+}
+
 TEST_CASE("Three-season JENX-style set with long summer window", "[seasonal]") {
     const std::vector<Prop> props = {
         MakeTimedProp(0xB, 0x20, "JENXPROP_Tree51_Summer_seasonal", 3, 20, 195),
@@ -109,6 +124,69 @@ TEST_CASE("Nested winter + snow overlay windows are tolerated", "[seasonal]") {
     REQUIRE(sets[0].members.size() == 5);
 }
 
+TEST_CASE("Snow overlay that sticks out of Winter is tolerated", "[seasonal]") {
+    // Real VIP tree 001 dates: Winter_Snow starts before Winter and overlaps Autumn.
+    const std::vector<Prop> props = {
+        MakeTimedProp(0xE, 0x55, "VIP_VV_Seasonal_Tree_001_Spring", 3, 15, 100),
+        MakeTimedProp(0xE, 0x56, "VIP_VV_Seasonal_Tree_001_Summer", 6, 23, 116),
+        MakeTimedProp(0xE, 0x57, "VIP_VV_Seasonal_Tree_001_Autumn", 10, 17, 68),
+        MakeTimedProp(0xE, 0x58, "VIP_VV_Seasonal_Tree_001_Winter", 12, 24, 81),
+        MakeTimedProp(0xE, 0x59, "VIP_VV_Seasonal_Tree_001_Winter_Snow", 12, 6, 40),
+    };
+
+    const auto sets = Detect(props);
+    REQUIRE(sets.size() == 1);
+    REQUIRE(sets[0].members.size() == 5);
+}
+
+TEST_CASE("Fuzzy pairs that leave most of the year empty are dropped", "[seasonal]") {
+    // Names match, but together they show for only 47 days a year.
+    const std::vector<Prop> props = {
+        MakeTimedProp(0x14, 0xB0, "SG_FarmField_Cane_01", 3, 1, 25),
+        MakeTimedProp(0x14, 0xB1, "SG_FarmField_Cane_02", 6, 1, 22),
+    };
+
+    REQUIRE(Detect(props).empty());
+}
+
+TEST_CASE("Fuzzy pass does not pair different crops with a shared prefix", "[seasonal]") {
+    // Real SG field props: complementary windows, but tulips and rice are not one plant.
+    const std::vector<Prop> props = {
+        MakeTimedProp(0x15, 0xC0, "SG_Field_FlowersBlue01", 3, 1, 92),
+        MakeTimedProp(0x15, 0xC1, "SG_field_Rice01", 6, 1, 120),
+    };
+
+    REQUIRE(Detect(props).empty());
+}
+
+TEST_CASE("Fuzzy pass pairs abbreviated seasons and growth stages", "[seasonal]") {
+    const std::vector<Prop> props = {
+        MakeTimedProp(0x16, 0xD0, "fz_redcabbSPRI", 3, 1, 92),
+        MakeTimedProp(0x16, 0xD1, "fz_redcabbSUM", 6, 1, 120),
+        MakeTimedProp(0x17, 0xD2, "PEG-MTPA_Crop_Barley_Young_3.15-7.15", 3, 15, 122),
+        MakeTimedProp(0x17, 0xD3, "PEG-MTPA_Crop_Barley_Mature_7.16-10.16", 7, 16, 92),
+    };
+
+    const auto sets = Detect(props);
+    REQUIRE(sets.size() == 2);
+    REQUIRE(sets[0].members.size() == 2);
+    REQUIRE(sets[1].members.size() == 2);
+}
+
+TEST_CASE("German season names form a set", "[seasonal]") {
+    const std::vector<Prop> props = {
+        MakeTimedProp(0x18, 0xE0, "SFBT_Birke_Fruehling-big", 3, 1, 92),
+        MakeTimedProp(0x18, 0xE1, "SFBT_Birke_Sommer-big", 6, 1, 92),
+        MakeTimedProp(0x18, 0xE2, "SFBT_Birke_Herbst-big", 9, 1, 91),
+        MakeTimedProp(0x18, 0xE3, "SFBT_Birke_Winter-big", 12, 1, 90),
+    };
+
+    const auto sets = Detect(props);
+    REQUIRE(sets.size() == 1);
+    REQUIRE(sets[0].members.size() == 4);
+    REQUIRE(sets[0].confidence == 0);
+}
+
 TEST_CASE("Fuzzy pass attaches variant-suffixed singletons", "[seasonal]") {
     // Neko pattern: spring blooms carry _01 suffixes the summer/fall/winter
     // members lack, so strict stems differ but prefixes + windows line up.
@@ -137,10 +215,39 @@ TEST_CASE("Fuzzy pass pairs two complementary singletons", "[seasonal]") {
     REQUIRE(sets[0].confidence == 1);
 }
 
-TEST_CASE("Props from different groups never merge", "[seasonal]") {
+TEST_CASE("Same stem across groups merges when the windows fill each other's gaps", "[seasonal]") {
+    // Real Grfe beech: the autumn model ships in another group than summer and winter.
     const std::vector<Prop> props = {
-        MakeTimedProp(0x11, 0x80, "Maple_Summer", 3, 1, 184),
-        MakeTimedProp(0x22, 0x81, "Maple_Winter", 9, 1, 181),
+        MakeTimedProp(0x11, 0x80, "Grfe_beech_A_summer", 3, 1, 184),
+        MakeTimedProp(0x11, 0x81, "Grfe_beech_A_winter", 12, 1, 92),
+        MakeTimedProp(0x22, 0x82, "Grfe_beech_A_autumn", 9, 1, 91),
+    };
+
+    const auto sets = Detect(props);
+    REQUIRE(sets.size() == 1);
+    REQUIRE(sets[0].members.size() == 3);
+    REQUIRE(sets[0].confidence == 0);
+}
+
+TEST_CASE("Same stem across groups stays apart when the windows overlap", "[seasonal]") {
+    // Two creators' oaks: each group is a set of its own.
+    const std::vector<Prop> props = {
+        MakeTimedProp(0x11, 0x83, "Oak_Summer", 3, 1, 184),
+        MakeTimedProp(0x11, 0x84, "Oak_Winter", 9, 1, 181),
+        MakeTimedProp(0x22, 0x85, "Oak_Summer", 4, 1, 184),
+        MakeTimedProp(0x22, 0x86, "Oak_Winter", 10, 1, 181),
+    };
+
+    const auto sets = Detect(props);
+    REQUIRE(sets.size() == 2);
+    REQUIRE(sets[0].members.size() == 2);
+    REQUIRE(sets[1].members.size() == 2);
+}
+
+TEST_CASE("Fuzzy matches never cross groups", "[seasonal]") {
+    const std::vector<Prop> props = {
+        MakeTimedProp(0x11, 0x87, "VV_inflatable_pool_01", 3, 1, 184),
+        MakeTimedProp(0x22, 0x88, "VV_inflatable_pool_02", 9, 1, 181),
     };
 
     REQUIRE(Detect(props).empty());
