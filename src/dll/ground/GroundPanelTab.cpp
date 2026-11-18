@@ -1396,7 +1396,12 @@ void GroundPanelTab::RenderTextureLayout_(Look& look, const bool following, bool
 
 void GroundPanelTab::RenderChosenTextures_(Look& look, bool& changed, bool& committed) {
     if (look.textures.empty()) {
-        ImGui::TextColored(kAttentionColor, "Pick a texture below.");
+        if (libraryOpen_) {
+            ImGui::TextColored(kAttentionColor, "Pick a texture in the library.");
+        }
+        else if (ImGui::Button("Choose a texture")) {
+            libraryOpen_ = true;
+        }
         return;
     }
     const bool mixed = look.textures.size() > 1;
