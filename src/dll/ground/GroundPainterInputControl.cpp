@@ -192,6 +192,7 @@ bool GroundPainterInputControl::UsesStroke_() const {
         return settings_.eraseWithBrush;
     case Tool::Area:
     case Tool::Line:
+    case Tool::Path:
         return settings_.drawStyle == DrawStyle::Freehand;
     case Tool::Marking:
     case Tool::Select:
@@ -202,12 +203,16 @@ bool GroundPainterInputControl::UsesStroke_() const {
 
 bool GroundPainterInputControl::UsesPen_() const {
     return settings_.drawStyle == DrawStyle::Pen &&
-           (settings_.tool == Tool::Area || settings_.tool == Tool::Line ||
+           (settings_.tool == Tool::Area || DrawsLine(settings_.tool) ||
             (settings_.tool == Tool::Erase && !settings_.eraseWithBrush));
 }
 
 float GroundPainterInputControl::PickDistance_() const {
     return std::max(kPointPickDistance, snapReach_);
+}
+
+bool GroundPainterInputControl::WideLine_(const PaintObject& object) const {
+    return object.shape.kind == ShapeKind::Line && 0.5f * object.shape.width > PickDistance_();
 }
 
 float GroundPainterInputControl::CloseDistance_() const {
@@ -277,6 +282,7 @@ bool GroundPainterInputControl::SnapsPoints_() const {
     switch (settings_.tool) {
     case Tool::Area:
     case Tool::Line:
+    case Tool::Path:
         return settings_.drawStyle != DrawStyle::Freehand;
     case Tool::Marking:
         return true;
@@ -881,7 +887,7 @@ void GroundPainterInputControl::TransformSelection_(const float turnDegrees, con
 
 PaintObject GroundPainterInputControl::ObjectFrom_(const std::vector<Vec2>& points, const bool curved) const {
     PaintObject object;
-    object.look = settings_.look;
+    object.look = settings_.ActiveLook();
     ShapeSpec& shape = object.shape;
     shape.points = points;
     shape.pathStyle = curved ? PathStyle::Curved : PathStyle::Straight;
@@ -893,8 +899,9 @@ PaintObject GroundPainterInputControl::ObjectFrom_(const std::vector<Vec2>& poin
     shape.roughness = settings_.tool == Tool::Erase || settings_.tool == Tool::Marking ? 0.0f : settings_.roughness;
     switch (settings_.tool) {
     case Tool::Line:
+    case Tool::Path:
         shape.kind = ShapeKind::Line;
-        shape.width = settings_.lineWidth;
+        shape.width = settings_.ActiveLineWidth();
         shape.ends = settings_.lineEnds;
         shape.dashLength = settings_.dashLength;
         shape.gapLength = settings_.gapLength;
@@ -943,7 +950,7 @@ void GroundPainterInputControl::Commit_() {
 }
 
 void GroundPainterInputControl::SelectPainted_(const uint32_t id) {
-    if (id == 0 || settings_.keepDrawing || (settings_.tool != Tool::Area && settings_.tool != Tool::Line)) {
+    if (id == 0 || settings_.keepDrawing || (settings_.tool != Tool::Area && !DrawsLine(settings_.tool))) {
         return;
     }
     returnTool_ = settings_.tool;
@@ -1032,7 +1039,7 @@ std::vector<PaintObject> GroundPainterInputControl::TextureDragged_() const {
     const Vec2 offset{cursor_.x - dragStart_.x, cursor_.z - dragStart_.z};
     for (const uint32_t id : document_->Selection()) {
         const PaintObject* const object = document_->Find(id);
-        if (!object || object->locked || object->look.textures.empty() || !BuildUvMap(*object).empty()) {
+        if (!object || object->locked || object->look.textures.empty() || FollowsLine(*object)) {
             continue;
         }
         moved.push_back(*object);
@@ -1153,7 +1160,7 @@ bool GroundPainterInputControl::StartPointEdit_(const bool insert, const bool re
         BeginPointGesture_(Gesture::MoveHandle, *nearest);
         return true;
     }
-    if (!nearest) {
+    if (!nearest && (insert || !WideLine_(*object))) {
         if (const auto spot = InsertSpot_(*object)) {
             nearest = std::pair{spot->shape, spot->index};
             InsertShapePoint(ShapeOf(pointEdit_, spot->shape), spot->index, spot->at);
@@ -1619,7 +1626,7 @@ bool GroundPainterInputControl::PickLook_() {
     if (!object) {
         return false;
     }
-    settings_.look = object->look;
+    settings_.ActiveLook() = object->look;
     settings_.wear = object->shape.wear;
     settings_.roughness = object->shape.kind == ShapeKind::Marking ? settings_.roughness : object->shape.roughness;
     ++lookPickCount_;
@@ -1640,8 +1647,9 @@ std::string GroundPainterInputControl::ShortStatus() const {
     switch (settings_.tool) {
     case Tool::Area:
     case Tool::Line:
+    case Tool::Path:
     case Tool::Erase: {
-        const bool area = settings_.tool != Tool::Line;
+        const bool area = !DrawsLine(settings_.tool);
         if (settings_.tool == Tool::Erase && settings_.eraseWithBrush) {
             return "Drag over painted ground to remove it.";
         }
@@ -1665,8 +1673,10 @@ std::string GroundPainterInputControl::ShortStatus() const {
         if (Is_(Gesture::MoveTexture)) {
             return "Release the button to keep the texture here.";
         }
-        if (PointEditTarget_()) {
-            return Picked_() ? "Drag the point, or press Delete to remove it." : "Drag points to reshape. Click the outline to add a point.";
+        if (const PaintObject* const target = PointEditTarget_()) {
+            return Picked_() ? "Drag the point, or press Delete to remove it."
+                             : WideLine_(*target) ? "Drag points to reshape. Ctrl+click the middle of the line to add a point."
+                                                  : "Drag points to reshape. Click the outline to add a point.";
         }
         return "Drag to move the selection.";
     }
@@ -1688,8 +1698,9 @@ std::string GroundPainterInputControl::StatusText() const {
     switch (settings_.tool) {
     case Tool::Area:
     case Tool::Line:
+    case Tool::Path:
     case Tool::Erase: {
-        const bool area = settings_.tool != Tool::Line;
+        const bool area = !DrawsLine(settings_.tool);
         if (settings_.tool == Tool::Erase && settings_.eraseWithBrush) {
             return "Hold the left button and drag over painted ground to remove it. Press [ or ] to change the size.";
         }
@@ -1750,7 +1761,9 @@ std::string GroundPainterInputControl::StatusText() const {
             if (Picked_()) {
                 return "Drag a point or a curve handle to move it. Press Delete to remove the picked point. Press Esc to let go of it." + holes + back;
             }
-            return "Drag a point or a curve handle to move it. Click the outline to add a point. Alt+drag a point to pull out curve handles. Alt+click a curved point to make it a corner. Alt+drag a curve handle to bend one side only. Click a point and press Delete to remove it. "
+            return std::string("Drag a point or a curve handle to move it. ") +
+                   (WideLine_(*target) ? "Ctrl+click the middle of the line to add a point. " : "Click the outline to add a point. ") +
+                   "Alt+drag a point to pull out curve handles. Alt+click a curved point to make it a corner. Alt+drag a curve handle to bend one side only. Click a point and press Delete to remove it. "
                    "Drag inside the shape to move it. Shift+drag to move its texture. Press Delete to remove the shape." + holes + back;
         }
         return "Drag to move. Shift+drag to move the texture. Press , or . to turn. Press - or = to scale. Press Ctrl+D to copy. Press Delete to remove." + back;

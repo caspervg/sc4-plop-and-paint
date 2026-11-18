@@ -872,8 +872,8 @@ namespace Ground {
             const auto move = [&](const Area& area) {
                 return Transformed(area, placement.pivot, placement.rotationRadians, placement.scale, placement.offset);
             };
-            std::vector<UvVertex> uvMap = BuildUvMap(*object);
-            if (!uvMap.empty()) {
+            std::vector<UvVertex> uvMap;
+            if (FollowsLine(*object)) {
                 // The texture moves along with the line.
                 PaintObject moved = *object;
                 TransformObject(moved, placement);

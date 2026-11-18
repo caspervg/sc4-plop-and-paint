@@ -145,6 +145,7 @@ namespace Ground {
     void InsertShapePoint(ShapeSpec& shape, size_t index, Vec2 point);
     void EraseShapePoint(ShapeSpec& shape, size_t index);
     // The UV map that makes its texture follow it; empty when the texture lies flat.
+    [[nodiscard]] bool FollowsLine(const PaintObject& object);
     [[nodiscard]] std::vector<UvVertex> BuildUvMap(const PaintObject& object);
 
     // Whether the object is painted in patches: one terrain paint per texture.

@@ -128,6 +128,8 @@ private:
     [[nodiscard]] bool UsesPen_() const;
     // How near the cursor must be to take a point: a few pixels on screen at any zoom.
     [[nodiscard]] float PickDistance_() const;
+    // A line much wider than the pick distance: a click on its middle moves it, Ctrl+click adds a point.
+    [[nodiscard]] bool WideLine_(const Ground::PaintObject& object) const;
     [[nodiscard]] float CloseDistance_() const;
     [[nodiscard]] bool DrawsCurve_() const;
     // The path of the shape being drawn, up to the cursor.

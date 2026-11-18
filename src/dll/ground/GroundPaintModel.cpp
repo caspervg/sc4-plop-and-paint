@@ -147,16 +147,44 @@ namespace Ground {
         return BuildArea(cut);
     }
 
+    bool FollowsLine(const PaintObject& object) {
+        return object.look.followPath && !object.look.textures.empty() && object.shape.kind == ShapeKind::Line;
+    }
+
     std::vector<UvVertex> BuildUvMap(const PaintObject& object) {
-        const ShapeSpec& shape = object.shape;
-        if (!object.look.followPath || object.look.textures.empty() || shape.kind != ShapeKind::Line) {
+        if (!FollowsLine(object)) {
             return {};
         }
+        const ShapeSpec& shape = object.shape;
         // The texture spans the painted width, soft edge and rough edge included, as BuildArea
         // makes it.
-        return PathUvStrip(ShapePath(shape, false),
-                           0.5f * shape.width + object.look.featherMeters + std::max(0.0f, shape.roughness),
-                           std::max(0.1f, object.look.textureSizeMeters));
+        std::vector<UvVertex> strip =
+            PathUvStrip(ShapePath(shape, false), 0.5f * shape.width + object.look.featherMeters + std::max(0.0f, shape.roughness),
+                        std::max(0.1f, object.look.textureSizeMeters));
+        // The turn, in quarters: one puts the height of the texture along the line, as a road
+        // texture needs.
+        const int quarters = static_cast<int>(std::lround(object.look.textureRotationDegrees / 90.0f)) & 3;
+        for (UvVertex& corner : strip) {
+            const float along = corner.u;
+            const float across = corner.v;
+            switch (quarters) {
+            case 1:
+                corner.u = 1.0f - across;
+                corner.v = along;
+                break;
+            case 2:
+                corner.u = -along;
+                corner.v = 1.0f - across;
+                break;
+            case 3:
+                corner.u = across;
+                corner.v = -along;
+                break;
+            default:
+                break;
+            }
+        }
+        return strip;
     }
 
     bool UsesPatches(const Look& look) {

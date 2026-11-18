@@ -188,6 +188,11 @@ private:
     // The texture of a mix whose share and buttons show.
     size_t chosenTexture_ = 0;
     LookEditorState toolLook_{};
+    LookEditorState pathLook_{.wantsTexture = true};
+    // The draw style not in use: the path tool's while another tool draws, and the reverse.
+    Ground::DrawStyle otherDrawStyle_ = Ground::DrawStyle::Curve;
+    bool pathDrawStyleActive_ = false;
+    LookEditorState& ToolLookState_() { return settings_.tool == Ground::Tool::Path ? pathLook_ : toolLook_; }
     uint32_t lookPickCount_ = 0;
     LookEditorState selectionLook_{};
 

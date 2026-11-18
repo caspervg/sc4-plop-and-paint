@@ -45,7 +45,9 @@ namespace {
     // Tools that paint, then tools that change what is painted.
     constexpr ToolInfo kPaintTools[] = {
         {Tool::Area, "Area", "Paint an area of any shape."},
-        {Tool::Line, "Line", "Paint a line, for example a path, a kerb or a road marking."},
+        {Tool::Line, "Line", "Paint a line, for example a kerb, an edge or a road marking."},
+        {Tool::Path, "Path", "Paint a road or a path with a texture of a straight piece, for example a road or a park path.\n"
+                             "The texture bends along the curves. This is only paint. Cars and Sims cannot use it."},
         {Tool::Brush, "Brush", "Paint freely with a round brush."},
         {Tool::Marking, "Marking", "Paint road markings, for example parking bays, zebra crossings, arrows, double lines, hatching and text."},
     };
@@ -440,7 +442,8 @@ void GroundPanelTab::UsePalette_(const PaintPalette& palette, Look& look, float&
         look.mix = saved->mix == static_cast<uint8_t>(TextureMix::Patches) ? TextureMix::Patches : TextureMix::Squares;
         look.patchSizeMeters = saved->patchSizeMeters;
         look.patchBlendMeters = saved->patchBlendMeters;
-        look.layer = static_cast<PaintLayer>(std::min<uint8_t>(saved->layer.value_or(0), 2));
+        look.layer = static_cast<PaintLayer>(
+            std::min<uint8_t>(saved->layer.value_or(0), static_cast<uint8_t>(PaintLayer::OverSidewalks)));
         wear = saved->wear;
         if (roughness) {
             *roughness = saved->roughness;
@@ -498,11 +501,12 @@ void GroundPanelTab::FlushSettings_() {
     const bool restyleOnly = [&] {
         ToolSettings shapeOnly = settings_;
         shapeOnly.look = pushedSettings_.look;
+        shapeOnly.pathLook = pushedSettings_.pathLook;
         PaintObject before;
         PaintObject after;
-        before.look = pushedSettings_.look;
-        after.look = settings_.look;
-        before.shape.kind = after.shape.kind = settings_.tool == Tool::Line ? ShapeKind::Line : ShapeKind::Area;
+        before.look = pushedSettings_.ActiveLook();
+        after.look = settings_.ActiveLook();
+        before.shape.kind = after.shape.kind = DrawsLine(settings_.tool) ? ShapeKind::Line : ShapeKind::Area;
         return shapeOnly == pushedSettings_ && CheapChange(before, after);
     }();
     if (!restyleOnly && ImGui::IsAnyItemActive() && now - lastSettingsPush_ < std::chrono::milliseconds(150)) {
@@ -517,6 +521,12 @@ void GroundPanelTab::FlushSettings_() {
 }
 
 void GroundPanelTab::SelectTool_(const Tool tool) {
+    // The path tool keeps its own draw style, curves at first. Select draws nothing, so it keeps
+    // the style it was in.
+    if (tool != Tool::Select && (tool == Tool::Path) != pathDrawStyleActive_) {
+        std::swap(settings_.drawStyle, otherDrawStyle_);
+        pathDrawStyleActive_ = tool == Tool::Path;
+    }
     settings_.tool = tool;
     ReleaseImGuiInputCapture_();
     pushedSettings_ = settings_;
@@ -549,7 +559,7 @@ void GroundPanelTab::FinishTexturePick_() {
         }
     }
     else if (picked) {
-        use(settings_.look, toolLook_);
+        use(settings_.ActiveLook(), ToolLookState_());
     }
     // Not when something else was started instead.
     if (!director_->IsAnyToolActive()) {
@@ -572,13 +582,13 @@ void GroundPanelTab::OnRender() {
         settings_.snapToPaint = current.snapToPaint;
         settings_.gridStepMeters = current.gridStepMeters;
         settings_.brushRadius = current.brushRadius;
-        if (current.look != settings_.look && painter->LookPickCount() != lookPickCount_) {
+        if (current.ActiveLook() != settings_.ActiveLook() && painter->LookPickCount() != lookPickCount_) {
             // Copied from painted ground in the city.
-            settings_.look = current.look;
+            settings_.ActiveLook() = current.ActiveLook();
             settings_.wear = current.wear;
             settings_.roughness = current.roughness;
-            toolLook_ = {};
-            toolLook_.wantsTexture = !settings_.look.textures.empty();
+            ToolLookState_() = {};
+            ToolLookState_().wantsTexture = !settings_.ActiveLook().textures.empty();
         }
         lookPickCount_ = painter->LookPickCount();
     }
@@ -620,12 +630,13 @@ void GroundPanelTab::OnRender() {
         if (settings_.tool != Tool::Erase) {
             ImGui::SeparatorText("Paint");
             ImGui::PushID("look");
-            RenderLookEditor_(settings_.look, settings_.tool == Tool::Line, settings_.wear,
-                              settings_.tool == Tool::Marking ? nullptr : &settings_.roughness, toolLook_, changed, committed);
+            RenderLookEditor_(settings_.ActiveLook(), DrawsLine(settings_.tool), settings_.wear,
+                              settings_.tool == Tool::Marking ? nullptr : &settings_.roughness, ToolLookState_(), changed,
+                              committed);
             ImGui::PopID();
         }
         if (settings_.tool != Tool::Erase) {
-            RenderFinish_(settings_.look, settings_.wear, settings_.tool == Tool::Marking ? nullptr : &settings_.roughness,
+            RenderFinish_(settings_.ActiveLook(), settings_.wear, settings_.tool == Tool::Marking ? nullptr : &settings_.roughness,
                           changed, committed);
         }
         if (changed || committed) {
@@ -634,7 +645,7 @@ void GroundPanelTab::OnRender() {
     }
     if (!std::exchange(libraryShown_, false) && libraryOpen_) {
         bool committed = false;
-        RenderLibraryWindow_(settings_.look, toolLook_, committed);
+        RenderLibraryWindow_(settings_.ActiveLook(), ToolLookState_(), committed);
         libraryShown_ = false;
         if (committed) {
             SettingsChanged_();
@@ -918,7 +929,7 @@ void GroundPanelTab::RenderShapeSettings_() {
             Tooltip("Remove paint with a round brush, not with a shape.");
             ImGui::SameLine();
         }
-        if (tool == Tool::Area || tool == Tool::Line) {
+        if (tool == Tool::Area || DrawsLine(tool)) {
             changed |= ImGui::Checkbox("Keep drawing", &settings_.keepDrawing);
             Tooltip("On: draw one shape after the other.\n"
                     "Off: a finished shape is selected, so you can change its points and its look at once.\n"
@@ -932,7 +943,8 @@ void GroundPanelTab::RenderShapeSettings_() {
             ImGui::SameLine();
         }
         const int count =
-            1 + (tool == Tool::Area ? 1 : 0) + (tool == Tool::Line ? (settings_.dashLength > 0.0f ? 4 : 3) : 0);
+            1 + (tool == Tool::Area ? 1 : 0) + (tool == Tool::Line ? (settings_.dashLength > 0.0f ? 4 : 3) : 0) +
+            (tool == Tool::Path ? 2 : 0);
         const float width = ShareOfLine(count);
         ImGui::SetNextItemWidth(width);
         if (brush) {
@@ -952,15 +964,20 @@ void GroundPanelTab::RenderShapeSettings_() {
                                         settings_.cornerRadius > 0.0f ? "Round corners %.2f m" : "Sharp corners");
             Tooltip("Drag to the right to round the corners.");
         }
-        if (tool == Tool::Line) {
+        if (DrawsLine(tool)) {
             ImGui::SameLine();
             ImGui::SetNextItemWidth(width);
-            changed |= ImGui::DragFloat("##width", &settings_.lineWidth, 0.01f, 0.02f, 50.0f, "Width %.2f m");
+            changed |= ImGui::DragFloat("##width", &settings_.ActiveLineWidth(), 0.01f, 0.02f, 50.0f, "Width %.2f m");
+            if (tool == Tool::Path) {
+                Tooltip("One tile is 16 m wide.");
+            }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(width);
             int ends = static_cast<int>(settings_.lineEnds);
             changed |= ImGui::Combo("##ends", &ends, "Flat ends\0Round ends\0");
             settings_.lineEnds = static_cast<LineEnds>(ends);
+        }
+        if (tool == Tool::Line) {
             ImGui::SameLine();
             ImGui::SetNextItemWidth(width);
             changed |= ImGui::DragFloat("##dashes", &settings_.dashLength, 0.05f, 0.0f, 50.0f,
@@ -1027,7 +1044,8 @@ void GroundPanelTab::RenderLookEditor_(Look& look, const bool followsLine, float
         ImGui::SameLine();
         ImGui::Checkbox("Follow the line", &look.followPath);
         Track(changed, committed);
-        Tooltip("The texture goes along the line and fills its width. Use this for a track or a kerb.");
+        Tooltip("The texture goes along the line, bends with its curves and fills its width.\n"
+                "Use this for a road, a track or a kerb.");
     }
 
     if (!textured) {
@@ -1339,13 +1357,23 @@ void GroundPanelTab::RenderTextureLayout_(Look& look, const bool following, bool
     Track(changed, committed);
     Tooltip("The tint. White does not change the texture.");
     ImGui::SameLine();
-    const float width = ShareOfLine(following ? 1 : 4);
+    const float width = ShareOfLine(following ? 2 : 4);
     ImGui::SetNextItemWidth(width);
     ImGui::DragFloat("##size", &look.textureSizeMeters, 0.1f, 0.5f, 256.0f,
                      following ? "Repeats every %.1f m" : "Size %.1f m");
     Track(changed, committed);
     Tooltip(following ? "The length of one repeat of the texture along the line." : "The size of one copy of the texture.");
     if (following) {
+        const int quarters = static_cast<int>(std::lround(look.textureRotationDegrees / 90.0f)) & 3;
+        char label[32];
+        std::snprintf(label, sizeof(label), "Turn %d°##quarter", quarters * 90);
+        ImGui::SameLine();
+        if (ImGui::Button(label, ImVec2(width, 0.0f))) {
+            look.textureRotationDegrees = static_cast<float>((quarters + 1) % 4 * 90);
+            changed = true;
+            committed = true;
+        }
+        Tooltip("Turn the texture 90 degrees.\nUse this if the road in the texture goes across the line.");
         return;
     }
     ImGui::SameLine();
