@@ -35,6 +35,45 @@ namespace {
         }
     }
 
+    // The zoom-4 decal and sidewalk textures, sorted and without duplicates. False when the game has
+    // no texture resources at all.
+    bool ListDecalTextures(cIGZPersistResourceManager* pRM, std::vector<uint32_t>& instanceIds) {
+        cIGZPersistResourceKeyList* rawList = nullptr;
+        pRM->GetAvailableResourceListForType(&rawList, kDecalTextureType);
+        if (!rawList) {
+            return false;
+        }
+
+        const uint32_t count = rawList->Size();
+        instanceIds.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            const cGZPersistResourceKey& key = rawList->GetKey(i);
+            const uint32_t zoomVariant = key.instance & kZoom4Mask;
+            const bool lotTexture = key.group == kDecalTextureGroup &&
+                                    (zoomVariant == kZoom4Value || zoomVariant == 9 || zoomVariant == 0xE);
+            const bool sidewalk = key.group == decals::kNetworkTextureGroup &&
+                                  decals::IsSidewalkTexture(key.instance) && zoomVariant == kZoom4Value;
+            if (lotTexture || sidewalk) {
+                instanceIds.push_back(key.instance);
+            }
+        }
+        rawList->Release();
+
+        const size_t rawMatchCount = instanceIds.size();
+        std::sort(instanceIds.begin(), instanceIds.end());
+        instanceIds.erase(std::unique(instanceIds.begin(), instanceIds.end()), instanceIds.end());
+        if (const size_t duplicateCount = rawMatchCount - instanceIds.size(); duplicateCount > 0) {
+            LOG_INFO("DecalRepository: deduplicated {} duplicate zoom-4 decal texture entries", duplicateCount);
+        }
+        return true;
+    }
+
+    // Plugins do not change while the game runs, so the textures are listed on the first city load
+    // only: that asks the resource manager for every texture key of the plugins (millions with a
+    // large plugin folder, about 0.3 s per city load).
+    std::vector<uint32_t> sSessionInstanceIds;
+    bool sSessionListed = false;
+
     // The cache builder writes props.cbor on every rebuild.
     int64_t OutsideCacheStamp(const std::filesystem::path& plugins) {
         std::error_code error;
@@ -55,38 +94,14 @@ void DecalRepository::Populate(cIGZPersistResourceManager* pRM) {
         return;
     }
 
-    cIGZPersistResourceKeyList* rawList = nullptr;
-    pRM->GetAvailableResourceListForType(&rawList, kDecalTextureType);
-    if (!rawList) {
-        LOG_INFO("DecalRepository: no texture resources of type 0x{:08X} found", kDecalTextureType);
-        return;
-    }
-
-    const uint32_t count = rawList->Size();
-    instanceIds_.reserve(count);
-
-    for (uint32_t i = 0; i < count; ++i) {
-        const cGZPersistResourceKey& key = rawList->GetKey(i);
-        const uint32_t zoomVariant = key.instance & kZoom4Mask;
-        const bool lotTexture = key.group == kDecalTextureGroup &&
-                                (zoomVariant == kZoom4Value || zoomVariant == 9 || zoomVariant == 0xE);
-        const bool sidewalk = key.group == decals::kNetworkTextureGroup && decals::IsSidewalkTexture(key.instance) &&
-                              zoomVariant == kZoom4Value;
-        if (lotTexture || sidewalk) {
-            instanceIds_.push_back(key.instance);
+    if (!sSessionListed) {
+        if (!ListDecalTextures(pRM, sSessionInstanceIds)) {
+            LOG_INFO("DecalRepository: no texture resources of type 0x{:08X} found", kDecalTextureType);
+            return;
         }
+        sSessionListed = true;
     }
-
-    rawList->Release();
-
-    const size_t rawMatchCount = instanceIds_.size();
-    std::sort(instanceIds_.begin(), instanceIds_.end());
-    instanceIds_.erase(std::unique(instanceIds_.begin(), instanceIds_.end()), instanceIds_.end());
-
-    const size_t duplicateCount = rawMatchCount - instanceIds_.size();
-    if (duplicateCount > 0) {
-        LOG_INFO("DecalRepository: deduplicated {} duplicate zoom-4 decal texture entries", duplicateCount);
-    }
+    instanceIds_ = sSessionInstanceIds;
 
     kinds_.assign(instanceIds_.size(), decals::TextureKind::Unknown);
     RestoreKinds_();
