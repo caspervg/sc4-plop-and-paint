@@ -28,6 +28,7 @@
 #include "../shared/index.hpp"
 #include "../shared/SeasonalSetDetector.hpp"
 #include "PackCatalogBuilder.hpp"
+#include "NetworkDiscovery.hpp"
 #include "DBPFReader.h"
 #include "DbpfIndexService.hpp"
 #include "ExemplarParser.hpp"
@@ -178,10 +179,11 @@ namespace {
 
         ~ThumbnailEncoder() { finish(); }
 
-        void submit(EncodedThumbnails& out, const uint64_t key, Thumbnail thumbnail) {
+        // size: the square size to store it at, 0 for the encoder's own.
+        void submit(EncodedThumbnails& out, const uint64_t key, Thumbnail thumbnail, const uint32_t size = 0) {
             {
                 std::scoped_lock lock(mutex_);
-                jobs_.push_back(Job{&out, key, std::move(thumbnail)});
+                jobs_.push_back(Job{&out, key, std::move(thumbnail), size != 0 ? size : targetSize_});
             }
             wake_.notify_one();
         }
@@ -205,6 +207,7 @@ namespace {
             EncodedThumbnails* out;
             uint64_t key;
             Thumbnail thumbnail;
+            uint32_t size;
         };
 
         void run_() {
@@ -220,7 +223,7 @@ namespace {
                     jobs_.pop_front();
                 }
                 try {
-                    auto blob = ThumbnailBin::EncodeWebp(NormalizeThumbnailToSquare(job->thumbnail, targetSize_));
+                    auto blob = ThumbnailBin::EncodeWebp(NormalizeThumbnailToSquare(job->thumbnail, job->size));
                     std::scoped_lock lock(mutex_);
                     job->out->emplace_back(job->key, std::move(blob));
                 }
@@ -495,6 +498,8 @@ namespace {
             EncodedThumbnails buildingThumbnails;
             EncodedThumbnails propThumbnails;
             EncodedThumbnails floraThumbnails;
+            EncodedThumbnails networkThumbnails;
+            const uint32_t networkThumbnailSize = thumbnailSize * 2;
             ThumbnailEncoder thumbnailEncoder(thumbnailSize);
             const auto encodeThumbnail = [&thumbnailEncoder](auto& item, EncodedThumbnails& out) {
                 if (item.thumbnail.has_value()) {
@@ -503,6 +508,10 @@ namespace {
                     item.thumbnail.reset();
                 }
             };
+
+            // The override networks of the NAM. This comes first: RUL2 is some 50 MB, and after the exemplar
+            // scan the 32-bit address space has no room for it. Their pictures are rendered after the scan.
+            NetworksCache networksCache = NetworkDiscovery::Discover(indexService);
 
             // Use the index service to get exemplars and cohorts across all files.
             logger.info("Processing exemplar/cohort records using type index...");
@@ -877,10 +886,11 @@ namespace {
 
             const auto writeThumbnailBin = [&logger, thumbnailSize](const fs::path& binPath,
                                                                     EncodedThumbnails entries,
-                                                                    const std::string_view label) {
+                                                                    const std::string_view label,
+                                                                    const uint32_t storedSize = 0) {
                 const auto count = entries.size();
                 try {
-                    const auto size = static_cast<uint16_t>(thumbnailSize);
+                    const auto size = static_cast<uint16_t>(storedSize != 0 ? storedSize : thumbnailSize);
                     if (ThumbnailBin::WriteEncoded(binPath, std::move(entries), size, size)) {
                         logger.info("Exported {} {} thumbnails to {}", count, label, PathToUtf8(binPath));
                     }
@@ -896,6 +906,71 @@ namespace {
             const auto writeCborAtomic = [&logger](const fs::path& cborPath, const auto& data) {
                 return WriteCborAtomic(logger, cborPath, data);
             };
+
+            {
+                // Pictures of the preview models: key group 0 for a network's starter piece, 1 for a piece.
+                // Key group 2 holds the Item Icons of the menu buttons and of the game's own drag tools.
+                // They are twice the size of the other thumbnails, in a file of their own: network pieces
+                // are full of thin lines that a small picture blurs, and their tooltips show them large.
+                constexpr uint32_t kS3DType = 0x5AD0E817;
+                constexpr uint32_t kPreviewModelGroup = 0xBADB57F1;
+                // Returns false when neither model renders.
+                const auto render = [&](const uint32_t keyGroup, const uint32_t id, const uint32_t model,
+                                        const uint32_t fallbackModel) {
+                    auto thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, model}, networkThumbnailSize);
+                    if (!thumbnail && fallbackModel != 0) {
+                        thumbnail = parser.renderModelThumbnail({kS3DType, kPreviewModelGroup, fallbackModel},
+                                                                networkThumbnailSize);
+                    }
+                    if (thumbnail) {
+                        thumbnailEncoder.submit(networkThumbnails, MakeGIKey(keyGroup, id), std::move(*thumbnail),
+                                                networkThumbnailSize);
+                    }
+                    return thumbnail.has_value();
+                };
+                for (const auto& network : networksCache.networks) {
+                    render(0, network.starterPiece, network.previewModel, network.fallbackModel);
+                }
+                // A piece, or another piece of its row that Home and End reach.
+                const auto renderPiece = [&](const uint32_t id, const uint32_t model, const uint32_t fallbackModel,
+                                             const std::vector<std::vector<uint32_t>>& layout) {
+                    if (render(1, id, model, fallbackModel) || !parser.rendersThumbnails()) {
+                        return;
+                    }
+                    // Last choice: a diagram of the piece's cells, which every piece has.
+                    if (auto pixels = NetworkDiscovery::LayoutPicture(layout, networkThumbnailSize); !pixels.empty()) {
+                        PreRendered diagram;
+                        diagram.data = rfl::Bytestring(std::move(pixels));
+                        diagram.width = networkThumbnailSize;
+                        diagram.height = networkThumbnailSize;
+                        thumbnailEncoder.submit(networkThumbnails, MakeGIKey(1, id), Thumbnail{std::move(diagram)},
+                                                networkThumbnailSize);
+                    }
+                };
+                for (const auto& button : networksCache.buttons) {
+                    for (const auto& piece : button.pieces) {
+                        renderPiece(piece.id, piece.previewModel, piece.fallbackModel, piece.layout);
+                        for (const auto& variant : piece.variants) {
+                            renderPiece(variant.id, variant.previewModel, variant.fallbackModel, variant.layout);
+                        }
+                    }
+                }
+                // The icons are PNGs, so they need no renderer. Buttons often share one.
+                std::unordered_set<uint32_t> icons;
+                for (const auto& button : networksCache.buttons) {
+                    icons.insert(button.icon);
+                }
+                for (const auto& tool : networksCache.baseTools) {
+                    icons.insert(tool.icon);
+                }
+                icons.erase(0);
+                for (const uint32_t icon : icons) {
+                    if (auto thumbnail = parser.loadItemIcon(icon)) {
+                        thumbnailEncoder.submit(networkThumbnails, MakeGIKey(2, icon), std::move(*thumbnail),
+                                                networkThumbnailSize);
+                    }
+                }
+            }
 
             thumbnailEncoder.finish();
 
@@ -986,6 +1061,17 @@ namespace {
                 logger.info("Exporting {} flora items to {}", floraCache.floraItems.size(), PathToUtf8(cborPath));
                 if (writeCborAtomic(cborPath, floraCache)) {
                     logger.info("Successfully exported flora");
+                }
+            }
+
+            if (!networksCache.networks.empty() || !networksCache.buttons.empty()) {
+                const auto cborPath = config.userPluginsRoot / "networks.cbor";
+                logger.info("Exporting {} override networks and {} menu buttons with pieces to {}",
+                            networksCache.networks.size(), networksCache.buttons.size(), PathToUtf8(cborPath));
+                writeCborAtomic(cborPath, networksCache);
+                if (!networkThumbnails.empty()) {
+                    writeThumbnailBin(config.userPluginsRoot / "network_thumbnails.bin",
+                                      std::move(networkThumbnails), "network", networkThumbnailSize);
                 }
             }
 
