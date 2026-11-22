@@ -1219,7 +1219,7 @@ bool SC4PlopAndPaintDirector::StartDecalPicking(std::function<void(uint32_t)> on
     }
 
     return StartScenePicking_(
-        std::make_unique<DecalPickStrategy>(terrainDecalService_, decalRepository_.get()),
+        std::make_unique<DecalPickStrategy>(terrainDecalService_, decalRepository_.get(), groundDocument_.get()),
         [callback = std::move(onPick)](const ScenePickResult& result) mutable {
             if (const auto* decal = std::get_if<PickedDecal>(&result)) {
                 callback(decal->instanceId);

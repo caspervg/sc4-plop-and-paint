@@ -74,7 +74,8 @@ namespace Ground {
     // Triangles along a path, three corners each, that make a texture follow it: u runs along the
     // path, one texture every repeatLength metres, and v across it, from 0 on the left edge to 1
     // on the right, halfWidth from the path. The strip goes on halfWidth past both ends, so it
-    // also covers round line ends.
+    // also covers round line ends. Inside a turn tighter than halfWidth the texture fans round
+    // the turn instead of folding over.
     [[nodiscard]] std::vector<UvVertex> PathUvStrip(std::span<const Vec2> path, float halfWidth, float repeatLength);
 
     [[nodiscard]] Area Unite(const Area& a, const Area& b);

@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <unordered_map>
 
 #include <clipper2/clipper.h>
 #include <tinysplinecxx.h>
@@ -122,10 +123,24 @@ namespace Ground {
     }
 
     std::vector<UvVertex> PathUvStrip(const std::span<const Vec2> path, const float halfWidth, const float repeatLength) {
+        // Points at most half a metre apart, so the corners of a straight line also get rows that
+        // can fan round them.
+        constexpr float kStep = 0.5f;
         std::vector<Vec2> points;
         for (const Vec2 p : path) {
-            if (points.empty() || std::hypot(p.x - points.back().x, p.z - points.back().z) > 1.0e-4f) {
+            if (points.empty()) {
                 points.push_back(p);
+                continue;
+            }
+            const Vec2 a = points.back();
+            const float length = std::hypot(p.x - a.x, p.z - a.z);
+            if (length <= 1.0e-4f) {
+                continue;
+            }
+            const int pieces = static_cast<int>(std::ceil(length / kStep));
+            for (int k = 1; k <= pieces; ++k) {
+                const float t = static_cast<float>(k) / static_cast<float>(pieces);
+                points.push_back({a.x + (p.x - a.x) * t, a.z + (p.z - a.z) * t});
             }
         }
         std::vector<UvVertex> strip;
@@ -143,52 +158,103 @@ namespace Ground {
         };
         const auto left = [](const Vec2 d) { return Vec2{-d.z, d.x}; };
 
+        // A row across the strip: from centre + normal * reach (v = 0) to centre - normal * reach.
         struct Row {
             Vec2 centre;
-            Vec2 offset;  // to the left edge
+            Vec2 normal;
+            float reach;
             float along;
         };
         std::vector<Row> rows;
         const Vec2 first = direction(0);
         const Vec2 last = direction(points.size() - 2);
-        rows.push_back({{points[0].x - first.x * reach, points[0].z - first.z * reach},
-                        {left(first).x * reach, left(first).z * reach}, -reach});
+        rows.push_back({{points[0].x - first.x * reach, points[0].z - first.z * reach}, left(first), reach, -reach});
         float along = 0.0f;
         for (size_t i = 0; i < points.size(); ++i) {
             if (i > 0) {
                 along += std::hypot(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z);
             }
-            Vec2 offset;
             if (i == 0 || i + 1 == points.size()) {
-                const Vec2 n = left(i == 0 ? first : last);
-                offset = {n.x * reach, n.z * reach};
+                rows.push_back({points[i], left(i == 0 ? first : last), reach, along});
+                continue;
             }
-            else {
-                // A mitre: the edges stay reach away from both segments. Very sharp turns are
-                // capped, where the strip would otherwise reach far out.
-                const Vec2 before = left(direction(i - 1));
-                const Vec2 after = left(direction(i));
-                Vec2 mitre{before.x + after.x, before.z + after.z};
-                const float length = std::hypot(mitre.x, mitre.z);
-                mitre = length > 1.0e-6f ? Vec2{mitre.x / length, mitre.z / length} : before;
-                const float scale = reach / std::max(0.25f, mitre.x * before.x + mitre.z * before.z);
-                offset = {mitre.x * scale, mitre.z * scale};
-            }
-            rows.push_back({points[i], offset, along});
+            // A mitre: the edges stay reach away from both segments. Very sharp turns are capped,
+            // where the strip would otherwise reach far out.
+            const Vec2 before = left(direction(i - 1));
+            const Vec2 after = left(direction(i));
+            Vec2 mitre{before.x + after.x, before.z + after.z};
+            const float length = std::hypot(mitre.x, mitre.z);
+            mitre = length > 1.0e-6f ? Vec2{mitre.x / length, mitre.z / length} : before;
+            rows.push_back({points[i], mitre, reach / std::max(0.25f, mitre.x * before.x + mitre.z * before.z), along});
         }
-        rows.push_back({{points.back().x + last.x * reach, points.back().z + last.z * reach},
-                        {left(last).x * reach, left(last).z * reach}, along + reach});
+        rows.push_back({{points.back().x + last.x * reach, points.back().z + last.z * reach}, left(last), reach,
+                        along + reach});
 
-        const auto corner = [&](const Row& row, const bool leftSide) {
-            const float sign = leftSide ? 1.0f : -1.0f;
-            return UvVertex{row.centre.x + sign * row.offset.x, row.centre.z + sign * row.offset.z,
-                            row.along / repeatLength, leftSide ? 0.0f : 1.0f};
+        // Then only the rows the texture needs: one each 2 m and more where the path turns, so a
+        // long line does not make thousands of thin triangles. All of them still stop the others.
+        const std::vector<Row> sites = rows;
+        {
+            std::vector<Row> kept{rows.front()};
+            for (size_t i = 1; i + 1 < rows.size(); ++i) {
+                const Row& previous = kept.back();
+                if (rows[i].along - previous.along >= 2.0f ||
+                    rows[i].normal.x * previous.normal.x + rows[i].normal.z * previous.normal.z < 0.9987f) {
+                    kept.push_back(rows[i]);
+                }
+            }
+            kept.push_back(rows.back());
+            rows = std::move(kept);
+        }
+
+        // On the inside of a turn tighter than the strip is wide, or where the path comes back near
+        // itself, rows would cross and fold the texture over. So each side of a row stops where
+        // another row's centre is as close: the texture bends round a tight turn like a fan, and
+        // two parts of the line that overlap meet halfway.
+        const float cell = 2.0f * reach;
+        const auto cellOf = [&](const float value) { return static_cast<int32_t>(std::floor(value / cell)); };
+        const auto key = [](const int32_t cx, const int32_t cz) {
+            return static_cast<uint64_t>(static_cast<uint32_t>(cx)) << 32 | static_cast<uint32_t>(cz);
         };
-        for (size_t i = 0; i + 1 < rows.size(); ++i) {
-            const UvVertex l0 = corner(rows[i], true);
-            const UvVertex r0 = corner(rows[i], false);
-            const UvVertex l1 = corner(rows[i + 1], true);
-            const UvVertex r1 = corner(rows[i + 1], false);
+        std::unordered_map<uint64_t, std::vector<uint32_t>> grid;
+        for (uint32_t i = 0; i < sites.size(); ++i) {
+            grid[key(cellOf(sites[i].centre.x), cellOf(sites[i].centre.z))].push_back(i);
+        }
+        std::vector<std::array<UvVertex, 2>> edges;
+        edges.reserve(rows.size());
+        for (const Row& row : rows) {
+            float toLeft = row.reach;
+            float toRight = row.reach;
+            // Only centres nearer than twice the reach can stop it.
+            const float range = 2.0f * row.reach;
+            for (int32_t cz = cellOf(row.centre.z - range); cz <= cellOf(row.centre.z + range); ++cz) {
+                for (int32_t cx = cellOf(row.centre.x - range); cx <= cellOf(row.centre.x + range); ++cx) {
+                    const auto found = grid.find(key(cx, cz));
+                    if (found == grid.end()) {
+                        continue;
+                    }
+                    for (const uint32_t j : found->second) {
+                        const Vec2 d{sites[j].centre.x - row.centre.x, sites[j].centre.z - row.centre.z};
+                        const float side = d.x * row.normal.x + d.z * row.normal.z;
+                        // centre + normal * t is as far from both centres at t = |d|^2 / (2 * side).
+                        const float meet = (d.x * d.x + d.z * d.z) / (2.0f * std::abs(side));
+                        if (side > 1.0e-6f) {
+                            toLeft = std::min(toLeft, meet);
+                        }
+                        else if (side < -1.0e-6f) {
+                            toRight = std::min(toRight, meet);
+                        }
+                    }
+                }
+            }
+            const auto vertex = [&](const float t) {
+                return UvVertex{row.centre.x + row.normal.x * t, row.centre.z + row.normal.z * t, row.along / repeatLength,
+                                0.5f - 0.5f * t / row.reach};
+            };
+            edges.push_back({vertex(toLeft), vertex(-toRight)});
+        }
+        for (size_t i = 0; i + 1 < edges.size(); ++i) {
+            const auto [l0, r0] = edges[i];
+            const auto [l1, r1] = edges[i + 1];
             strip.insert(strip.end(), {l0, r0, r1, l0, r1, l1});
         }
         return strip;
@@ -703,7 +769,7 @@ namespace Ground {
             }
         }
         // Outlines never cross, so even-odd reads them right whichever way round they go.
-        const PathsD simple = SimplifyPaths(outlines, cell * 0.05, true);
+        const PathsD simple = SimplifyPaths(outlines, std::clamp(0.3, cell * 0.05, cell * 0.4), true);
         return ToArea(Clipper2Lib::Intersect(simple, Normalized(ToPaths(area)), FillRule::EvenOdd, kPrecision));
     }
 

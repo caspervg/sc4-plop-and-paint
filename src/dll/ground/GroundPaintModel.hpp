@@ -60,6 +60,8 @@ namespace Ground {
     struct TextureChoice {
         uint32_t instance = 0;  // a terrain decal texture, type 0x7AB50E44, group 0x0986135E
         float weight = 1.0f;
+        // A multi-FSH has one frame per entry: bit n lets a 16 m square use frame n. 0: the first only.
+        uint32_t frames = 0;
 
         bool operator==(const TextureChoice&) const = default;
     };
@@ -68,6 +70,15 @@ namespace Ground {
     enum class TextureMix : uint8_t {
         Squares,  // each 16 m terrain square takes one, by weight (the service does it)
         Patches,  // the first covers the shape; the others lie on it in soft-edged patches
+    };
+
+    // Where the paint sits among what the game draws flat on the ground. Buildings, props and cars
+    // hide it in every layer, as they hide the ground.
+    enum class PaintLayer : uint8_t {
+        OverLots,     // over lot and network textures, under the shadows of buildings
+        UnderLots,    // under lot and network textures, as if it were part of the ground
+        OverShadows,  // over lot and network textures and over shadows
+        OverSidewalks,  // over lot textures and sidewalks, under the road surface
     };
 
     // What a shape is painted with.
@@ -91,6 +102,8 @@ namespace Ground {
         TextureMix mix = TextureMix::Squares;
         float patchSizeMeters = 12.0f;
         float patchBlendMeters = 2.0f;  // the soft edge of the patches
+        // Missing in cities saved before it existed, which then read OverLots, as they were drawn.
+        PaintLayer layer = PaintLayer::OverLots;
 
         bool operator==(const Look&) const = default;
     };
@@ -99,11 +112,15 @@ namespace Ground {
         uint32_t id = 0;
         std::string name{};
         uint32_t group = 0;  // 0: not in a group
+        std::string groupName{};
         bool hidden = false;
         bool locked = false;
         ShapeSpec shape{};
-        // Rubbed out by the eraser, cut from the shape.
+        // Rubbed out by the eraser, cut from the shape: what older versions saved, and what is
+        // left of the holes after a merge.
         Area erased{};
+        // The holes, each as the eraser drew it (an area or a brush stroke), so they stay editable.
+        std::vector<ShapeSpec> erasers{};
         Look look{};
         // Higher draws on top.
         int32_t drawOrder = 0;
@@ -128,6 +145,7 @@ namespace Ground {
     void InsertShapePoint(ShapeSpec& shape, size_t index, Vec2 point);
     void EraseShapePoint(ShapeSpec& shape, size_t index);
     // The UV map that makes its texture follow it; empty when the texture lies flat.
+    [[nodiscard]] bool FollowsLine(const PaintObject& object);
     [[nodiscard]] std::vector<UvVertex> BuildUvMap(const PaintObject& object);
 
     // Whether the object is painted in patches: one terrain paint per texture.
@@ -168,9 +186,13 @@ namespace Ground {
 
     // Whether the object's points can be dragged one by one, and how many it needs.
     [[nodiscard]] bool HasEditablePoints(const PaintObject& object);
+    [[nodiscard]] size_t MinimumPoints(const ShapeSpec& shape);
     [[nodiscard]] size_t MinimumPoints(const PaintObject& object);
     // Whether the points go round and back to the first.
+    [[nodiscard]] bool PointsClosed(const ShapeSpec& shape);
     [[nodiscard]] bool PointsClosed(const PaintObject& object);
+    // The ground one hole cuts away.
+    [[nodiscard]] Area EraserArea(const ShapeSpec& eraser);
 
     [[nodiscard]] const char* ShapeKindName(ShapeKind kind);
 }

@@ -78,7 +78,8 @@ bool ScenePickerInputControl::OnMouseWheel(const int32_t x, const int32_t z, con
     const bool altHeld = (GetKeyState(VK_MENU) & 0x8000) != 0;
     if (altHeld && active_ && IsOnTop() && strategy_ && wheelDelta != 0 && strategy_->CandidateCount() > 1) {
         strategy_->CycleCandidates(wheelDelta > 0 ? 1 : -1);
-        UpdateCursorWorldFromScreen_(x, z);
+        // At the cursor of the last mouse move: the wheel's own position can be off on a second
+        // monitor or in a scaled window, and a pick elsewhere resets the cycle.
         RefreshHover_();
         BuildOverlay_();
         return true;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -43,7 +44,8 @@ namespace Ground {
         uint32_t Add(PaintObject object);  // on top; 0 when it covers nothing
         void Update(std::vector<PaintObject> changed);
         void Remove(std::span<const uint32_t> ids);
-        void Erase(const Area& eraser);
+        // Cuts a hole in every unlocked, shown object it touches. The hole stays editable.
+        void Erase(const ShapeSpec& eraser);
         void MoveUp(uint32_t id);
         void MoveDown(uint32_t id);
         void MoveToTop(uint32_t id);
@@ -52,9 +54,14 @@ namespace Ground {
         void Duplicate(std::span<const uint32_t> ids, Vec2 offset);
         // Makes the unlocked ones into one object, painted like the topmost; 0 when fewer than two.
         uint32_t Merge(std::span<const uint32_t> ids);
-        // A group is selected as one.
-        void Group(std::span<const uint32_t> ids);
+        // A group is selected as one. Its members lie next to each other in the order, where the
+        // topmost of them was. An empty name numbers it.
+        void Group(std::span<const uint32_t> ids, std::string name = {});
         void Ungroup(std::span<const uint32_t> ids);
+        void RenameGroup(uint32_t group, const std::string& name);
+        // Moves them, in their order, just over or under the target. Unless keepGroup, they join
+        // the target's group, or leave theirs when it has none.
+        void MoveNextTo(std::span<const uint32_t> ids, uint32_t target, bool over, bool keepGroup);
         // Moves, turns and scales the unlocked ones.
         void Transform(std::span<const uint32_t> ids, const Placement& placement);
         // A new object along the edge of these, painted like the topmost of them, on top and
@@ -76,11 +83,12 @@ namespace Ground {
 
         // The topmost visible object at a point.
         [[nodiscard]] std::optional<uint32_t> HitTest(Vec2 point) const;
+        // Every visible object at a point, topmost first.
+        [[nodiscard]] std::vector<uint32_t> HitTestAll(Vec2 point) const;
 
         [[nodiscard]] const std::vector<uint32_t>& Selection() const { return selection_; }
         [[nodiscard]] bool IsSelected(uint32_t id) const;
-        // With its whole group.
-        void Select(uint32_t id, bool addToSelection);
+        void Select(uint32_t id, bool addToSelection, bool wholeGroup = true);
         void ClearSelection();
 
         // Shows an object that is still being drawn; nullptr hides it. Not saved, not undone.
@@ -122,15 +130,22 @@ namespace Ground {
         void Sync_(PaintObject& object);
         // Makes or updates the terrain paints of an area and its patches: one id per part. All
         // are made again when one has to be, so the patches stay on top of the area.
+        // reshape: which parts have a new outline (the area, then each patch); the others only get the style.
         void ShowParts_(uint32_t& paintId, std::vector<uint32_t>& patchIds, const PaintObject& object,
                         const Area& area, const std::vector<Area>& patches, const std::vector<UvVertex>& uvMap,
-                        int32_t drawOrder, bool hidden, bool transient);
+                        int32_t drawOrder, bool hidden, bool transient, bool reshapeArea = true,
+                        bool reshapePatches = true);
+        // The patch layers of an object, worked out again only when what they come from changed: its
+        // area, the shares of its textures, the patch size, the seed and the pattern frame.
+        const std::vector<Area>& PatchesOf_(uint32_t id, const PaintObject& object, const Area& area, size_t maxCells);
         // Restyles the terrain paints of an object without touching their shapes.
         void Restyle_(const PaintObject& object, const Area& area, uint32_t paintId,
                       const std::vector<uint32_t>& patchIds, int32_t drawOrder, bool hidden, bool transient);
         void RemovePaint_(uint32_t& paintId);
         void RemovePaints_(uint32_t& paintId, std::vector<uint32_t>& patchIds);
         void SortByOrder_();
+        // Commits the objects in this order, bottom to top, with what changed in them.
+        void Arrange_(std::vector<PaintObject> arranged);
         void Reorder_(uint32_t id, int steps);
         [[nodiscard]] PaintObject* FindMutable_(uint32_t id);
         [[nodiscard]] int32_t TopOrder_() const;
@@ -139,6 +154,19 @@ namespace Ground {
         cIGZTerrainPaintService* service_ = nullptr;
         std::vector<PaintObject> objects_{};
         std::unordered_map<uint32_t, Built> built_{};
+        // While ShowChanged shows a change that makes the paint be cut again: styles carry the draft flag.
+        bool draft_ = false;
+        struct PatchMemo {
+            Area area;
+            std::vector<float> weights;
+            float patchSize = 0.0f;
+            uint32_t seed = 0;
+            Vec2 origin{};
+            float turn = 0.0f;
+            std::vector<Area> patches;
+        };
+        // By object id and noise grid size; id 0 is the shape being drawn.
+        std::map<std::pair<uint32_t, size_t>, PatchMemo> patchMemo_{};
         // Objects whose terrain paints show a change that is still being made: a moved or
         // reshaped cut, or only a new style. ShowSelectionMoved({}) puts back just these.
         std::unordered_set<uint32_t> shownShape_{};

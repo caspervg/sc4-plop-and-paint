@@ -42,7 +42,7 @@ namespace {
     }
 
     cGZPersistResourceKey MakeDecalTextureKey(const uint32_t instanceId) {
-        return cGZPersistResourceKey{kDecalTextureType, kDecalTextureGroup, instanceId};
+        return cGZPersistResourceKey{kDecalTextureType, decals::TextureGroupOf(instanceId), instanceId};
     }
 
     float NormalizeTurns(const float turns) {
@@ -190,6 +190,32 @@ namespace {
         return true;
     }
 
+    // Where the decal sits among what the game draws flat on the ground, as for ground paint. The
+    // overlay manager and the under-lots flag say it, and presets keep both.
+    enum class DecalLayer : int {
+        OverLots,     // StaticLand: over lot and network textures, under shadows
+        UnderLots,    // StaticLand and kTerrainDecalFlagUnderLots: under lot and network textures
+        OverShadows,  // DynamicLand: over shadows as well
+    };
+
+    DecalLayer LayerOf(const TerrainDecalState& state) {
+        if (state.overlayType == cISTETerrainView::tOverlayManagerType::DynamicLand) {
+            return DecalLayer::OverShadows;
+        }
+        return (state.flags & kTerrainDecalFlagUnderLots) != 0 ? DecalLayer::UnderLots : DecalLayer::OverLots;
+    }
+
+    void SetLayer(TerrainDecalState& state, const DecalLayer layer) {
+        state.overlayType = layer == DecalLayer::OverShadows ? cISTETerrainView::tOverlayManagerType::DynamicLand
+                                                             : cISTETerrainView::tOverlayManagerType::StaticLand;
+        if (layer == DecalLayer::UnderLots) {
+            state.flags |= kTerrainDecalFlagUnderLots;
+        }
+        else {
+            state.flags &= ~kTerrainDecalFlagUnderLots;
+        }
+    }
+
     TerrainDecalState MakeDefaultDecalState() {
         TerrainDecalState state;
         state.decalInfo.baseSize = 16.0f;
@@ -224,6 +250,7 @@ namespace {
         preset.uvWindow.v2 = state.uvWindow.v2;
         preset.uvWindow.mode = static_cast<uint32_t>(state.uvWindow.mode);
         preset.depthOffset = state.depthOffset;
+        preset.frame = state.frame != 0 ? std::optional{state.frame} : std::nullopt;
         return preset;
     }
 
@@ -248,6 +275,7 @@ namespace {
         state.uvWindow.v2 = preset.uvWindow.v2;
         state.uvWindow.mode = static_cast<TerrainDecalUvMode>(preset.uvWindow.mode);
         state.depthOffset = preset.depthOffset;
+        state.frame = preset.frame.value_or(0u);
     }
 }
 
@@ -439,6 +467,7 @@ void DecalPanelTab::OnDeviceReset(const uint32_t deviceGeneration) {
         thumbnailCache_.Clear();
         hoverPreview_.Clear();
         ClearUvPickerTexture_();
+        frameTextures_.clear();
         lastDeviceGeneration_ = deviceGeneration;
     }
 }
@@ -468,7 +497,9 @@ void DecalPanelTab::IndexPacks_() {
     for (const uint32_t instanceId : ids) {
         const auto rows = decals_->PackCandidates(instanceId);
         packFilter_.Count(rows);
-        searchTexts_.push_back(TextSearch::Normalize(TextSearch::HexId(instanceId) + PackSearchText(catalog, rows)));
+        const char* const sidewalk = decals::SidewalkName(instanceId);
+        searchTexts_.push_back(TextSearch::Normalize(TextSearch::HexId(instanceId) + PackSearchText(catalog, rows) +
+                                                     (sidewalk ? std::string(" ") + sidewalk : std::string())));
         suggester_.Add(searchTexts_.back());
     }
 }
@@ -499,7 +530,8 @@ void DecalPanelTab::RenderFilterBar_() {
     ImGui::Checkbox("Favorites only##decalFavoritesOnly", &favoritesOnly_);
     Tooltip("Show only the textures that you starred.");
 
-    NextInRow(3, CheckboxWidth("Base") + ImGui::GetStyle().ItemSpacing.x + CheckboxWidth("Overlay"));
+    NextInRow(3, CheckboxWidth("Base") + CheckboxWidth("Overlay") + CheckboxWidth("Sidewalk") +
+                     ImGui::GetStyle().ItemSpacing.x * 2.0f);
     if (kindFilter_.Render(*decals_)) {
         shownDirty_ = true;
     }
@@ -715,6 +747,14 @@ void DecalPanelTab::RenderSettingsModal_() {
     }
     ImGui::SliderFloat("Opacity##decalOpacity", &state.opacity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     ImGui::ColorEdit3("Color tint##decalColor", &state.color.fX);
+    int layer = static_cast<int>(LayerOf(state));
+    if (ImGui::Combo("Layer##decalLayer", &layer, "Over lots and networks\0Under lots and networks\0Over shadows\0")) {
+        SetLayer(state, static_cast<DecalLayer>(layer));
+    }
+    Tooltip("Over lots and networks: the decal covers lot and road textures, and shadows fall on it.\n"
+            "Under lots and networks: lot and road textures cover the decal, as if it were the ground.\n"
+            "Over shadows: the decal covers the shadows of the game as well.");
+    RenderVariant_(state);
 
     // Rare settings, closed by default. Their state shows on the closed header.
     char header[48];
@@ -752,6 +792,43 @@ void DecalPanelTab::RenderSettingsModal_() {
     }
 
     ImGui::EndPopup();
+}
+
+void DecalPanelTab::RenderVariant_(TerrainDecalState& state) {
+    const uint32_t count = std::min(pendingPaint_.settings.frameCount, 32u);
+    if (count <= 1) {
+        return;
+    }
+    ImGui::SeparatorText("Variant");
+    ImGui::Checkbox("A random variant for each stamp##decalRandomFrame", &pendingPaint_.settings.randomFrame);
+    Tooltip("This texture has more than one variant. Each stamp takes one of them by chance.");
+    ImGui::BeginDisabled(pendingPaint_.settings.randomFrame);
+    frameTextures_.resize(count);
+    constexpr float kFrameSize = 40.0f;
+    for (uint32_t frame = 0; frame < count; ++frame) {
+        ImGui::PushID(static_cast<int>(frame));
+        if (frame % 8 != 0) {
+            ImGui::SameLine();
+        }
+        if (!frameTextures_[frame]) {
+            frameTextures_[frame] = std::make_unique<ImGuiTexture>();
+            ImVec2 size{};
+            decals::LoadDecalTexture(pRM_, imguiService_, pendingPaint_.instanceId, *frameTextures_[frame], size, frame);
+        }
+        ImGuiTexture& texture = *frameTextures_[frame];
+        const bool clicked = texture.IsValid()
+                                 ? ImGui::ImageButton("##frame", reinterpret_cast<ImTextureID>(texture.GetID()), ImVec2(kFrameSize, kFrameSize))
+                                 : ImGui::Button("##frame", ImVec2(kFrameSize, kFrameSize));
+        if (clicked) {
+            state.frame = frame;
+        }
+        if (!pendingPaint_.settings.randomFrame && state.frame == frame) {
+            ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                                                ImGui::GetColorU32(ImGuiCol_CheckMark), 3.0f, 0, 3.0f);
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndDisabled();
 }
 
 void DecalPanelTab::RenderUvSection_(TerrainDecalState& state) {
@@ -1034,6 +1111,11 @@ void DecalPanelTab::QueuePaintForDecal_(const uint32_t instanceId) {
 
     pendingPaint_.instanceId = instanceId;
     UseLastPaintState_(instanceId);
+    pendingPaint_.settings.frameCount = decals::CountDecalFrames(pRM_, instanceId);
+    if (pendingPaint_.settings.stateTemplate.frame >= pendingPaint_.settings.frameCount) {
+        pendingPaint_.settings.stateTemplate.frame = 0;
+    }
+    frameTextures_.clear();
     pendingPaint_.open = true;
 }
 

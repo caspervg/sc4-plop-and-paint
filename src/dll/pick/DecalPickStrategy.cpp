@@ -5,6 +5,7 @@
 
 #include "../decals/DecalHit.hpp"
 #include "../decals/DecalRepository.hpp"
+#include "../ground/GroundPaintDocument.hpp"
 #include "../utils/Logger.h"
 #include "GZServPtrs.h"
 #include "SC4Rect.h"
@@ -84,8 +85,9 @@ namespace {
 }
 
 DecalPickStrategy::DecalPickStrategy(cIGZTerrainDecalService* decalService,
-                                     const DecalRepository* decalRepository)
-    : decalService_(decalService), decalRepository_(decalRepository) {}
+                                     const DecalRepository* decalRepository,
+                                     const Ground::GroundPaintDocument* groundDocument)
+    : decalService_(decalService), decalRepository_(decalRepository), groundDocument_(groundDocument) {}
 
 DecalPickStrategy::~DecalPickStrategy() {
     ClearHover();
@@ -145,9 +147,29 @@ void DecalPickStrategy::CycleCandidates(const int32_t delta) {
 std::vector<DecalPickStrategy::Candidate> DecalPickStrategy::CollectCandidates_(
     const ScenePickContext& context) const {
     std::vector<Candidate> candidates;
+    // Painted ground first: it draws over decals and lot textures.
+    AppendPaintedGroundCandidates_(context, candidates);
     AppendDecalCandidates_(context, candidates);
     AppendLotTextureCandidates_(context, candidates);
     return candidates;
+}
+
+void DecalPickStrategy::AppendPaintedGroundCandidates_(const ScenePickContext& context,
+                                                       std::vector<Candidate>& candidates) const {
+    if (!groundDocument_) {
+        return;
+    }
+    for (const uint32_t id : groundDocument_->HitTestAll({context.cursorWorld.fX, context.cursorWorld.fZ})) {
+        const Ground::PaintObject* const object = groundDocument_->Find(id);
+        for (const Ground::TextureChoice& choice : object->look.textures) {
+            Candidate candidate;
+            candidate.picked.instanceId = choice.instance;
+            candidate.picked.source = PickedDecalSource::PaintedGround;
+            candidate.picked.position = context.cursorWorld;
+            candidate.key = (2ull << 32) ^ (static_cast<uint64_t>(id) << 40) ^ choice.instance;
+            candidates.push_back(candidate);
+        }
+    }
 }
 
 void DecalPickStrategy::SetHover(const std::optional<ScenePickResult>& result) {

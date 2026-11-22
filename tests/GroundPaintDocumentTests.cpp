@@ -150,16 +150,36 @@ int main() {
     CHECK(doc.Objects().back().id == b);
 
     // Erase cuts a hole; erasing everything removes the object; locked objects are left alone.
-    doc.Erase(AreaFromOutline(std::vector<Vec2>{{2, 2}, {6, 2}, {6, 6}, {2, 6}}));
-    CHECK(!doc.Find(a)->erased.empty());
+    const auto eraserSquare = [](const float x0, const float x1) {
+        return ShapeSpec{.kind = ShapeKind::Area, .points = {{x0, x0}, {x1, x0}, {x1, x1}, {x0, x1}}};
+    };
+    doc.Erase(eraserSquare(2, 6));
+    CHECK(doc.Find(a)->erasers.size() == 1);
     CHECK(doc.HitTest({4, 4}) != a && doc.HitTest({1, 1}) == a);
     CHECK(service.paints.at(doc.Find(a)->paintId).ringCount == 2);
+    // The hole stays editable: moving its points moves the hole.
+    PaintObject moved = *doc.Find(a);
+    moved.erasers.front().points = eraserSquare(12, 16).points;
+    moved.erasers.front().points[0] = {12, 12};
+    doc.Update({moved});
+    CHECK(doc.HitTest({4, 4}) == a);
+    CHECK(doc.Undo() && doc.HitTest({4, 4}) != a);
+    // Holes turn with the shape.
+    const uint32_t turned[] = {a};
+    doc.Transform(turned, {.offset = {1.0f, 0.0f}});
+    CHECK(doc.Find(a)->erasers.front().points.front().x == 3.0f);
+    CHECK(doc.Undo());
     PaintObject locked = *doc.Find(b);
     locked.locked = true;
     doc.Update({locked});
-    doc.Erase(AreaFromOutline(std::vector<Vec2>{{-5, -5}, {50, -5}, {50, 50}, {-5, 50}}));
+    doc.Erase(eraserSquare(-5, 50));
     CHECK(!doc.Find(a) && doc.Find(b));
     CHECK(doc.Undo() && doc.Find(a));
+    // Older saves kept only the cut-away area: it still cuts.
+    PaintObject old = *doc.Find(a);
+    old.erasers.clear();
+    old.erased = AreaFromOutline(std::vector<Vec2>{{2, 2}, {6, 2}, {6, 6}, {2, 6}});
+    CHECK(IsEmpty(Intersect(BuildArea(old), AreaFromOutline(std::vector<Vec2>{{3, 3}, {5, 3}, {5, 5}, {3, 5}}))));
 
     // Preview: a transient paint on top, gone when hidden.
     const size_t before = service.paints.size();
@@ -182,7 +202,7 @@ int main() {
     GroundPaintDocument loaded(kWhite);
     loaded.SetPaintService(&service);
     CHECK(loaded.Load(saved));
-    CHECK(loaded.Objects().size() == 2 && loaded.Find(b)->locked && !loaded.Find(a)->erased.empty());
+    CHECK(loaded.Objects().size() == 2 && loaded.Find(b)->locked && loaded.Find(a)->erasers.size() == 1);
     const int createsBefore = service.creates;
     loaded.Restore();
     CHECK(loaded.Find(a)->paintId == keptPaint);
@@ -270,6 +290,36 @@ int main() {
         const TerrainPaintStyle& style = service.paints.at(looks.Find(id)->paintId).style;
         CHECK(style.color.fY == 0.4f && style.textureOffsetX == 3.0f && style.textureOffsetZ == -2.0f &&
               style.depthOffset == 5);
+        CHECK(style.layer == TerrainPaintLayer::OverLots);
+        // The layer goes to the service, and with the save.
+        recoloured.look.layer = PaintLayer::UnderLots;
+        looks.Update({recoloured});
+        CHECK(service.shapeSets == shapeSets);
+        CHECK(service.paints.at(looks.Find(id)->paintId).style.layer == TerrainPaintLayer::UnderLots);
+        recoloured.look.layer = PaintLayer::OverShadows;
+        looks.Update({recoloured});
+        CHECK(service.paints.at(looks.Find(id)->paintId).style.layer == TerrainPaintLayer::OverShadows);
+        const std::vector<char> withLayer = looks.Save();
+        GroundPaintDocument layered(kWhite);
+        CHECK(layered.Load(withLayer) && layered.Find(id)->look.layer == PaintLayer::OverShadows);
+        {
+            // A save from before the layer has no such field: its paint is over lots, as it was drawn. The
+            // same bytes stand for a save from this version read by an older one, which does not know the
+            // field and skips it.
+            std::vector<char> older = withLayer;
+            constexpr char kField[] = {'l', 'a', 'y', 'e', 'r'};
+            int renamed = 0;
+            for (auto it = older.begin(); (it = std::search(it, older.end(), kField, kField + 5)) != older.end();
+                 ++renamed) {
+                it[2] = 'x';
+            }
+            CHECK(renamed == 1);
+            GroundPaintDocument loadedOlder(kWhite);
+            CHECK(loadedOlder.Load(older) && loadedOlder.Find(id)->look.layer == PaintLayer::OverLots);
+            CHECK(loadedOlder.Find(id)->look.depthOffset == 5);
+        }
+        recoloured.look.layer = PaintLayer::OverLots;
+        looks.Update({recoloured});
         // Shown while a control is held, then put back.
         recoloured.look.opacity = 0.5f;
         looks.ShowChanged(recoloured);
@@ -456,6 +506,66 @@ int main() {
         CHECK(penLoaded.Load(penDoc.Save()));
         CHECK(penLoaded.Find(id)->shape.handles == moved.shape.handles);
         CHECK(penLoaded.Find(id)->shape.pointRadii == moved.shape.pointRadii);
+    }
+
+    // Named groups lie together in the order, where their topmost member was; moves join groups.
+    {
+        GroundPaintDocument groups(kWhite);
+        std::vector<uint32_t> ids;
+        for (int i = 0; i < 4; ++i) {
+            ids.push_back(groups.Add(Square(static_cast<float>(i) * 30.0f, 0, 20)));
+        }
+        const auto order = [&] {
+            std::vector<uint32_t> bottomToTop;
+            for (const PaintObject& object : groups.Objects()) {
+                bottomToTop.push_back(object.id);
+            }
+            return bottomToTop;
+        };
+        const uint32_t members[] = {ids[0], ids[2]};
+        groups.Group(members, "Park");
+        CHECK((order() == std::vector{ids[1], ids[0], ids[2], ids[3]}));
+        CHECK(groups.Find(ids[0])->groupName == "Park" && groups.Find(ids[0])->group == groups.Find(ids[2])->group);
+        CHECK(groups.Find(ids[1])->group == 0);
+
+        groups.Select(ids[0], false, false);
+        CHECK(groups.Selection().size() == 1);
+        groups.Select(ids[0], false);
+        CHECK(groups.Selection().size() == 2);
+
+        const uint32_t loose[] = {ids[3]};
+        groups.MoveNextTo(loose, ids[0], true, false);
+        CHECK((order() == std::vector{ids[1], ids[0], ids[3], ids[2]}));
+        CHECK(groups.Find(ids[3])->groupName == "Park");
+        groups.MoveNextTo(loose, ids[1], false, false);
+        CHECK(order().front() == ids[3] && groups.Find(ids[3])->group == 0);
+
+        groups.RenameGroup(groups.Find(ids[0])->group, "Central park");
+        GroundPaintDocument loaded(kWhite);
+        CHECK(loaded.Load(groups.Save()));
+        CHECK(loaded.Find(ids[2])->groupName == "Central park");
+        CHECK(groups.Undo() && groups.Find(ids[2])->groupName == "Park");
+    }
+
+    // Patch layers are kept when only a texture changes; a new share makes them again.
+    {
+        FakePaintService patchService;
+        GroundPaintDocument patchDoc(kWhite);
+        patchDoc.SetPaintService(&patchService);
+        PaintObject field = Square(0, 0, 200);
+        field.look.mix = TextureMix::Patches;
+        field.look.textures = {{0x1000, 1.0f}, {0x2000, 1.0f}, {0x3000, 1.0f}};
+        const uint32_t id = patchDoc.Add(field);
+        CHECK(id != 0 && patchDoc.Find(id)->patchPaintIds.size() == 2);
+        const int before = patchService.shapeSets;
+        PaintObject swapped = *patchDoc.Find(id);
+        swapped.look.textures[1].instance = 0x4000;
+        patchDoc.Update({swapped});
+        CHECK(patchService.shapeSets == before);
+        PaintObject shares = *patchDoc.Find(id);
+        shares.look.textures[2].weight = 3.0f;
+        patchDoc.Update({shares});
+        CHECK(patchService.shapeSets > before);
     }
 
     std::puts("ok");

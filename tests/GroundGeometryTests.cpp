@@ -119,7 +119,7 @@ int main() {
             const UvVertex& c = strip[i + 2];
             covered += std::abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x)) * 0.5;
             for (const UvVertex* v : {&a, &b, &c}) {
-                CHECK(v->v == 0.0f || v->v == 1.0f);
+                CHECK(v->v >= 0.0f && v->v <= 1.0f);
                 CHECK(v->u >= -0.21f && v->u <= 4.21f);
             }
         }
@@ -127,6 +127,34 @@ int main() {
         CHECK(covered >= AreaOf(stroke) - 0.5);
         CHECK(PathUvStrip(std::vector<Vec2>{{1, 1}}, 2.0f, 10.0f).empty());
         CHECK(PathUvStrip(path, 0.0f, 10.0f).empty());
+    }
+    {
+        // A hairpin and a sharp corner, both tighter than the strip is wide: the rows fan round
+        // the inside, so the texture does not fold over and the strip covers the stroke once.
+        std::vector<Vec2> hairpin;
+        for (int i = 0; i <= 40; ++i) {
+            const float a = std::numbers::pi_v<float> * static_cast<float>(i) / 40.0f;
+            hairpin.push_back({20.0f + 3.0f * std::sin(a), 3.0f - 3.0f * std::cos(a)});
+        }
+        hairpin.insert(hairpin.begin(), Vec2{0, 0});
+        hairpin.push_back({0, 6});
+        const std::vector<Vec2> corner{{0, 0}, {20, 0}, {2, 3}};
+        for (const auto& path : {hairpin, corner}) {
+            const std::vector<UvVertex> strip = PathUvStrip(path, 8.0f, 16.0f);
+            double covered = 0.0;
+            double flipped = 0.0;
+            for (size_t i = 0; i < strip.size(); i += 3) {
+                const UvVertex& a = strip[i];
+                const UvVertex& b = strip[i + 1];
+                const UvVertex& c = strip[i + 2];
+                const double signedArea = ((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x)) * 0.5;
+                flipped += std::max(0.0, -signedArea);
+                covered += signedArea;
+            }
+            const double stroke = AreaOf(StrokePath(path, 16.0f, LineEnds::Round));
+            CHECK(covered >= stroke - 1.0 && covered <= stroke + 2.0 * 16.0 * 8.0);
+            CHECK(flipped < 0.5);  // only needle slivers where a fan meets
+        }
     }
 
     {
@@ -168,6 +196,16 @@ int main() {
         CHECK(Near(AreaOf(PatchesOf(field, 10.0f, 0.5f, {}, 9, 500)) / 10000.0, 0.5, 0.1));
         CHECK(PatchesOf(field, 10.0f, 0.0f, {}, 9, 1000).empty());
         CHECK(PatchesOf(field, 10.0f, 1.0f, {}, 9, 1000) == field);
+
+        // A big field: the outlines stay light, and still cover the asked share.
+        const Area big = AreaFromOutline(Square(0, 0, 357));
+        const Area spots = PatchesOf(big, 12.0f, 0.09f, {}, 9, 60000);
+        size_t points = 0;
+        for (const Ring& ring : spots) {
+            points += ring.size();
+        }
+        CHECK(points < 2400);
+        CHECK(Near(AreaOf(spots) / (357.0 * 357.0), 0.09, 0.03));
     }
     {
         // Mirrors: a point across the x axis and across a diagonal; areas keep their size.

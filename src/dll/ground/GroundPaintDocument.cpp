@@ -1,6 +1,7 @@
 #include "GroundPaintDocument.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <numbers>
 #include <string>
@@ -8,6 +9,8 @@
 #include "public/cIGZTerrainPaintService.h"
 #include "rfl/cbor/read.hpp"
 #include "rfl/cbor/write.hpp"
+#include "../utils/Logger.h"
+#include "../decals/TextureGroups.hpp"
 
 namespace Ground {
     namespace {
@@ -15,18 +18,35 @@ namespace Ground {
         constexpr uint32_t kDecalTextureGroup = 0x0986135E;
         constexpr size_t kMaxUndoSteps = 100;
 
+        TerrainPaintLayer ToServiceLayer(const PaintLayer layer) {
+            switch (layer) {
+            case PaintLayer::UnderLots:
+                return TerrainPaintLayer::UnderLots;
+            case PaintLayer::OverShadows:
+                return TerrainPaintLayer::OverShadows;
+            case PaintLayer::OverSidewalks:
+                return TerrainPaintLayer::OverSidewalks;
+            case PaintLayer::OverLots:
+            default:
+                return TerrainPaintLayer::OverLots;
+            }
+        }
+
         // The paint's style. area is what is painted, for the size of the worn patches. part 0 is
         // the whole area; with texture patches, part i is the patches of texture i.
         TerrainPaintStyle ToStyle(const PaintObject& object, const Area& area, const int32_t drawOrder, const bool hidden,
-                                  const bool transient, const uint32_t whiteTexture, const size_t part = 0) {
+                                  const bool transient, const uint32_t whiteTexture, const size_t part = 0,
+                                  const bool draft = false) {
             const Look& look = object.look;
             TerrainPaintStyle style{};
             const bool patches = UsesPatches(look);
             const size_t count = patches ? 1 : std::min<size_t>(look.textures.size(), kTerrainPaintMaxTextures);
             for (size_t i = 0; i < count; ++i) {
                 const TextureChoice& choice = look.textures[patches ? part : i];
-                style.textures[i].key = cGZPersistResourceKey(kDecalTextureType, kDecalTextureGroup, choice.instance);
+                style.textures[i].key =
+                    cGZPersistResourceKey(kDecalTextureType, decals::TextureGroupOf(choice.instance), choice.instance);
                 style.textures[i].weight = choice.weight;
+                style.textureFrameMasks[i] = choice.frames;
             }
             style.textureCount = static_cast<uint32_t>(count);
             if (count == 0) {
@@ -44,8 +64,9 @@ namespace Ground {
             style.featherMeters = part == 0 ? look.featherMeters : std::max(look.featherMeters, look.patchBlendMeters);
             style.drawOrder = drawOrder;
             style.depthOffset = look.depthOffset;
+            style.layer = ToServiceLayer(look.layer);
             style.enabled = !hidden;
-            style.flags = transient ? kTerrainPaintFlagTransient : 0u;
+            style.flags = (transient ? kTerrainPaintFlagTransient : 0u) | (draft ? kTerrainPaintFlagDraft : 0u);
             if (object.shape.wear > 0.0f) {
                 style.wear = object.shape.wear;
                 style.wearPatchMeters = WearPatchSize(area);
@@ -100,6 +121,7 @@ namespace Ground {
     void GroundPaintDocument::Reset() {
         objects_.clear();
         built_.clear();
+        patchMemo_.clear();
         shownShape_.clear();
         shownStyle_.clear();
         selection_.clear();
@@ -178,7 +200,8 @@ namespace Ground {
         }
     }
 
-    void GroundPaintDocument::Erase(const Area& eraser) {
+    void GroundPaintDocument::Erase(const ShapeSpec& eraserShape) {
+        const Area eraser = EraserArea(eraserShape);
         if (IsEmpty(eraser)) {
             return;
         }
@@ -192,7 +215,7 @@ namespace Ground {
             }
             before.push_back(object);
             PaintObject erased = object;
-            erased.erased = object.erased.empty() ? eraser : Unite(object.erased, eraser);
+            erased.erasers.push_back(eraserShape);
             if (IsEmpty(BuildArea(erased))) {
                 continue;  // rubbed out completely: removed below
             }
@@ -289,6 +312,7 @@ namespace Ground {
         PaintObject merged = before.back();
         merged.shape = ShapeSpec{.kind = ShapeKind::Merged, .outline = std::move(outline)};
         merged.erased.clear();
+        merged.erasers.clear();
         merged.hidden = false;
         const uint32_t id = merged.id;
         Commit_(std::move(before), {std::move(merged)});
@@ -296,22 +320,33 @@ namespace Ground {
         return id;
     }
 
-    void GroundPaintDocument::Group(const std::span<const uint32_t> ids) {
-        std::vector<PaintObject> changed;
+    void GroundPaintDocument::Group(const std::span<const uint32_t> ids, std::string name) {
         uint32_t group = 0;
         for (const PaintObject& object : objects_) {
             group = std::max(group, object.group);
         }
         ++group;
-        for (const uint32_t id : ids) {
-            if (const PaintObject* object = Find(id)) {
-                changed.push_back(*object);
-                changed.back().group = group;
+        if (name.empty()) {
+            name = "Group " + std::to_string(group);
+        }
+        std::vector<PaintObject> others;
+        std::vector<PaintObject> members;
+        size_t at = 0;
+        for (const PaintObject& object : objects_) {
+            if (std::ranges::find(ids, object.id) == ids.end()) {
+                others.push_back(object);
+                continue;
             }
+            members.push_back(object);
+            members.back().group = group;
+            members.back().groupName = name;
+            at = others.size();
         }
-        if (changed.size() >= 2) {
-            Update(std::move(changed));
+        if (members.empty()) {
+            return;
         }
+        others.insert(others.begin() + static_cast<std::ptrdiff_t>(at), members.begin(), members.end());
+        Arrange_(std::move(others));
     }
 
     void GroundPaintDocument::Ungroup(const std::span<const uint32_t> ids) {
@@ -320,9 +355,68 @@ namespace Ground {
             if (const PaintObject* object = Find(id); object && object->group != 0) {
                 changed.push_back(*object);
                 changed.back().group = 0;
+                changed.back().groupName.clear();
             }
         }
         Update(std::move(changed));
+    }
+
+    void GroundPaintDocument::RenameGroup(const uint32_t group, const std::string& name) {
+        std::vector<PaintObject> changed;
+        for (const PaintObject& object : objects_) {
+            if (group != 0 && object.group == group && object.groupName != name) {
+                changed.push_back(object);
+                changed.back().groupName = name;
+            }
+        }
+        if (!changed.empty()) {
+            Update(std::move(changed));
+        }
+    }
+
+    void GroundPaintDocument::MoveNextTo(const std::span<const uint32_t> ids, const uint32_t target, const bool over,
+                                         const bool keepGroup) {
+        const PaintObject* const anchor = Find(target);
+        if (!anchor || std::ranges::find(ids, target) != ids.end()) {
+            return;
+        }
+        const uint32_t group = anchor->group;
+        const std::string groupName = anchor->groupName;
+        std::vector<PaintObject> others;
+        std::vector<PaintObject> moved;
+        for (const PaintObject& object : objects_) {
+            if (std::ranges::find(ids, object.id) == ids.end()) {
+                others.push_back(object);
+                continue;
+            }
+            moved.push_back(object);
+            if (!keepGroup) {
+                moved.back().group = group;
+                moved.back().groupName = groupName;
+            }
+        }
+        const auto at = std::ranges::find(others, target, &PaintObject::id) + (over ? 1 : 0);
+        others.insert(at, moved.begin(), moved.end());
+        Arrange_(std::move(others));
+    }
+
+    void GroundPaintDocument::Arrange_(std::vector<PaintObject> arranged) {
+        std::vector<PaintObject> before;
+        std::vector<PaintObject> after;
+        int32_t order = objects_.empty() ? 0 : objects_.front().drawOrder - 1;
+        for (size_t i = 0; i < arranged.size() && i < objects_.size(); ++i) {
+            order = std::max(objects_[i].drawOrder, order + 1);
+            arranged[i].drawOrder = order;
+            const PaintObject* const current = Find(arranged[i].id);
+            if (current && (current->drawOrder != order || current->group != arranged[i].group ||
+                            current->groupName != arranged[i].groupName)) {
+                before.push_back(*current);
+                after.push_back(arranged[i]);
+            }
+        }
+        if (!after.empty()) {
+            Commit_(std::move(before), std::move(after));
+        }
     }
 
     void GroundPaintDocument::Transform(const std::span<const uint32_t> ids, const Placement& placement) {
@@ -439,6 +533,7 @@ namespace Ground {
                 changed.patchPaintIds.clear();
                 changed.locked = false;
                 changed.group = 0;
+                changed.groupName.clear();
             }
             mirrored.push_back(std::move(changed));
         }
@@ -532,6 +627,7 @@ namespace Ground {
         }
         RemovePaints_(it->paintId, it->patchPaintIds);
         built_.erase(id);
+        std::erase_if(patchMemo_, [&](const auto& entry) { return entry.first.first == id; });
         shownShape_.erase(id);
         shownStyle_.erase(id);
         std::erase(selection_, id);
@@ -539,12 +635,21 @@ namespace Ground {
     }
 
     void GroundPaintDocument::Sync_(PaintObject& object) {
-        shownShape_.erase(object.id);
+        using Clock = std::chrono::steady_clock;
+        const auto start = Clock::now();
+        // A preview may have shown another outline: then every part gets its own back.
+        const bool previewed = shownShape_.erase(object.id) > 0;
         shownStyle_.erase(object.id);
         Built& built = built_[object.id];
-        built.area = BuildArea(object);
+        Area area = BuildArea(object);
+        const bool reshapeArea = previewed || !(area == built.area);
+        built.area = std::move(area);
         built.bounds = Ground::BoundsOf(built.area);
-        built.patches = BuildPatches(object, built.area, kPatchCells);
+        const auto areaDone = Clock::now();
+        const std::vector<Area>& patches = PatchesOf_(object.id, object, built.area, kPatchCells);
+        const bool reshapePatches = previewed || !(patches == built.patches);
+        built.patches = patches;
+        const auto patchesDone = Clock::now();
         if (!service_) {
             return;
         }
@@ -553,24 +658,30 @@ namespace Ground {
             return;
         }
         ShowParts_(object.paintId, object.patchPaintIds, object, built.area, built.patches, BuildUvMap(object),
-                   object.drawOrder, object.hidden, false);
+                   object.drawOrder, object.hidden, false, reshapeArea, reshapePatches);
+        const auto ms = [](const Clock::duration d) { return std::chrono::duration<double, std::milli>(d).count(); };
+        if (const double total = ms(Clock::now() - start); total >= 30.0) {
+            LOG_INFO("Ground: rebuilding {} took {:.0f} ms (area {:.0f}, {} patch layers {:.0f}, terrain paints {:.0f})",
+                     object.id, total, ms(areaDone - start), built.patches.size(), ms(patchesDone - areaDone),
+                     ms(Clock::now() - patchesDone));
+        }
     }
 
     void GroundPaintDocument::ShowParts_(uint32_t& paintId, std::vector<uint32_t>& patchIds, const PaintObject& object,
                                          const Area& area, const std::vector<Area>& patches,
                                          const std::vector<UvVertex>& uvMap, const int32_t drawOrder, const bool hidden,
-                                         const bool transient) {
+                                         const bool transient, const bool reshapeArea, const bool reshapePatches) {
         const auto shapeOf = [&](const size_t part) {
             const Area& partArea = part == 0 ? area : patches[part - 1];
             return FlatShape(IsEmpty(partArea) ? kNothing : partArea, uvMap);
         };
         const auto styleOf = [&](const size_t part) {
-            return ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part);
+            return ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part, draft_);
         };
         const auto update = [&](const uint32_t id, const size_t part) {
-            const FlatShape shape = shapeOf(part);
             const TerrainPaintStyle style = styleOf(part);
-            return id != 0 && service_->SetPaintShape(TerrainPaintId{id}, shape.View()) &&
+            const bool reshape = part == 0 ? reshapeArea : reshapePatches;
+            return id != 0 && (!reshape || service_->SetPaintShape(TerrainPaintId{id}, shapeOf(part).View())) &&
                    service_->SetPaintStyle(TerrainPaintId{id}, &style, sizeof(style));
         };
 
@@ -595,6 +706,28 @@ namespace Ground {
         }
     }
 
+    const std::vector<Area>& GroundPaintDocument::PatchesOf_(const uint32_t id, const PaintObject& object,
+                                                           const Area& area, const size_t maxCells) {
+        PatchMemo& memo = patchMemo_[{id, maxCells}];
+        if (!UsesPatches(object.look)) {
+            memo = {};
+            return memo.patches;
+        }
+        std::vector<float> weights;
+        for (const TextureChoice& choice : object.look.textures) {
+            weights.push_back(choice.weight);
+        }
+        const float patchSize = object.look.patchSizeMeters;
+        const uint32_t seed = object.look.variationSeed;
+        const Vec2 origin = object.shape.patternOrigin;
+        const float turn = object.shape.patternTurn;
+        if (memo.patches.empty() || memo.weights != weights || memo.patchSize != patchSize || memo.seed != seed ||
+            memo.origin != origin || memo.turn != turn || !(memo.area == area)) {
+            memo = {area, std::move(weights), patchSize, seed, origin, turn, BuildPatches(object, area, maxCells)};
+        }
+        return memo.patches;
+    }
+
     void GroundPaintDocument::Restyle_(const PaintObject& object, const Area& area, const uint32_t paintId,
                                        const std::vector<uint32_t>& patchIds, const int32_t drawOrder,
                                        const bool hidden, const bool transient) {
@@ -602,7 +735,7 @@ namespace Ground {
             return;
         }
         const auto restyle = [&](const uint32_t id, const size_t part) {
-            const TerrainPaintStyle style = ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part);
+            const TerrainPaintStyle style = ToStyle(object, area, drawOrder, hidden, transient, whiteTextureInstance_, part, draft_);
             service_->SetPaintStyle(TerrainPaintId{id}, &style, sizeof(style));
         };
         restyle(paintId, 0);
@@ -641,11 +774,23 @@ namespace Ground {
         return std::nullopt;
     }
 
+    std::vector<uint32_t> GroundPaintDocument::HitTestAll(const Vec2 point) const {
+        std::vector<uint32_t> hits;
+        for (auto it = objects_.rbegin(); it != objects_.rend(); ++it) {
+            const auto built = built_.find(it->id);
+            if (!it->hidden && built != built_.end() && Contains(built->second.bounds, point) &&
+                Contains(built->second.area, point)) {
+                hits.push_back(it->id);
+            }
+        }
+        return hits;
+    }
+
     bool GroundPaintDocument::IsSelected(const uint32_t id) const {
         return std::ranges::find(selection_, id) != selection_.end();
     }
 
-    void GroundPaintDocument::Select(const uint32_t id, const bool addToSelection) {
+    void GroundPaintDocument::Select(const uint32_t id, const bool addToSelection, const bool wholeGroup) {
         if (!addToSelection) {
             selection_.clear();
         }
@@ -654,7 +799,7 @@ namespace Ground {
             return;
         }
         for (const PaintObject& object : objects_) {
-            const bool inGroup = object.id == id || (picked->group != 0 && object.group == picked->group);
+            const bool inGroup = object.id == id || (wholeGroup && picked->group != 0 && object.group == picked->group);
             if (inGroup && !IsSelected(object.id)) {
                 selection_.push_back(object.id);
             }
@@ -686,7 +831,7 @@ namespace Ground {
         }
         // Coarser patches: the preview is cut again as the mouse moves.
         ShowParts_(previewPaintId_, previewPatchIds_, *object, previewArea_,
-                   BuildPatches(*object, previewArea_, kPreviewPatchCells), BuildUvMap(*object), TopOrder_() + 1, false,
+                   PatchesOf_(0, *object, previewArea_, kPreviewPatchCells), BuildUvMap(*object), TopOrder_() + 1, false,
                    true);
         if (previewPaintId_ != 0) {
             previewObject_ = *object;
@@ -727,8 +872,8 @@ namespace Ground {
             const auto move = [&](const Area& area) {
                 return Transformed(area, placement.pivot, placement.rotationRadians, placement.scale, placement.offset);
             };
-            std::vector<UvVertex> uvMap = BuildUvMap(*object);
-            if (!uvMap.empty()) {
+            std::vector<UvVertex> uvMap;
+            if (FollowsLine(*object)) {
                 // The texture moves along with the line.
                 PaintObject moved = *object;
                 TransformObject(moved, placement);
@@ -753,11 +898,18 @@ namespace Ground {
         if (!service_ || !current || current->paintId == 0) {
             return;
         }
+        // Changes that make the service cut the paint again are shown as a draft, without soft
+        // edges and wear, until the change is done.
+        const bool recut = object.look.featherMeters != current->look.featherMeters ||
+                           object.look.patchBlendMeters != current->look.patchBlendMeters ||
+                           object.shape.wear != current->shape.wear;
         if (SameShape(object, *current) && UsesPatches(object.look) == UsesPatches(current->look)) {
             // A colour, opacity or texture change: no new cut.
             shownStyle_.insert(object.id);
+            draft_ = recut;
             Restyle_(object, AreaOf(current->id), current->paintId, current->patchPaintIds, current->drawOrder,
                      current->hidden, false);
+            draft_ = false;
             return;
         }
         const Area area = BuildArea(object);
@@ -765,8 +917,13 @@ namespace Ground {
             return;
         }
         shownShape_.insert(object.id);
-        ShowParts_(current->paintId, current->patchPaintIds, object, area, BuildPatches(object, area, kPreviewPatchCells),
-                   BuildUvMap(object), current->drawOrder, current->hidden, false);
+        const std::vector<Area>& patches = built_[object.id].patches;
+        const bool samePatchCount = UsesPatches(object.look) && patches.size() + 1 == object.look.textures.size();
+        draft_ = true;
+        ShowParts_(current->paintId, current->patchPaintIds, object, area,
+                   samePatchCount ? patches : PatchesOf_(object.id, object, area, kPreviewPatchCells), BuildUvMap(object),
+                   current->drawOrder, current->hidden, false, !(area == AreaOf(object.id)), !samePatchCount);
+        draft_ = false;
     }
 
     Bounds GroundPaintDocument::SelectionBounds() const {
@@ -796,7 +953,7 @@ namespace Ground {
             Built& built = built_[object.id];
             built.area = BuildArea(object);
             built.bounds = Ground::BoundsOf(built.area);
-            built.patches = BuildPatches(object, built.area, kPatchCells);
+            built.patches = PatchesOf_(object.id, object, built.area, kPatchCells);
         }
         return true;
     }
